@@ -5,12 +5,16 @@ import type {
   AdbInfo,
   AndroidDevice,
   AppConfig,
+  CommandResult,
   DeviceInfo,
   ErrorPayload,
+  LogLine,
+  LogSourceKind,
   MdnsService,
   QrPairEvent,
   QrSession,
   ReconnectStatus,
+  StreamEvent,
 } from "../types";
 
 export const EVENTS = {
@@ -52,6 +56,19 @@ export const ipc = {
     return call<QrSession>("start_qr_pairing", { onEvent: channel });
   },
   cancelQrPairing: (sessionId: string) => call<void>("cancel_qr_pairing", { sessionId }),
+  executeCommand: (serial: string, command: string) =>
+    call<CommandResult>("execute_command", { serial, command }),
+  streamCommand: (serial: string, command: string, onEvent: (e: StreamEvent) => void) => {
+    const channel = new Channel<StreamEvent>();
+    channel.onmessage = onEvent;
+    return call<string>("stream_command", { serial, command, onEvent: channel });
+  },
+  cancelStream: (streamId: string) => call<boolean>("cancel_stream", { streamId }),
+  startLogStream: (serial: string, source: LogSourceKind, onBatch: (lines: LogLine[]) => void) => {
+    const channel = new Channel<LogLine[]>();
+    channel.onmessage = onBatch;
+    return call<string>("start_log_stream", { serial, source, onBatch: channel });
+  },
   onDevicesChanged: (cb: (d: AndroidDevice[]) => void): Promise<UnlistenFn> =>
     listen<AndroidDevice[]>(EVENTS.devices, (e) => cb(e.payload)),
   onReconnect: (cb: (s: ReconnectStatus) => void): Promise<UnlistenFn> =>

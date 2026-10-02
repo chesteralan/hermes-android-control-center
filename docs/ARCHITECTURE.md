@@ -216,12 +216,12 @@ pub type CommandStream = Pin<Box<dyn Stream<Item = StreamEvent> + Send>>;
 ```rust
 #[async_trait]
 pub trait LogSource: Send + Sync {
-    async fn connect(&self) -> Result<(), AppError>;
-    async fn disconnect(&self) -> Result<(), AppError>;
-    async fn stream(&self) -> Result<LogStream, AppError>; // Stream<Item = LogLine>
+    fn name(&self) -> String;
+    // One persistent process; cancelling the token disconnects.
+    async fn stream(&self, cancel: CancellationToken) -> Result<mpsc::Receiver<LogLine>, AppError>;
 }
 
-pub struct LogLine { pub seq: u64, pub received_at: i64, pub timestamp: Option<String>, pub level: Option<LogLevel>, pub source: String, pub raw: String }
+pub struct LogLine { pub seq: u64, pub received_at: u64, pub timestamp: Option<String>, pub level: Option<LogLevel>, pub tag: Option<String>, pub message: String, pub raw: String }
 ```
 
 Implementations: `LogcatSource` (M3), `TransportCommandLogSource` (wraps any `DeviceTransport::stream`, e.g. `tail -F` over SSH — M7), `ApiWsLogSource` (M8). Level detection is best-effort regex; `raw` is always preserved.

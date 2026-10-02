@@ -3,6 +3,7 @@ import { StatusDot } from "../../components/StatusDot";
 import { useActiveDevice } from "../../stores/devices";
 import { DeviceInfoCard } from "../device/DeviceInfoCard";
 import { NoDeviceState } from "../device/NoDeviceState";
+import { RecentLogs } from "../logs/RecentLogs";
 
 export function DashboardView() {
   const device = useActiveDevice();
@@ -18,7 +19,7 @@ export function DashboardView() {
           </p>
         </Card>
         <Card title="Recent logs">
-          <p className="text-muted">Live logs arrive in milestone M3.</p>
+          <RecentLogs />
         </Card>
       </div>
     </div>

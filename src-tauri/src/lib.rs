@@ -5,10 +5,13 @@ pub mod config_store;
 pub mod devices;
 pub mod error;
 pub mod logging;
+pub mod logs;
 pub mod monitor;
 pub mod platform;
 pub mod process;
 pub mod state;
+pub mod streams;
+pub mod transport;
 
 use std::sync::Arc;
 
@@ -52,6 +55,10 @@ pub fn run() {
             commands::device::get_device_info,
             commands::device::start_qr_pairing,
             commands::device::cancel_qr_pairing,
+            commands::terminal::execute_command,
+            commands::terminal::stream_command,
+            commands::terminal::cancel_stream,
+            commands::logs::start_log_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hermes Control Center");

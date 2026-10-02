@@ -24,7 +24,7 @@ pub enum ErrorKind {
 }
 
 /// Shape sent to the UI for every failed command.
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct ErrorPayload {

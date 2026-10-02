@@ -89,9 +89,12 @@ mod tests {
                 "../../tests/fixtures/adb/version.txt"
             ))),
         );
-        let info = detect(None, Arc::new(f), &NoEnv, |p| p.ends_with("adb"))
-            .await
-            .unwrap();
+        let adb = platform::adb_binary_name(platform::current_os());
+        let info = detect(None, Arc::new(f), &NoEnv, |p| {
+            p.file_name().is_some_and(|n| n == adb)
+        })
+        .await
+        .unwrap();
         assert_eq!(info.version, "1.0.41");
         assert!(!info.path.is_empty());
     }

@@ -10,6 +10,7 @@ use crate::devices::DeviceRegistry;
 use crate::error::AppResult;
 use crate::platform::RealEnv;
 use crate::process::ProcessRunner;
+use crate::streams::StreamRegistry;
 
 pub type LogLevelSetter = Box<dyn Fn(LogLevelSetting) + Send + Sync>;
 
@@ -20,6 +21,7 @@ pub struct AppState {
     pub devices: Arc<DeviceRegistry>,
     pub reconnects: Mutex<HashMap<String, CancellationToken>>,
     pub qr_sessions: Mutex<HashMap<String, CancellationToken>>,
+    pub streams: Arc<StreamRegistry>,
     pub shutdown: CancellationToken,
     pub set_log_level: LogLevelSetter,
 }
@@ -30,6 +32,7 @@ impl AppState {
         config: AppConfig,
         set_log_level: LogLevelSetter,
     ) -> Self {
+        let shutdown = CancellationToken::new();
         Self {
             runner,
             config: RwLock::new(config),
@@ -37,7 +40,8 @@ impl AppState {
             devices: Arc::new(DeviceRegistry::new()),
             reconnects: Mutex::default(),
             qr_sessions: Mutex::default(),
-            shutdown: CancellationToken::new(),
+            streams: Arc::new(StreamRegistry::new(shutdown.clone())),
+            shutdown,
             set_log_level,
         }
     }

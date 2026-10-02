@@ -4,9 +4,11 @@ import { Toasts } from "./components/Toasts";
 import { AdbBanner } from "./features/adb/AdbBanner";
 import { DashboardView } from "./features/dashboard/DashboardView";
 import { DeviceView } from "./features/device/DeviceView";
+import { LogsView } from "./features/logs/LogsView";
 import { PairDialog } from "./features/device/PairDialog";
 import { PlannedView } from "./features/placeholder/PlannedView";
 import { SettingsView } from "./features/settings/SettingsView";
+import { TerminalView } from "./features/terminal/TerminalView";
 import { useDevices } from "./stores/devices";
 import { useRoute, type Route } from "./stores/route";
 
@@ -19,9 +21,9 @@ function View({ route }: { route: Route }) {
     case "hermes":
       return <PlannedView title="Hermes" milestone="M5" />;
     case "terminal":
-      return <PlannedView title="Terminal" milestone="M3" />;
+      return <TerminalView />;
     case "logs":
-      return <PlannedView title="Logs" milestone="M3" />;
+      return <LogsView />;
     case "settings":
       return <SettingsView />;
   }

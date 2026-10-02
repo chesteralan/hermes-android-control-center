@@ -14,3 +14,8 @@ export type { QrPairEvent } from "./generated/QrPairEvent";
 export type { QrSession } from "./generated/QrSession";
 export type { ReconnectStatus } from "./generated/ReconnectStatus";
 export type { TermuxPackageInfo } from "./generated/TermuxPackageInfo";
+export type { CommandResult } from "./generated/CommandResult";
+export type { StreamEvent } from "./generated/StreamEvent";
+export type { LogLine } from "./generated/LogLine";
+export type { LogLevel } from "./generated/LogLevel";
+export type { LogSourceKind } from "./generated/LogSourceKind";
