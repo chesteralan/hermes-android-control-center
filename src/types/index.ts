@@ -26,6 +26,7 @@ export type { CheckStatus } from "./generated/CheckStatus";
 export type { ComponentStatus } from "./generated/ComponentStatus";
 export type { HermesAction } from "./generated/HermesAction";
 export type { HermesActionResult } from "./generated/HermesActionResult";
+export type { HermesChatEvent } from "./generated/HermesChatEvent";
 export type { HermesCandidate } from "./generated/HermesCandidate";
 export type { HermesEnvironment } from "./generated/HermesEnvironment";
 export type { HermesInstallReport } from "./generated/HermesInstallReport";

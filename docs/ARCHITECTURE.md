@@ -35,7 +35,7 @@ flowchart LR
 Key rules:
 
 - **Only `ProcessRunner` spawns processes.** Only `AdbClient` builds `adb` argv. No `Command::new("adb")` anywhere else.
-- **UI never knows the transport.** It calls `execute_command`, `start_hermes`, `start_log_stream` and receives the same types regardless of ADB/SSH/API.
+- **UI never knows the transport.** It calls `execute_command`, `start_hermes`, `start_hermes_chat`, `start_log_stream` and receives the same types regardless of ADB/SSH/API.
 - **Everything is keyed by device.** No global "current device" in the backend; the UI holds the active tab. Multiple phones are first-class (see §11).
 
 ## 2. Repository layout
@@ -54,6 +54,7 @@ Key rules:
 │   │   ├── dashboard/
 │   │   ├── device/
 │   │   ├── hermes/
+│   │   ├── chat/               # streamed Hermes CLI conversations
 │   │   ├── terminal/
 │   │   ├── logs/
 │   │   └── settings/
@@ -102,6 +103,7 @@ Key rules:
         └── commands/
             ├── mod.rs
             ├── adb.rs          # detect_adb, adb_version
+          ├── chat.rs         # resumable Hermes CLI chat stream
             ├── device.rs
             ├── hermes.rs
             ├── terminal.rs
@@ -250,6 +252,7 @@ Implementations: `LogcatSource` (M3), `TransportCommandLogSource` (wraps any `De
 | `detect_hermes` | `serial` | `HermesInstallReport` |
 | `hermes_action` | `serial, action: Start/Stop/Restart/RestartNow` | `HermesActionResult { output, status, confirmed }` |
 | `run_hermes_tool` | `serial, tool: Doctor/Update` | `CommandResult` |
+| `start_hermes_chat` | `serial, prompt, session_id?, on_event: Channel<HermesChatEvent>` | `StreamId` |
 | `get_settings` / `update_settings` | `AppConfig` | `AppConfig` |
 | `cancel_stream` | `stream_id` | `()` |
 | `get_provision_plan` | `serial, recipe_id` | `ProvisionPlan` (steps + states) |
@@ -261,7 +264,10 @@ Implementations: `LogcatSource` (M3), `TransportCommandLogSource` (wraps any `De
 | Command | Channel payload |
 |---|---|
 | `stream_command(serial, command, on_event: Channel<StreamEvent>)` | returns `StreamId` |
+| `start_hermes_chat(serial, prompt, session_id?, on_event: Channel<HermesChatEvent>)` | session ID, streamed text/tool activity, completion or error; returns `StreamId` |
 | `start_log_stream(serial, source, on_batch: Channel<Vec<LogLine>>)` | returns `StreamId` |
+
+`start_hermes_chat` runs Hermes' non-interactive stream-json CLI mode over Termux SSH. Follow-up turns resume the returned Hermes session ID; cancelling the stream terminates the active CLI turn without stopping the gateway.
 
 ### Global events (`app.emit`)
 

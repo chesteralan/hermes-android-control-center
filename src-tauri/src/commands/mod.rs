@@ -1,4 +1,5 @@
 pub mod adb;
+pub mod chat;
 pub mod device;
 pub mod hermes;
 pub mod logs;

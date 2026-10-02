@@ -10,6 +10,7 @@ import type {
   ErrorPayload,
   HermesAction,
   HermesActionResult,
+  HermesChatEvent,
   HermesInstallReport,
   HermesStatus,
   HermesTool,
@@ -84,6 +85,16 @@ export const ipc = {
     call<HermesActionResult>("hermes_action", { serial, action }),
   runHermesTool: (serial: string, tool: HermesTool) =>
     call<CommandResult>("run_hermes_tool", { serial, tool }),
+  startHermesChat: (
+    serial: string,
+    prompt: string,
+    sessionId: string | null,
+    onEvent: (event: HermesChatEvent) => void,
+  ) => {
+    const channel = new Channel<HermesChatEvent>();
+    channel.onmessage = onEvent;
+    return call<string>("start_hermes_chat", { serial, prompt, sessionId, onEvent: channel });
+  },
   cancelStream: (streamId: string) => call<boolean>("cancel_stream", { streamId }),
   startLogStream: (serial: string, source: LogSourceKind, onBatch: (lines: LogLine[]) => void) => {
     const channel = new Channel<LogLine[]>();
