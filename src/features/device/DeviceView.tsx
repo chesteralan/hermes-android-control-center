@@ -4,6 +4,7 @@ import { useActiveDevice, useDevices } from "../../stores/devices";
 import { ConnectPanel } from "./ConnectPanel";
 import { DeviceInfoCard } from "./DeviceInfoCard";
 import { DeviceList } from "./DeviceList";
+import { TermuxSetupCard } from "../termux/TermuxSetupCard";
 
 export function DeviceView() {
   const active = useActiveDevice();
@@ -22,6 +23,7 @@ export function DeviceView() {
         </Card>
       )}
       {active && <DeviceInfoCard device={active} />}
+      {active && <TermuxSetupCard device={active} />}
     </div>
   );
 }

@@ -73,6 +73,25 @@ impl Default for LogsConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
+pub struct TermuxConfig {
+    /// Termux sshd ignores the user name, but it must be non-empty.
+    pub ssh_user: String,
+    /// sshd port inside Termux (bound to 127.0.0.1, reached via adb forward).
+    pub ssh_port: u16,
+}
+
+impl Default for TermuxConfig {
+    fn default() -> Self {
+        Self {
+            ssh_user: "termux".into(),
+            ssh_port: 8022,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
 pub struct KnownAddress {
     pub address: String,
     pub auto_connect: bool,
@@ -108,6 +127,7 @@ pub struct AppConfig {
     pub reconnect: ReconnectConfig,
     pub hermes: HermesConfig,
     pub logs: LogsConfig,
+    pub termux: TermuxConfig,
     pub api_port: u16,
     pub log_level: LogLevelSetting,
 }
@@ -121,6 +141,7 @@ impl Default for AppConfig {
             reconnect: ReconnectConfig::default(),
             hermes: HermesConfig::default(),
             logs: LogsConfig::default(),
+            termux: TermuxConfig::default(),
             api_port: 8765,
             log_level: LogLevelSetting::Info,
         }

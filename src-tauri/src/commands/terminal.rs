@@ -8,17 +8,29 @@ use crate::error::AppError;
 use crate::state::AppState;
 use crate::streams::StreamId;
 use crate::transport::adb_shell::AdbShellTransport;
-use crate::transport::{CommandResult, DeviceTransport, StreamEvent};
+use crate::transport::{CommandResult, DeviceTransport, StreamEvent, TransportKind};
 
 const EXECUTE_TIMEOUT: Duration = Duration::from_secs(60);
 
-async fn transport(state: &AppState, serial: &str) -> Result<Arc<dyn DeviceTransport>, AppError> {
-    let client = state.adb_client().await?;
-    Ok(Arc::new(AdbShellTransport::new(
-        client,
-        state.runner.clone(),
-        serial,
-    )))
+async fn transport(
+    state: &AppState,
+    serial: &str,
+    kind: Option<TransportKind>,
+) -> Result<Arc<dyn DeviceTransport>, AppError> {
+    match kind.unwrap_or(TransportKind::AdbShell) {
+        TransportKind::AdbShell => {
+            let client = state.adb_client().await?;
+            Ok(Arc::new(AdbShellTransport::new(
+                client,
+                state.runner.clone(),
+                serial,
+            )))
+        }
+        TransportKind::TermuxSsh => Ok(Arc::new(state.termux_transport(serial).await?)),
+        TransportKind::Api => Err(AppError::Config(
+            "The Hermes Control API transport is not available yet.".into(),
+        )),
+    }
 }
 
 /// Runs a user-submitted command and waits for it (60 s cap).
@@ -27,9 +39,10 @@ pub async fn execute_command(
     state: State<'_, AppState>,
     serial: String,
     command: String,
+    transport_kind: Option<TransportKind>,
 ) -> Result<CommandResult, AppError> {
-    tracing::debug!(%serial, "execute_command");
-    transport(&state, &serial)
+    tracing::debug!(%serial, ?transport_kind, "execute_command");
+    transport(&state, &serial, transport_kind)
         .await?
         .execute(&command, EXECUTE_TIMEOUT)
         .await
@@ -41,10 +54,11 @@ pub async fn stream_command(
     state: State<'_, AppState>,
     serial: String,
     command: String,
+    transport_kind: Option<TransportKind>,
     on_event: Channel<StreamEvent>,
 ) -> Result<StreamId, AppError> {
-    tracing::debug!(%serial, "stream_command");
-    let t = transport(&state, &serial).await?;
+    tracing::debug!(%serial, ?transport_kind, "stream_command");
+    let t = transport(&state, &serial, transport_kind).await?;
     let (id, cancel) = state.streams.register(&serial, "cmd");
     let mut rx = match t.stream(&command, cancel).await {
         Ok(rx) => rx,

@@ -15,6 +15,8 @@ import type {
   QrSession,
   ReconnectStatus,
   StreamEvent,
+  TermuxCheck,
+  TransportKind,
 } from "../types";
 
 export const EVENTS = {
@@ -56,13 +58,21 @@ export const ipc = {
     return call<QrSession>("start_qr_pairing", { onEvent: channel });
   },
   cancelQrPairing: (sessionId: string) => call<void>("cancel_qr_pairing", { sessionId }),
-  executeCommand: (serial: string, command: string) =>
-    call<CommandResult>("execute_command", { serial, command }),
-  streamCommand: (serial: string, command: string, onEvent: (e: StreamEvent) => void) => {
+  executeCommand: (serial: string, command: string, transportKind: TransportKind = "adbShell") =>
+    call<CommandResult>("execute_command", { serial, command, transportKind }),
+  streamCommand: (
+    serial: string,
+    command: string,
+    transportKind: TransportKind,
+    onEvent: (e: StreamEvent) => void,
+  ) => {
     const channel = new Channel<StreamEvent>();
     channel.onmessage = onEvent;
-    return call<string>("stream_command", { serial, command, onEvent: channel });
+    return call<string>("stream_command", { serial, command, transportKind, onEvent: channel });
   },
+  getTermuxPublicKey: () => call<string>("get_termux_public_key"),
+  checkTermux: (serial: string) => call<TermuxCheck>("check_termux", { serial }),
+  forgetTermuxHostKey: (serial: string) => call<void>("forget_termux_host_key", { serial }),
   cancelStream: (streamId: string) => call<boolean>("cancel_stream", { streamId }),
   startLogStream: (serial: string, source: LogSourceKind, onBatch: (lines: LogLine[]) => void) => {
     const channel = new Channel<LogLine[]>();

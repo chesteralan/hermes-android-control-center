@@ -40,6 +40,11 @@ impl AdbClient {
         self.runner.run(&self.path, &argv, timeout).await
     }
 
+    /// Escape hatch for argv built by `args::*` in other modules.
+    pub async fn raw(&self, argv: &[String], timeout: Duration) -> AppResult<RawOutput> {
+        self.exec(argv.to_vec(), timeout).await
+    }
+
     pub async fn version(&self) -> AppResult<parse::VersionInfo> {
         let out = self.exec(args::version(), QUICK).await?;
         parse::parse_version(&out.stdout).ok_or_else(|| AppError::AdbFailed {

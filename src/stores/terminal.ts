@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
-import type { ErrorPayload, StreamEvent } from "../types";
+import type { ErrorPayload, StreamEvent, TransportKind } from "../types";
 
 export const MAX_TERMINAL_LINES = 10_000;
 
@@ -12,6 +12,7 @@ export interface OutputLine {
 export interface CommandBlock {
   id: number;
   command: string;
+  transport: TransportKind;
   lines: OutputLine[];
   running: boolean;
   streamId: string | null;
@@ -28,7 +29,12 @@ interface Session {
 interface TerminalStore {
   /** Keyed by device key so each phone keeps its own scrollback. */
   sessions: Record<string, Session>;
-  run: (deviceKey: string, serial: string, command: string) => Promise<void>;
+  run: (
+    deviceKey: string,
+    serial: string,
+    command: string,
+    transport?: TransportKind,
+  ) => Promise<void>;
   cancel: (deviceKey: string, blockId: number) => Promise<void>;
   clear: (deviceKey: string) => void;
 }
@@ -74,11 +80,12 @@ export const useTerminal = create<TerminalStore>((set, get) => {
   return {
     sessions: {},
 
-    run: async (key, serial, command) => {
+    run: async (key, serial, command, transport = "adbShell") => {
       const id = nextId++;
       const block: CommandBlock = {
         id,
         command,
+        transport,
         lines: [],
         running: true,
         streamId: null,
@@ -94,7 +101,7 @@ export const useTerminal = create<TerminalStore>((set, get) => {
         },
       }));
       try {
-        const streamId = await ipc.streamCommand(serial, command, (e) =>
+        const streamId = await ipc.streamCommand(serial, command, transport, (e) =>
           update(key, id, (b) => apply(b, e)),
         );
         update(key, id, (b) => (b.running ? { ...b, streamId } : b));

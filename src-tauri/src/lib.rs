@@ -11,6 +11,7 @@ pub mod platform;
 pub mod process;
 pub mod state;
 pub mod streams;
+pub mod termux;
 pub mod transport;
 
 use std::sync::Arc;
@@ -33,7 +34,12 @@ pub fn run() {
                 version = env!("CARGO_PKG_VERSION"),
                 "starting Hermes Control Center"
             );
-            app.manage(AppState::new(Arc::new(TokioRunner), cfg, set_level));
+            app.manage(AppState::new(
+                Arc::new(TokioRunner),
+                cfg,
+                set_level,
+                app.path().app_data_dir()?,
+            ));
             monitor::start(handle);
             Ok(())
         })
@@ -59,6 +65,9 @@ pub fn run() {
             commands::terminal::stream_command,
             commands::terminal::cancel_stream,
             commands::logs::start_log_stream,
+            commands::termux::get_termux_public_key,
+            commands::termux::check_termux,
+            commands::termux::forget_termux_host_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hermes Control Center");

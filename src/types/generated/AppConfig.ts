@@ -4,5 +4,6 @@ import type { KnownAddress } from "./KnownAddress";
 import type { LogLevelSetting } from "./LogLevelSetting";
 import type { LogsConfig } from "./LogsConfig";
 import type { ReconnectConfig } from "./ReconnectConfig";
+import type { TermuxConfig } from "./TermuxConfig";
 
-export type AppConfig = { version: number, adbPath: string | null, knownAddresses: Array<KnownAddress>, reconnect: ReconnectConfig, hermes: HermesConfig, logs: LogsConfig, apiPort: number, logLevel: LogLevelSetting, };
+export type AppConfig = { version: number, adbPath: string | null, knownAddresses: Array<KnownAddress>, reconnect: ReconnectConfig, hermes: HermesConfig, logs: LogsConfig, termux: TermuxConfig, apiPort: number, logLevel: LogLevelSetting, };

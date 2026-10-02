@@ -19,3 +19,7 @@ export type { StreamEvent } from "./generated/StreamEvent";
 export type { LogLine } from "./generated/LogLine";
 export type { LogLevel } from "./generated/LogLevel";
 export type { LogSourceKind } from "./generated/LogSourceKind";
+export type { TransportKind } from "./generated/TransportKind";
+export type { TermuxCheck } from "./generated/TermuxCheck";
+export type { CheckItem } from "./generated/CheckItem";
+export type { CheckStatus } from "./generated/CheckStatus";

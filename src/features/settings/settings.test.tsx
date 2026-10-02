@@ -19,6 +19,7 @@ const cfg: AppConfig = {
     processMatch: "hermes-agent/hermes",
   },
   logs: { autoStart: false, logcatFilter: "*:I" },
+  termux: { sshUser: "termux", sshPort: 8022 },
   apiPort: 8765,
   logLevel: "info",
 };

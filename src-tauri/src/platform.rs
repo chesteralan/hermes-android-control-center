@@ -111,6 +111,19 @@ pub fn is_file(p: &Path) -> bool {
     p.is_file()
 }
 
+/// Restrict a secret file (e.g. SSH private key) to the current user.
+pub fn restrict_file(p: &Path) -> crate::error::AppResult<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600))?;
+    }
+    // Windows: the app data dir under %APPDATA% is already private to the user (M12-T3 adds explicit ACLs).
+    #[cfg(not(unix))]
+    let _ = p;
+    Ok(())
+}
+
 /// Per-OS process flags (hide console windows on Windows).
 pub fn configure_command(cmd: &mut Command) {
     #[cfg(windows)]

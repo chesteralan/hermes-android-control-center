@@ -32,7 +32,10 @@ describe("logs store", () => {
     append(KEY, [line(1), line(2)]);
     append("other", [line(1)]);
     expect(useLogs.getState().byDevice[KEY]?.lines).toHaveLength(2);
-    append(KEY, Array.from({ length: MAX_LOG_LINES }, (_, i) => line(i + 3)));
+    append(
+      KEY,
+      Array.from({ length: MAX_LOG_LINES }, (_, i) => line(i + 3)),
+    );
     const lines = useLogs.getState().byDevice[KEY]?.lines ?? [];
     expect(lines).toHaveLength(MAX_LOG_LINES);
     expect(lines[0]?.seq).toBe(3);
@@ -64,7 +67,10 @@ describe("LogsView", () => {
     });
     render(<LogsView />);
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
-    expect(fn).toHaveBeenCalledWith("start_log_stream", expect.objectContaining({ serial: device().serial, source: "logcat" }));
+    expect(fn).toHaveBeenCalledWith(
+      "start_log_stream",
+      expect.objectContaining({ serial: device().serial, source: "logcat" }),
+    );
     chan?.onmessage([line(1), line(2), line(3)]);
     expect(await screen.findByText(/3 lines/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Stop" }));
@@ -77,7 +83,10 @@ describe("LogsView", () => {
     render(<LogsView />);
     const toggle = screen.getByRole("button", { name: /Auto-scroll on/ });
     await userEvent.click(toggle);
-    expect(screen.getByRole("button", { name: /Auto-scroll off/ })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /Auto-scroll off/ })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
     expect(screen.getByRole("button", { name: "Jump to latest" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Clear" }));
     expect(await screen.findByText(/0 lines/)).toBeInTheDocument();
@@ -105,7 +114,9 @@ describe("RecentLogs", () => {
   it("shows the last 20 lines, preserving unstructured text", () => {
     useLogs.getState().append(
       KEY,
-      Array.from({ length: 30 }, (_, i) => line(i + 1, i === 29 ? { level: null, tag: null, message: "plain text" } : {})),
+      Array.from({ length: 30 }, (_, i) =>
+        line(i + 1, i === 29 ? { level: null, tag: null, message: "plain text" } : {}),
+      ),
     );
     render(<RecentLogs />);
     expect(screen.queryByText("message 10")).not.toBeInTheDocument();

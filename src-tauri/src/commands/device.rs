@@ -71,6 +71,7 @@ pub async fn disconnect_device<R: Runtime>(
     state.devices.mark_manual_disconnect(&serial);
     state.cancel_reconnect(&serial);
     state.streams.cancel_device(&serial);
+    state.release_device(&serial).await;
     state.adb_client().await?.disconnect(&serial).await?;
     refresh(&app).await?;
     Ok(())

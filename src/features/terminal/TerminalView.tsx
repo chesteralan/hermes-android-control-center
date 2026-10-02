@@ -3,6 +3,7 @@ import { Button } from "../../components/Button";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { deviceKey, useActiveDevice } from "../../stores/devices";
 import { useTerminal, type CommandBlock } from "../../stores/terminal";
+import type { TransportKind } from "../../types";
 import { NoDeviceState } from "../device/NoDeviceState";
 import { deviceTitle } from "../device/deviceStatus";
 
@@ -20,12 +21,19 @@ function Footer({ b }: { b: CommandBlock }) {
 
 const NO_BLOCKS: CommandBlock[] = [];
 
+export const TRANSPORT_LABEL: Record<TransportKind, string> = {
+  adbShell: "Android shell",
+  termuxSsh: "Termux",
+  api: "Hermes API",
+};
+
 export function TerminalView() {
   const device = useActiveDevice();
   const key = device ? deviceKey(device) : "";
   const blocks = useTerminal((s) => s.sessions[key]?.blocks ?? NO_BLOCKS);
   const { run, cancel, clear } = useTerminal();
   const [command, setCommand] = useState("");
+  const [transport, setTransport] = useState<TransportKind>("adbShell");
   const bottom = useRef<HTMLDivElement>(null);
   const running = blocks.find((b) => b.running);
   const lineCount = blocks.reduce((n, b) => n + b.lines.length, 0);
@@ -41,15 +49,38 @@ export function TerminalView() {
     const cmd = command.trim();
     if (!cmd || running || !device) return;
     setCommand("");
-    void run(key, device.serial, cmd);
+    void run(key, device.serial, cmd, transport);
   }
 
   return (
     <div className="flex h-[calc(100vh-44px-48px)] flex-col rounded-lg border border-border bg-surface">
       <header className="flex items-center justify-between border-b border-border px-4 py-2">
-        <span>
-          <b>Android shell</b>{" "}
-          <span className="text-muted">(adb shell) — runs as the shell user, not Termux</span>
+        <span className="flex items-center gap-3">
+          <span
+            role="radiogroup"
+            aria-label="Run commands in"
+            className="flex rounded-md bg-bg p-0.5"
+          >
+            {(Object.keys(TRANSPORT_LABEL) as TransportKind[])
+              .filter((t) => t !== "api")
+              .map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="radio"
+                  aria-checked={transport === t}
+                  onClick={() => setTransport(t)}
+                  className={`rounded px-2.5 py-1 ${transport === t ? "bg-surface-2 text-text" : "text-muted"}`}
+                >
+                  {TRANSPORT_LABEL[t]}
+                </button>
+              ))}
+          </span>
+          <span className="text-muted">
+            {transport === "adbShell"
+              ? "(adb shell) — runs as the shell user, not Termux"
+              : "(SSH) — runs as the Termux user"}
+          </span>
         </span>
         <span className="flex items-center gap-2 text-muted">
           {deviceTitle(device)}
@@ -65,7 +96,12 @@ export function TerminalView() {
       >
         {blocks.map((b) => (
           <div key={b.id} className="mb-3">
-            <div className="text-accent">$ {b.command}</div>
+            <div className="text-accent">
+              <span className="mr-2 rounded bg-surface-2 px-1.5 text-[10.5px] text-muted">
+                {TRANSPORT_LABEL[b.transport]}
+              </span>
+              $ {b.command}
+            </div>
             {b.lines.map((l, i) => (
               <div
                 key={i}

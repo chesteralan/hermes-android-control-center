@@ -1,9 +1,12 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
+use russh::keys::PrivateKey;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use crate::adb::parse::device_id_from_serial;
 use crate::adb::{locate, AdbClient, AdbInfo};
 use crate::config::{AppConfig, LogLevelSetting};
 use crate::devices::DeviceRegistry;
@@ -11,6 +14,10 @@ use crate::error::AppResult;
 use crate::platform::RealEnv;
 use crate::process::ProcessRunner;
 use crate::streams::StreamRegistry;
+use crate::termux::forward::ForwardManager;
+use crate::termux::keys;
+use crate::termux::known_hosts::KnownHosts;
+use crate::termux::ssh::{self, SshPool, TermuxSshTransport};
 
 pub type LogLevelSetter = Box<dyn Fn(LogLevelSetting) + Send + Sync>;
 
@@ -24,6 +31,11 @@ pub struct AppState {
     pub streams: Arc<StreamRegistry>,
     pub shutdown: CancellationToken,
     pub set_log_level: LogLevelSetter,
+    pub data_dir: PathBuf,
+    ssh_key: OnceLock<PrivateKey>,
+    pub known_hosts: KnownHosts,
+    pub forwards: ForwardManager,
+    pub ssh: SshPool,
 }
 
 impl AppState {
@@ -31,6 +43,7 @@ impl AppState {
         runner: Arc<dyn ProcessRunner>,
         config: AppConfig,
         set_log_level: LogLevelSetter,
+        data_dir: PathBuf,
     ) -> Self {
         let shutdown = CancellationToken::new();
         Self {
@@ -43,9 +56,62 @@ impl AppState {
             streams: Arc::new(StreamRegistry::new(shutdown.clone())),
             shutdown,
             set_log_level,
+            known_hosts: KnownHosts::load(&data_dir),
+            data_dir,
+            ssh_key: OnceLock::new(),
+            forwards: ForwardManager::default(),
+            ssh: SshPool::default(),
         }
     }
 
+    pub fn ssh_key(&self) -> AppResult<&PrivateKey> {
+        if let Some(k) = self.ssh_key.get() {
+            return Ok(k);
+        }
+        let k = keys::load_or_create(&self.data_dir)?;
+        Ok(self.ssh_key.get_or_init(|| k))
+    }
+
+    /// Stable identity for pinning; falls back to the serial when unknown.
+    pub fn device_id_for(&self, serial: &str) -> String {
+        self.devices
+            .get(serial)
+            .and_then(|d| d.device_id)
+            .or_else(|| device_id_from_serial(serial))
+            .unwrap_or_else(|| serial.to_string())
+    }
+
+    pub async fn termux_transport(&self, serial: &str) -> AppResult<TermuxSshTransport> {
+        let client = self.adb_client().await?;
+        let cfg = self.config.read().await.termux.clone();
+        let handle = self
+            .ssh
+            .get_or_connect(serial, || async {
+                let port = self.forwards.ensure(&client, serial, cfg.ssh_port).await?;
+                let key = self.ssh_key()?;
+                ssh::connect(
+                    port,
+                    &cfg.ssh_user,
+                    key,
+                    &self.known_hosts,
+                    &self.device_id_for(serial),
+                )
+                .await
+            })
+            .await?;
+        Ok(TermuxSshTransport::new(handle))
+    }
+
+    /// Drop SSH sessions and port forwards for a device.
+    pub async fn release_device(&self, serial: &str) {
+        self.ssh.drop_device(serial).await;
+        if let Ok(client) = self.adb_client().await {
+            self.forwards.remove_device(&client, serial).await;
+        }
+    }
+}
+
+impl AppState {
     pub async fn detect_adb(&self) -> AppResult<AdbInfo> {
         let configured = self.config.read().await.adb_path.clone();
         let result = locate::detect(configured.as_ref(), self.runner.clone(), &RealEnv, |p| {

@@ -46,6 +46,20 @@ describe("TerminalView", () => {
     expect(screen.getByText("exit 1 · 42 ms")).toBeInTheDocument();
   });
 
+  it("runs in Termux over SSH when selected and labels the block", async () => {
+    const fn = mockIpc({ stream_command: () => "cmd-9" });
+    render(<TerminalView />);
+    await userEvent.click(screen.getByRole("radio", { name: "Termux" }));
+    expect(screen.getByText(/runs as the Termux user/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Command"), "whoami{Enter}");
+    expect(fn).toHaveBeenCalledWith(
+      "stream_command",
+      expect.objectContaining({ command: "whoami", transportKind: "termuxSsh" }),
+    );
+    const log = screen.getByRole("log");
+    expect(log).toHaveTextContent("Termux");
+  });
+
   it("cancels a running command", async () => {
     const fn = mockIpc({ stream_command: () => "cmd-7", cancel_stream: () => true });
     render(<TerminalView />);
