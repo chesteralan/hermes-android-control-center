@@ -52,6 +52,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::chat::start_hermes_chat,
+            commands::sessions::list_hermes_sessions,
+            commands::sessions::get_hermes_session_messages,
             commands::adb::detect_adb,
             commands::settings::get_settings,
             commands::settings::update_settings,

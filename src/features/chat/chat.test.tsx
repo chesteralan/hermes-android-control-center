@@ -17,6 +17,7 @@ describe("ChatView", () => {
   it("streams replies and tool activity, resumes the session, and starts a new conversation", async () => {
     const requests: Array<Record<string, unknown>> = [];
     mockIpc({
+      list_hermes_sessions: () => [],
       start_hermes_chat: (args) => {
         if (!args) throw new Error("chat args were not passed");
         requests.push(args);
@@ -61,6 +62,90 @@ describe("ChatView", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "Message Hermes" }), "Fresh start");
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(requests[2]).toMatchObject({ prompt: "Fresh start", sessionId: null });
+  });
+
+  it("opens a previous session, loads another page, and resumes that session", async () => {
+    const session = {
+      sessionId: "session-old",
+      title: "Previous session",
+      source: "telegram",
+      model: "model-x",
+      messageCount: 5,
+      lastActive: "2026-10-02T12:00:00Z",
+      preview: "A saved preview",
+    };
+    const messagePages = [
+      {
+        sessionId: "session-old",
+        offset: 0,
+        limit: 3,
+        total: 5,
+        hasMore: true,
+        messages: [
+          { id: "m1", role: "user", content: "Old question", timestamp: null, toolName: null },
+          {
+            id: "sys",
+            role: "system",
+            content: "Hidden system prompt",
+            timestamp: null,
+            toolName: null,
+          },
+          { id: "m2", role: "assistant", content: "Old answer", timestamp: null, toolName: null },
+        ],
+      },
+      {
+        sessionId: "session-old",
+        offset: 3,
+        limit: 500,
+        total: 5,
+        hasMore: false,
+        messages: [
+          { id: "m3", role: "user", content: "Second question", timestamp: null, toolName: null },
+          {
+            id: "m4",
+            role: "assistant",
+            content: "Second answer",
+            timestamp: null,
+            toolName: null,
+          },
+        ],
+      },
+    ];
+    const requests: Array<Record<string, unknown>> = [];
+    mockIpc({
+      list_hermes_sessions: () => [session],
+      get_hermes_session_messages: (args) => {
+        if (!args) throw new Error("session args were not passed");
+        requests.push(args);
+        return messagePages[requests.length - 1];
+      },
+      start_hermes_chat: (args) => {
+        if (!args) throw new Error("chat args were not passed");
+        requests.push(args);
+        const channel = args.onEvent as { onmessage: (event: unknown) => void };
+        channel.onmessage({ type: "session", sessionId: "session-old" });
+        channel.onmessage({ type: "text", text: "Continued answer" });
+        channel.onmessage({ type: "complete", sessionId: "session-old", exitCode: 0, error: null });
+        return "continued-stream";
+      },
+    });
+
+    render(<ChatView />);
+    const sessionButton = await screen.findByRole("button", { name: /Previous session/ });
+    expect(screen.getByText("A saved preview")).toBeInTheDocument();
+    await userEvent.click(sessionButton);
+
+    expect(await screen.findByText("Old question")).toBeInTheDocument();
+    expect(screen.getByText("Old answer")).toBeInTheDocument();
+    expect(screen.queryByText("Hidden system prompt")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Load more messages" }));
+    expect(await screen.findByText("Second answer")).toBeInTheDocument();
+    expect(requests[1]).toMatchObject({ sessionId: "session-old", offset: 3 });
+
+    await userEvent.type(screen.getByRole("textbox", { name: "Message Hermes" }), "Continue here");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(requests[2]).toMatchObject({ prompt: "Continue here", sessionId: "session-old" });
+    expect(await screen.findByText("Continued answer")).toBeInTheDocument();
   });
 
   it("cancels a stream that opens after the user already stopped it", async () => {

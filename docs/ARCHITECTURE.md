@@ -27,6 +27,7 @@ flowchart LR
     subgraph TX[Termux uid]
       SSHD[sshd 127.0.0.1:8022]
       API[Hermes Control API 127.0.0.1:8765]
+      SAPI[Hermes Serve session API 127.0.0.1:9119]
       H[Hermes Agent + Gateway]
     end
   end
@@ -103,7 +104,8 @@ Key rules:
         └── commands/
             ├── mod.rs
             ├── adb.rs          # detect_adb, adb_version
-          ├── chat.rs         # resumable Hermes CLI chat stream
+            ├── chat.rs         # resumable Hermes CLI chat stream
+            ├── sessions.rs     # Hermes Serve session list and transcript pages
             ├── device.rs
             ├── hermes.rs
             ├── terminal.rs
@@ -253,6 +255,8 @@ Implementations: `LogcatSource` (M3), `TransportCommandLogSource` (wraps any `De
 | `hermes_action` | `serial, action: Start/Stop/Restart/RestartNow` | `HermesActionResult { output, status, confirmed }` |
 | `run_hermes_tool` | `serial, tool: Doctor/Update` | `CommandResult` |
 | `start_hermes_chat` | `serial, prompt, session_id?, on_event: Channel<HermesChatEvent>` | `StreamId` |
+| `list_hermes_sessions` | `serial` | `Vec<HermesSessionSummary>` (recent 20) |
+| `get_hermes_session_messages` | `serial, session_id, offset?, limit?` | `HermesSessionPage` (max 500 messages) |
 | `get_settings` / `update_settings` | `AppConfig` | `AppConfig` |
 | `cancel_stream` | `stream_id` | `()` |
 | `get_provision_plan` | `serial, recipe_id` | `ProvisionPlan` (steps + states) |
@@ -268,6 +272,8 @@ Implementations: `LogcatSource` (M3), `TransportCommandLogSource` (wraps any `De
 | `start_log_stream(serial, source, on_batch: Channel<Vec<LogLine>>)` | returns `StreamId` |
 
 `start_hermes_chat` runs Hermes' non-interactive stream-json CLI mode over Termux SSH. Follow-up turns resume the returned Hermes session ID; cancelling the stream terminates the active CLI turn without stopping the gateway.
+
+Session browsing calls the documented Hermes Serve REST API from inside the configured Hermes environment over the existing SSH transport. The app starts or reuses `hermes serve --host 127.0.0.1 --port 9119 --skip-build`; requests stay on loopback and do not use the M8 Control API at port 8765. Hermes remains the transcript source of truth; the app does not read its SQLite files.
 
 ### Global events (`app.emit`)
 

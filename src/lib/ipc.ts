@@ -12,6 +12,8 @@ import type {
   HermesActionResult,
   HermesChatEvent,
   HermesInstallReport,
+  HermesSessionPage,
+  HermesSessionSummary,
   HermesStatus,
   HermesTool,
   LogLine,
@@ -95,6 +97,15 @@ export const ipc = {
     channel.onmessage = onEvent;
     return call<string>("start_hermes_chat", { serial, prompt, sessionId, onEvent: channel });
   },
+  listHermesSessions: (serial: string) =>
+    call<HermesSessionSummary[]>("list_hermes_sessions", { serial }),
+  getHermesSessionMessages: (serial: string, sessionId: string, offset = 0, limit = 500) =>
+    call<HermesSessionPage>("get_hermes_session_messages", {
+      serial,
+      sessionId,
+      offset,
+      limit,
+    }),
   cancelStream: (streamId: string) => call<boolean>("cancel_stream", { streamId }),
   startLogStream: (serial: string, source: LogSourceKind, onBatch: (lines: LogLine[]) => void) => {
     const channel = new Channel<LogLine[]>();

@@ -3,6 +3,7 @@ pub mod chat;
 pub mod device;
 pub mod hermes;
 pub mod logs;
+pub mod sessions;
 pub mod settings;
 pub mod terminal;
 pub mod termux;

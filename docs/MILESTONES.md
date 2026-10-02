@@ -25,6 +25,8 @@ gantt
   section Ship
   M10 Hardening & Release 1.0  :m10, after m9 m11, 1
   M12 Windows + Linux (1.1)    :m12, after m10, 1
+  section Chat
+  M13 Chat Session History (1.2) :m13, after m12, 1
 ```
 
 | # | Milestone | Brief phase | Release tag | Tasks |
@@ -42,8 +44,10 @@ gantt
 | M11 | New Phone Provisioning | — | `v0.7.0` | [tasks/M11-provisioning.md](tasks/M11-provisioning.md) |
 | M10 | Hardening & Production | — | **`v1.0.0`** | [tasks/M10-production.md](tasks/M10-production.md) |
 | M12 | Cross-Platform (Windows + Linux) | — | **`v1.1.0`** | [tasks/M12-cross-platform.md](tasks/M12-cross-platform.md) |
+| M13 | Chat Session History | — | **`v1.2.0`** | [tasks/M13-chat-sessions.md](tasks/M13-chat-sessions.md) |
 
 M6 and M7 can proceed in parallel after M5. M8 and M9 can proceed in parallel after M7. M11 starts after M6 (needs the interactive PTY). M10 waits for M9 and M11. Milestone IDs are stable identifiers, so M11 ships before M10.
+M13 follows M12 so session browsing and resume are verified on the supported desktop platforms.
 
 **Multi-device rule (all milestones):** nothing may assume a single phone. Backend state is keyed by device; frontend stores are keyed by `device_id`; every IPC call names its target `serial`. M9 then adds tabs, per-phone profiles and the Overview on top of that groundwork.
 
@@ -140,6 +144,15 @@ M6 and M7 can proceed in parallel after M5. M8 and M9 can proceed in parallel af
 - Per-OS ADB detection, hidden consoles + process-tree kill on Windows, OS secret stores with explicit fallback.
 - Signed NSIS/MSI (Windows) and AppImage/.deb/.rpm (Linux); updater feeds for all platforms; 3-OS release workflow.
 - All features verified on Windows 10/11 and Ubuntu/Fedora (Wayland + X11).
+
+## M13 — Chat Session History (v1.2.0)
+**Goal:** Browse previous Hermes conversations, inspect previews/transcripts, and continue a selected session from the app. **Depends on:** M12. See [tasks/M13-chat-sessions.md](tasks/M13-chat-sessions.md).
+**Exit criteria**
+- Browse and filter sessions belonging to the selected phone's configured Hermes environment, including app-created and gateway-created sessions.
+- Preview and open a transcript, then continue it with Hermes' existing session ID and streamed response behavior.
+- Restore the last selected session per phone/environment after app restart without creating a second transcript database.
+- Session retrieval uses a supported machine-readable Hermes interface; no brittle parsing of terminal tables or direct dependency on undocumented SQLite internals.
+- Session content is not written to app logs; no session deletion or archival is introduced in this milestone.
 
 ---
 
