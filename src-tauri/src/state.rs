@@ -33,6 +33,7 @@ pub struct AppState {
     pub set_log_level: LogLevelSetter,
     pub data_dir: PathBuf,
     ssh_key: OnceLock<PrivateKey>,
+    ssh_key_init: Mutex<()>,
     pub known_hosts: KnownHosts,
     pub forwards: ForwardManager,
     pub ssh: SshPool,
@@ -59,12 +60,18 @@ impl AppState {
             known_hosts: KnownHosts::load(&data_dir),
             data_dir,
             ssh_key: OnceLock::new(),
+            ssh_key_init: Mutex::new(()),
             forwards: ForwardManager::default(),
             ssh: SshPool::default(),
         }
     }
 
     pub fn ssh_key(&self) -> AppResult<&PrivateKey> {
+        if let Some(k) = self.ssh_key.get() {
+            return Ok(k);
+        }
+        // Serialize first use: concurrent callers must not each generate a different key.
+        let _guard = self.ssh_key_init.lock().unwrap();
         if let Some(k) = self.ssh_key.get() {
             return Ok(k);
         }

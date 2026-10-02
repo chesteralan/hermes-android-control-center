@@ -32,7 +32,20 @@ pub fn load_or_create(data_dir: &Path) -> AppResult<PrivateKey> {
     key.set_comment(COMMENT);
     let pem = key.to_openssh(LineEnding::LF).map_err(io)?;
     std::fs::create_dir_all(path.parent().expect("key path has parent")).map_err(io)?;
-    std::fs::write(&path, pem.as_bytes()).map_err(io)?;
+    // create_new: if another process won the race, use its key instead of overwriting it.
+    let mut file = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let pem = std::fs::read_to_string(&path).map_err(io)?;
+            return PrivateKey::from_openssh(pem).map_err(io);
+        }
+        Err(e) => return Err(io(e)),
+    };
+    std::io::Write::write_all(&mut file, pem.as_bytes()).map_err(io)?;
     platform::restrict_file(&path)?;
     tracing::info!("generated new SSH key for the Termux bridge");
     Ok(key)

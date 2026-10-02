@@ -42,7 +42,7 @@
   1. `pkg install openssh`
   2. Append public key to `~/.ssh/authorized_keys`
   3. `sshd -o ListenAddress=127.0.0.1` (port 8022)
-  4. Optional: `termux-wake-lock`, `pkg install termux-services && sv-enable sshd`
+  4. Optional: `termux-wake-lock`, `pkg install termux-services`, fully exit + reopen Termux, then `sv-enable sshd` (otherwise: `fail: sshd: runsv not running`)
   5. Verify (runs `check_termux`)
 - **Tests:** renders checklist states.
 

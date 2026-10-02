@@ -20,6 +20,7 @@
 | Setup: "Allow install via USB/ADB" never appears | OEM restriction (e.g. Xiaomi "Install via USB" off) | Enable it in Developer options, retry step |
 | Setup: some Android settings "not supported" | Android version / OEM differences | Optional — apply manually per §7 if Termux gets killed |
 | **Termux unavailable** | Termux not running, sshd not started, killed in background | Open Termux, `sv up sshd`, `termux-wake-lock`; see ANDROID_SETUP §7 battery settings |
+| `fail: sshd: runsv not running` | `termux-services` was just installed; its supervisor starts only when Termux restarts | Fully exit Termux (`exit` in all sessions), reopen it, run `sv-enable sshd`. Meanwhile plain `sshd` works |
 | **SSH host key mismatch** | Termux reinstalled or different device on same serial | Verify, then Settings → Termux → Forget host key |
 | **Hermes not found** | Process match doesn't match running command line | `ps -ef | grep -i hermes` in Termux terminal; update Process match |
 | **Hermes not installed** (but it is) | Installed inside proot-distro or not on PATH | Settings → Hermes → Detect Hermes, or set Environment to proot-distro + distro |

@@ -25,8 +25,12 @@ export function setupSteps(publicKey: string): Array<{ title: string; command: s
     },
     { title: "Start sshd", command: "pkill sshd; sshd" },
     {
-      title: "Optional: keep running in background",
-      command: "termux-wake-lock; pkg install -y termux-services && sv-enable sshd",
+      title: "Optional: keep Termux awake + install the service manager",
+      command: "termux-wake-lock; pkg install -y termux-services",
+    },
+    {
+      title: "Optional: then fully exit and reopen Termux, and start sshd automatically",
+      command: "sv-enable sshd",
     },
   ];
 }
