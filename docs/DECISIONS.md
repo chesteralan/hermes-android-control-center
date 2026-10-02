@@ -79,8 +79,8 @@ Format: Context → Decision → Consequences. Status: Accepted / Proposed / Sup
 ## ADR-013 Hermes environment is separate from transport
 **Status:** Accepted
 **Context:** Hermes may run natively in Termux or inside a `proot-distro` rootfs. Running `command -v hermes` / `python --version` / start commands from the Termux shell gives wrong results for proot installs.
-**Decision:** `HermesEnvironment` (`Termux` | `ProotDistro { distro }` | `Custom { template }`) wraps every Hermes command (`proot-distro login <distro> -- bash -lc '…'`). Detached start uses `nohup setsid`. Process checks and log tailing run on the Termux side (guest paths mapped into `installed-rootfs/<distro>`). `detect_hermes` searches Termux and every installed distro. Termux app presence is detected over plain ADB (`pm`/`dumpsys`).
-**Consequences:** Users write commands as typed inside the environment; one wrapper module is the only place that knows about proot. Detection adds a few seconds per installed distro.
+**Decision:** `HermesEnvironment` is `Termux` or `ProotDistro { distro }` and is independent of `TransportKind`. Commands are wrapped with `proot-distro login <distro>` and shell-escaped values. Process/state probes read from the Termux side using the resolved `containers/<distro>/rootfs` or `installed-rootfs/<distro>` layout; `detect_hermes` searches Termux and installed distros, then runs the configured version command inside each candidate.
+**Consequences:** Commands are editable and entered as if inside the selected environment. Custom environment templates are not supported yet; Termux and proot-distro cover the target install.
 
 ## ADR-014 In-app provisioning with a one-time keystroke handoff
 **Status:** Proposed (pending M0-S4)
@@ -91,7 +91,7 @@ Format: Context → Decision → Consequences. Status: Accepted / Proposed / Sup
 ## ADR-015 App-provided gateway supervisor for proot installs
 **Status:** Accepted
 **Context:** Default target is Debian in proot-distro with the official Hermes installer. Hermes' `gateway install/start/stop` rely on systemd (absent in proot), and Hermes' own restart paths (`hermes gateway restart`, chat `/restart`, `hermes update`, watchdog exit 75) exit and expect a supervisor to relaunch the process.
-**Decision:** The app installs a small Termux-side supervisor script that runs `hermes gateway run` inside Debian, relaunches it with backoff unless a stop flag is set, and is itself started detached (`nohup setsid`) and by Termux:Boot. Stop = flag + SIGTERM; graceful restart = SIGUSR1 (Hermes drains turns) then relaunch.
+**Decision:** The app installs a small Termux-side supervisor script that runs `hermes gateway run` inside Debian, relaunches it with backoff unless a stop flag is set, and is itself started detached (`nohup setsid`) and by Termux:Boot. Stop = flag + SIGTERM; graceful restart = SIGUSR1 (Hermes drains turns) then relaunch. In detached mode, restart sends SIGTERM and starts a fresh gateway directly.
 **Consequences:** Hermes restart/update flows work as on a server. The supervisor is versioned and rewritten by the app when its template changes. Users should decline Hermes' offers to install a system service inside proot.
 
 ## ADR-016 macOS first, Windows + Linux in v1.1, portable core from day one

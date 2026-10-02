@@ -8,6 +8,11 @@ import type {
   CommandResult,
   DeviceInfo,
   ErrorPayload,
+  HermesAction,
+  HermesActionResult,
+  HermesInstallReport,
+  HermesStatus,
+  HermesTool,
   LogLine,
   LogSourceKind,
   MdnsService,
@@ -73,6 +78,12 @@ export const ipc = {
   getTermuxPublicKey: () => call<string>("get_termux_public_key"),
   checkTermux: (serial: string) => call<TermuxCheck>("check_termux", { serial }),
   forgetTermuxHostKey: (serial: string) => call<void>("forget_termux_host_key", { serial }),
+  getHermesStatus: (serial: string) => call<HermesStatus>("get_hermes_status", { serial }),
+  detectHermes: (serial: string) => call<HermesInstallReport>("detect_hermes", { serial }),
+  hermesAction: (serial: string, action: HermesAction) =>
+    call<HermesActionResult>("hermes_action", { serial, action }),
+  runHermesTool: (serial: string, tool: HermesTool) =>
+    call<CommandResult>("run_hermes_tool", { serial, tool }),
   cancelStream: (streamId: string) => call<boolean>("cancel_stream", { streamId }),
   startLogStream: (serial: string, source: LogSourceKind, onBatch: (lines: LogLine[]) => void) => {
     const channel = new Channel<LogLine[]>();

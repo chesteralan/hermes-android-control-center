@@ -2,7 +2,7 @@
 
 Desktop app (Tauri 2 + Rust + React) for managing a [Hermes Agent](https://github.com/NousResearch/hermes-agent) running in Termux on an Android phone over Wireless ADB. No screen mirroring needed.
 
-**Status:** early development — milestones M1 (desktop shell) and M2 (ADB core) implemented. See [docs/MILESTONES.md](docs/MILESTONES.md).
+**Status:** M0–M4 implemented; M5 Hermes management is implemented and awaiting real-phone verification. See [docs/MILESTONES.md](docs/MILESTONES.md).
 
 ## What works today
 - ADB auto-detection (or custom path in Settings)
@@ -11,6 +11,8 @@ Desktop app (Tauri 2 + Rust + React) for managing a [Hermes Agent](https://githu
 - Device info: model, Android/SDK, IP, battery, storage, memory, CPU, Termux package
 - Automatic reconnect with backoff (1s → 30s), manual retry
 - Persistent settings
+- Termux SSH bridge over `adb forward` with per-device key and pinned host key
+- Hermes status, installation/version detection, Start/Stop/Restart, Doctor and Update controls (M5; real-phone action verification pending)
 
 ## Prerequisites
 - Node.js LTS, Rust stable, Xcode Command Line Tools (macOS)

@@ -45,11 +45,11 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - name: cargo test
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        working-directory: src-tauri
+        run: cargo test
 
       - name: Generated TS types are up to date
-        shell: bash
-        run: git diff --exit-code src/types/generated
+        run: npm run gen:types && git diff --exit-code src/types/generated
 
       - name: Build app (unsigned)
         run: npm run tauri build -- --debug --no-bundle

@@ -28,7 +28,17 @@ async fn main() {
         Err(e) => println!("connect error: {} | {:?}", e.user_message(), e),
         Ok(h) => {
             let t = ssh::TermuxSshTransport::new(h);
-            println!("{:?}", t.execute(&command, Duration::from_secs(15)).await);
+            let secs = std::env::var("PROBE_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(15);
+            match t.execute(&command, Duration::from_secs(secs)).await {
+                Ok(r) => println!(
+                    "exit={:?} {}ms\n{}{}",
+                    r.exit_code, r.duration_ms, r.stdout, r.stderr
+                ),
+                Err(e) => println!("{e:?}"),
+            }
         }
     }
 }

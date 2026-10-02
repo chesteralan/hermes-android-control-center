@@ -15,7 +15,8 @@ pub async fn run(
     mut send: impl FnMut(Vec<LogLine>) -> bool,
 ) {
     let mut batch: Vec<LogLine> = Vec::with_capacity(max);
-    let mut tick = tokio::time::interval(every);
+    let first_tick = tokio::time::Instant::now() + every;
+    let mut tick = tokio::time::interval_at(first_tick, every);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tokio::select! {

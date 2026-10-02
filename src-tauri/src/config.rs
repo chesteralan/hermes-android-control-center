@@ -5,7 +5,7 @@ use ts_rs::TS;
 
 use crate::error::{AppError, AppResult};
 
-pub const CONFIG_VERSION: u32 = 1;
+pub const CONFIG_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
@@ -26,28 +26,72 @@ impl Default for ReconnectConfig {
     }
 }
 
+/// Where Hermes is installed (ADR-013). Transport (how we reach Termux) is separate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "camelCase")]
+#[ts(export)]
+pub enum HermesEnvironment {
+    Termux,
+    ProotDistro { distro: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum StartMode {
+    /// App-installed supervisor relaunches the gateway (ADR-015).
+    Supervised,
+    /// Fire-and-forget `nohup setsid`.
+    Detached,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
 pub struct HermesConfig {
+    pub environment: HermesEnvironment,
+    pub start_mode: StartMode,
+    /// Run inside the environment, e.g. `hermes gateway run`.
+    pub gateway_command: String,
+    /// Matches any Hermes process command line (gateway or CLI).
+    pub process_match: String,
+    /// Extra text identifying the gateway among Hermes processes.
+    pub gateway_match: String,
+    /// HERMES_HOME inside the environment.
+    pub hermes_home: String,
+    /// Prepended to PATH inside the environment (installers often only update interactive shells).
+    pub path_prepend: Vec<String>,
+    /// Optional overrides; when set they replace the built-in supervisor actions.
     pub start_command: String,
     pub stop_command: String,
     pub restart_command: String,
     pub status_command: String,
     pub log_command: String,
-    /// Pattern matched against process command lines to detect Hermes.
-    pub process_match: String,
+    pub version_command: String,
+    pub doctor_command: String,
+    pub update_command: String,
 }
 
 impl Default for HermesConfig {
     fn default() -> Self {
         Self {
+            environment: HermesEnvironment::ProotDistro {
+                distro: "debian".into(),
+            },
+            start_mode: StartMode::Supervised,
+            gateway_command: "hermes gateway run".into(),
+            process_match: "hermes-agent/venv/bin/python".into(),
+            gateway_match: "gateway run".into(),
+            hermes_home: "/root/.hermes".into(),
+            path_prepend: vec!["/root/.local/bin".into()],
             start_command: String::new(),
             stop_command: String::new(),
             restart_command: String::new(),
             status_command: String::new(),
             log_command: String::new(),
-            process_match: "hermes-agent/hermes".into(),
+            version_command: "hermes --version".into(),
+            doctor_command: "hermes doctor".into(),
+            update_command: "hermes update".into(),
         }
     }
 }
@@ -157,11 +201,31 @@ impl AppConfig {
             migrate_v0(&mut value);
         }
         let mut cfg: AppConfig = serde_json::from_value(value).unwrap_or_default();
+        // v1 default didn't match Hermes' real argv (`.../venv/bin/python /root/.local/bin/hermes`).
+        if version < 2 && cfg.hermes.process_match == "hermes-agent/hermes" {
+            cfg.hermes.process_match = HermesConfig::default().process_match;
+        }
         cfg.version = CONFIG_VERSION;
         cfg
     }
 
     pub fn validate(&self) -> AppResult<()> {
+        if let HermesEnvironment::ProotDistro { distro } = &self.hermes.environment {
+            let ok = !distro.is_empty()
+                && distro
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+            if !ok {
+                return Err(AppError::Config(format!("Invalid distro name: {distro:?}")));
+            }
+        }
+        if self.hermes.process_match.trim().is_empty()
+            || self.hermes.gateway_command.trim().is_empty()
+        {
+            return Err(AppError::Config(
+                "Hermes process match and gateway command are required.".into(),
+            ));
+        }
         if self.api_port == 0 {
             return Err(AppError::Config(
                 "API port must be between 1 and 65535.".into(),
@@ -236,6 +300,36 @@ mod tests {
         assert_eq!(cfg.known_addresses.len(), 1);
         assert_eq!(cfg.known_addresses[0].address, "192.0.2.10:5555");
         assert!(!cfg.known_addresses[0].auto_connect);
+    }
+
+    #[test]
+    fn migrates_v1_hermes_defaults_and_preserves_custom_commands() {
+        let v1 = serde_json::json!({
+            "version": 1,
+            "hermes": {
+                "startCommand": "custom-start",
+                "stopCommand": "custom-stop",
+                "restartCommand": "",
+                "statusCommand": "custom-status",
+                "logCommand": "custom-log",
+                "processMatch": "hermes-agent/hermes"
+            }
+        });
+        let cfg = AppConfig::from_json(v1);
+        assert_eq!(cfg.version, CONFIG_VERSION);
+        assert_eq!(
+            cfg.hermes.process_match,
+            HermesConfig::default().process_match
+        );
+        assert_eq!(cfg.hermes.start_command, "custom-start");
+        assert_eq!(cfg.hermes.stop_command, "custom-stop");
+        assert_eq!(cfg.hermes.status_command, "custom-status");
+        assert_eq!(
+            cfg.hermes.environment,
+            HermesEnvironment::ProotDistro {
+                distro: "debian".into()
+            }
+        );
     }
 
     #[test]

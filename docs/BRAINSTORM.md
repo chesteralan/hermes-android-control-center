@@ -45,7 +45,7 @@ The brief's "Execute commands inside Termux via `adb shell`" needs a bridge. Opt
 | Wireless debugging port changes on every toggle/reboot | Reconnect to stale port fails | Use `adb mdns services` to rediscover `_adb-tls-connect._tcp`; fall back to user prompt |
 | Android kills Termux in background (phantom process killer, Doze) | Hermes dies silently | Surface "Termux unavailable" state; doc `termux-wake-lock`, battery optimization, phantom-process settings |
 | Hermes CLI/commands unknown/variable | Hard-coded commands break | All commands in `HermesConfig`; status parsing tolerant; show `Unknown` rather than guess |
-| Hermes installed inside proot-distro | Commands/Python/install checks run in the wrong environment | `HermesEnvironment` wrapper (Termux / proot-distro / custom) + detection across Termux and all distros (ADR-013) |
+| Hermes installed inside proot-distro | Commands/Python/install checks run in the wrong environment | `HermesEnvironment` wrapper (Termux / proot-distro) + detection and version probe across Termux and all distros (ADR-013); custom templates deferred |
 | Log floods overwhelm IPC/UI | UI freezes | Batch lines in Rust (≤50 ms / ≤500 lines), virtualized list, ring buffer cap |
 | Long-running commands hang | Stuck UI / zombie processes | Every spawn is cancellable, `kill_on_drop`, timeouts on non-streaming calls |
 | `adb` server restarts / version mismatch | Spurious disconnects | Detect "daemon not running"/"server version" output; `adb start-server` once |

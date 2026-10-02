@@ -247,7 +247,9 @@ Implementations: `LogcatSource` (M3), `TransportCommandLogSource` (wraps any `De
 | `get_device_info` | `serial` | `DeviceInfo` |
 | `execute_command` | `serial, command, transport?` | `CommandResult` |
 | `get_hermes_status` | `serial` | `HermesStatus` |
-| `start_hermes` / `stop_hermes` / `restart_hermes` | `serial` | `CommandResult` |
+| `detect_hermes` | `serial` | `HermesInstallReport` |
+| `hermes_action` | `serial, action: Start/Stop/Restart/RestartNow` | `HermesActionResult { output, status, confirmed }` |
+| `run_hermes_tool` | `serial, tool: Doctor/Update` | `CommandResult` |
 | `get_settings` / `update_settings` | `AppConfig` | `AppConfig` |
 | `cancel_stream` | `stream_id` | `()` |
 | `get_provision_plan` | `serial, recipe_id` | `ProvisionPlan` (steps + states) |
@@ -340,21 +342,39 @@ pub struct DeviceProfile {
 }
 
 pub struct HermesConfig {
-    pub transport: TransportKind,
-    pub environment: HermesEnvironment,       // Termux | ProotDistro { distro, .. } | Custom { template }
-    pub start_mode: StartMode,                // Supervised (proot default) | Detached (nohup setsid) | Foreground
+  pub environment: HermesEnvironment,       // Termux | ProotDistro { distro }
+  pub start_mode: StartMode,                // Supervised | Detached
+  pub gateway_command: String,
+  pub gateway_match: String,
+  pub hermes_home: String,
+  pub path_prepend: Vec<String>,
     pub start_command: String,
     pub stop_command: String,
     pub restart_command: String,
     pub status_command: String,
     pub log_command: String,
-    pub process_match: String,                // e.g. pattern for pgrep -f
-    pub python_version_command: String,
-    pub version_command: Option<String>,
+  pub process_match: String,
+  pub version_command: String,
+  pub doctor_command: String,
+  pub update_command: String,
+}
+
+pub struct HermesStatus {
+  pub gateway: ComponentStatus,             // Running | Degraded | Stopped | Unknown
+  pub gateway_pid: Option<u32>,
+  pub uptime_secs: Option<u64>,
+  pub python_version: Option<String>,
+  pub processes: Vec<HermesProcess>,
+  pub platforms: Vec<PlatformStatus>,       // only when gateway_state.json belongs to live PID
+  pub supervisor: SupervisorStatus,
+  pub warnings: Vec<String>,
+  pub raw_status_output: Option<String>,
+  pub source: String,                       // termuxSsh | adb (limited)
+  pub checked_at: u64,
 }
 ```
 
-Commands are written as typed inside the environment; `hermes/env.rs` wraps them (e.g. `proot-distro login <distro> -- bash -lc '…'`) before handing them to the transport. Transport (how we reach Termux) and environment (where Hermes lives) are independent.
+Commands are written as typed inside the environment; `hermes/env.rs` wraps proot commands before handing them to the Termux SSH transport. `detect_hermes` searches Termux and each detected proot rootfs, reads the resolved binary/venv metadata without entering proot, then runs `version_command` best-effort inside each candidate. `get_hermes_status` first reads process/state files through the Termux-visible rootfs; if SSH is unavailable it falls back to ADB process data and labels that result limited.
 
 Defaults are placeholders that are clearly labeled and editable; there are no Hermes paths baked into code. Schema carries a `version` field for migrations.
 

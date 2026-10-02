@@ -5,8 +5,8 @@ import { AdbBanner } from "./features/adb/AdbBanner";
 import { DashboardView } from "./features/dashboard/DashboardView";
 import { DeviceView } from "./features/device/DeviceView";
 import { LogsView } from "./features/logs/LogsView";
+import { HermesStatusCard } from "./features/hermes/HermesStatusCard";
 import { PairDialog } from "./features/device/PairDialog";
-import { PlannedView } from "./features/placeholder/PlannedView";
 import { SettingsView } from "./features/settings/SettingsView";
 import { TerminalView } from "./features/terminal/TerminalView";
 import { useDevices } from "./stores/devices";
@@ -19,7 +19,7 @@ function View({ route }: { route: Route }) {
     case "device":
       return <DeviceView />;
     case "hermes":
-      return <PlannedView title="Hermes" milestone="M5" />;
+      return <HermesStatusCard />;
     case "terminal":
       return <TerminalView />;
     case "logs":

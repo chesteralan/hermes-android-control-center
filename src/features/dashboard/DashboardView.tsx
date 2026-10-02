@@ -1,7 +1,7 @@
 import { Card } from "../../components/Card";
-import { StatusDot } from "../../components/StatusDot";
 import { useActiveDevice } from "../../stores/devices";
 import { DeviceInfoCard } from "../device/DeviceInfoCard";
+import { HermesStatusCard } from "../hermes/HermesStatusCard";
 import { NoDeviceState } from "../device/NoDeviceState";
 import { RecentLogs } from "../logs/RecentLogs";
 
@@ -12,12 +12,7 @@ export function DashboardView() {
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
       <DeviceInfoCard device={device} />
       <div className="flex flex-col gap-4">
-        <Card title="Hermes Agent">
-          <StatusDot tone="muted" label="Unknown" />
-          <p className="mt-2 text-muted">
-            Hermes status arrives in milestone M5 (requires the Termux bridge).
-          </p>
-        </Card>
+        <HermesStatusCard compact />
         <Card title="Recent logs">
           <RecentLogs />
         </Card>

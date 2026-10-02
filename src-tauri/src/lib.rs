@@ -4,6 +4,7 @@ pub mod config;
 pub mod config_store;
 pub mod devices;
 pub mod error;
+pub mod hermes;
 pub mod logging;
 pub mod logs;
 pub mod monitor;
@@ -41,6 +42,7 @@ pub fn run() {
                 app.path().app_data_dir()?,
             ));
             monitor::start(handle);
+            app.manage(commands::hermes::ActionLocks::default());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -68,6 +70,10 @@ pub fn run() {
             commands::termux::get_termux_public_key,
             commands::termux::check_termux,
             commands::termux::forget_termux_host_key,
+            commands::hermes::get_hermes_status,
+            commands::hermes::detect_hermes,
+            commands::hermes::hermes_action,
+            commands::hermes::run_hermes_tool,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hermes Control Center");
