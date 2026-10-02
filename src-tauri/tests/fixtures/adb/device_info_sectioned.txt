@@ -1,0 +1,179 @@
+@@props
+[ro.board.platform]: [mt6765]
+[ro.boot.serialno]: [TESTSERIAL0001]
+[ro.build.version.release]: [11]
+[ro.build.version.sdk]: [30]
+[ro.hardware]: [mt6765]
+[ro.product.brand]: [OPPO]
+[ro.product.cpu.abi]: [arm64-v8a]
+[ro.product.device]: [OP4F2F]
+[ro.product.manufacturer]: [OPPO]
+[ro.product.model]: [CPH2239]
+[ro.product.name]: [CPH2239T2]
+[ro.serialno]: [TESTSERIAL0001]
+@@battery
+Current OPPO Battery Service state:
+  Charger voltage : 4778
+  Battery current : -290
+  ChargerTechnology: 0
+  ChargeFastCharger: false
+  PlugType: 1
+  UpdatesStopped: false
+  UsbHwStatus: 0
+  BatteryHwStatus: 1
+  HwStatusIsSet: 1
+  BatteryIcStatus: 1
+  IcStatusIsSet: 1
+  UpgradePrj: true
+
+  mUsbStatus: 0
+  PhoneTemp: 340
+  ThermalFeatureOn: true
+Current Battery Service state:
+  AC powered: true
+  USB powered: false
+  Wireless powered: false
+  Max charging current: 0
+  Max charging voltage: 0
+  Charge counter: 5000000
+  status: 5
+  health: 2
+  present: true
+  level: 100
+  scale: 100
+  voltage: 4416
+  temperature: 343
+  technology: Li-ion
+@@df
+Filesystem            1K-blocks     Used Available Use% Mounted on
+/dev/block/mmcblk0p45 109780492 25484108  84112064  24% /data/user/0
+@@mem
+MemTotal:        3893508 kB
+MemFree:          105692 kB
+MemAvailable:    1409096 kB
+Buffers:           93368 kB
+Cached:          1414780 kB
+SwapCached:        44908 kB
+Active:          1218672 kB
+Inactive:        1235472 kB
+Active(anon):     499988 kB
+Inactive(anon):   591240 kB
+Active(file):     718684 kB
+Inactive(file):   644232 kB
+Unevictable:      126244 kB
+Mlocked:          126244 kB
+SwapTotal:       2621436 kB
+SwapFree:        1503652 kB
+Dirty:                76 kB
+Writeback:             0 kB
+AnonPages:       1060524 kB
+Mapped:           482172 kB
+Shmem:             21648 kB
+KReclaimable:      95816 kB
+Slab:             316692 kB
+SReclaimable:      95816 kB
+SUnreclaim:       220876 kB
+KernelStack:       57664 kB
+PageTables:        75992 kB
+NFS_Unstable:          0 kB
+Bounce:                0 kB
+WritebackTmp:          0 kB
+CommitLimit:     4568188 kB
+Committed_AS:   72561876 kB
+VmallocTotal:   263061440 kB
+VmallocUsed:      104364 kB
+VmallocChunk:          0 kB
+Percpu:             7648 kB
+CmaTotal:         278528 kB
+CmaFree:           33332 kB
+IonTotalCache:    101652 kB
+IonTotalUsed:      91624 kB
+@@cpu
+processor	: 0
+BogoMIPS	: 26.00
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x0
+CPU part	: 0xd03
+CPU revision	: 4
+
+processor	: 1
+BogoMIPS	: 26.00
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x0
+CPU part	: 0xd03
+CPU revision	: 4
+
+processor	: 2
+BogoMIPS	: 26.00
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x0
+CPU part	: 0xd03
+CPU revision	: 4
+
+processor	: 3
+BogoMIPS	: 26.00
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x0
+CPU part	: 0xd03
+CPU revision	: 4
+
+processor	: 4
+BogoMIPS	: 26.00
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x0
+CPU part	: 0xd03
+CPU revision	: 4
+
+processor	: 5
+BogoMIPS	: 26.00
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x0
+CPU part	: 0xd03
+CPU revision	: 4
+
+processor	: 6
+BogoMIPS	: 26.00
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x0
+CPU part	: 0xd03
+CPU revision	: 4
+
+processor	: 7
+BogoMIPS	: 26.00
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x0
+CPU part	: 0xd03
+CPU revision	: 4
+
+Hardware	: MT6765G
+Hardware	: MT6765G
+@@nproc
+8
+@@ip
+33: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 3000
+    inet 192.0.2.25/24 brd 192.0.2.255 scope global wlan0
+       valid_lft forever preferred_lft forever
+@@aid
+0123456789abcdef
+@@termux
+package:com.termux versionCode:1022  installer=com.google.android.packageinstaller
+@@termuxver
+    versionName=0.119.0-beta.3
+    firstInstallTime=2026-09-23 22:34:14
+@@end
