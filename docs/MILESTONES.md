@@ -27,6 +27,10 @@ gantt
   M12 Windows + Linux (1.1)    :m12, after m10, 1
   section Chat
   M13 Chat Session History (1.2) :m13, after m12, 1
+  section Desktop experience
+  M14 Tray & Window Lifecycle (1.3) :m14, after m13, 1
+  section Documentation
+  M15 Documentation Hub :m15, after m14, 1
 ```
 
 | # | Milestone | Brief phase | Release tag | Tasks |
@@ -45,9 +49,13 @@ gantt
 | M10 | Hardening & Production | — | **`v1.0.0`** | [tasks/M10-production.md](tasks/M10-production.md) |
 | M12 | Cross-Platform (Windows + Linux) | — | **`v1.1.0`** | [tasks/M12-cross-platform.md](tasks/M12-cross-platform.md) |
 | M13 | Chat Session History | — | **`v1.2.0`** | [tasks/M13-chat-sessions.md](tasks/M13-chat-sessions.md) |
+| M14 | Tray & Window Lifecycle | — | **`v1.3.0`** | [tasks/M14-tray-lifecycle.md](tasks/M14-tray-lifecycle.md) |
+| M15 | Documentation Hub | — | — | [tasks/M15-documentation-hub.md](tasks/M15-documentation-hub.md) |
 
 M6 and M7 can proceed in parallel after M5. M8 and M9 can proceed in parallel after M7. M11 starts after M6 (needs the interactive PTY). M10 waits for M9 and M11. Milestone IDs are stable identifiers, so M11 ships before M10.
 M13 follows M12 so session browsing and resume are verified on the supported desktop platforms.
+M14 follows M13 and adds tray residency with consistent close, minimize, restore, and quit behavior across supported desktop platforms.
+M15 follows M14 in the roadmap; the static documentation hub is independently shippable and does not change the app release version.
 
 **Multi-device rule (all milestones):** nothing may assume a single phone. Backend state is keyed by device; frontend stores are keyed by `device_id`; every IPC call names its target `serial`. M9 then adds tabs, per-phone profiles and the Overview on top of that groundwork.
 
@@ -153,6 +161,20 @@ M13 follows M12 so session browsing and resume are verified on the supported des
 - Restore the last selected session per phone/environment after app restart without creating a second transcript database.
 - Session retrieval uses a supported machine-readable Hermes interface; no brittle parsing of terminal tables or direct dependency on undocumented SQLite internals.
 - Session content is not written to app logs; no session deletion or archival is introduced in this milestone.
+
+## M14 — Tray & Window Lifecycle (v1.3.0)
+**Goal:** Keep the app running in the system tray when its window is closed or minimized, with clear actions to restore the window or quit. **Depends on:** M13. See [tasks/M14-tray-lifecycle.md](tasks/M14-tray-lifecycle.md).
+**Exit criteria**
+- Closing or minimizing the main window hides it to the tray without stopping device connections, background work, or active streams.
+- The tray menu can restore and focus the existing main window or explicitly quit the app and clean up background processes.
+- Behavior is consistent and verified on macOS, Windows, and Linux, including a documented fallback when a desktop environment has no tray support.
+
+## M15 — Documentation Hub
+**Goal:** Provide one responsive, searchable HTML entry point for project documentation. **Depends on:** M14 (roadmap order only; the page is independently shippable). See [tasks/M15-documentation-hub.md](tasks/M15-documentation-hub.md).
+**Exit criteria**
+- `docs/index.html` opens directly in a browser without a server, build step, or external dependency.
+- Project docs are grouped for scanning, searchable, and linked using valid relative paths.
+- Search and category filters are keyboard accessible, and the page remains usable on mobile and desktop.
 
 ---
 

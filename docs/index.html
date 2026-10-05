@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f2f4ef" />
+    <meta name="description" content="A searchable guide to Hermes Android Control Center project documentation." />
+    <title>Documentation | Hermes Control Center</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f2f4ef;
+        --surface: #ffffff;
+        --ink: #202825;
+        --muted: #68736e;
+        --line: #d9dfd8;
+        --forest: #176b58;
+        --forest-dark: #105441;
+        --coral: #d2533d;
+        --gold: #e3ad41;
+        --shadow: 0 12px 35px rgb(30 48 39 / 7%);
+        font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 24px;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(ellipse at 82% 2%, rgb(221 233 218 / 58%), transparent 31rem),
+          var(--paper);
+        color: var(--ink);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      a:focus-visible,
+      button:focus-visible,
+      input:focus-visible {
+        outline: 3px solid var(--gold);
+        outline-offset: 3px;
+      }
+
+      .topbar {
+        align-items: center;
+        background: rgb(242 244 239 / 92%);
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        min-height: 76px;
+        padding: 12px max(28px, calc((100vw - 1380px) / 2));
+      }
+
+      .brand {
+        align-items: center;
+        display: inline-flex;
+        gap: 12px;
+        text-decoration: none;
+      }
+
+      .brand img {
+        border: 1px solid rgb(32 40 37 / 12%);
+        border-radius: 7px;
+        height: 42px;
+        object-fit: cover;
+        width: 42px;
+      }
+
+      .brand-name {
+        display: grid;
+        font-size: 13px;
+        font-weight: 750;
+        letter-spacing: 0;
+        line-height: 1.2;
+      }
+
+      .brand-name span:last-child {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 550;
+        margin-top: 3px;
+      }
+
+      .top-link {
+        align-items: center;
+        color: var(--forest-dark);
+        display: inline-flex;
+        font-size: 13px;
+        font-weight: 700;
+        gap: 8px;
+        text-decoration: none;
+      }
+
+      .top-link::after {
+        color: var(--coral);
+        content: "->";
+      }
+
+      .layout {
+        display: grid;
+        gap: clamp(28px, 5vw, 76px);
+        grid-template-columns: 205px minmax(0, 1fr);
+        margin: 0 auto;
+        max-width: 1380px;
+        padding: 42px 28px 88px;
+      }
+
+      .sidebar {
+        align-self: start;
+        position: sticky;
+        top: 26px;
+      }
+
+      .side-label,
+      .eyebrow,
+      .group-kicker {
+        color: var(--forest);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+      }
+
+      .side-label {
+        color: var(--muted);
+        margin: 4px 0 14px 12px;
+      }
+
+      .side-nav {
+        border-left: 1px solid var(--line);
+        display: grid;
+        gap: 3px;
+        padding: 0 0 0 11px;
+      }
+
+      .side-nav a {
+        border-radius: 4px;
+        color: var(--muted);
+        font-size: 13px;
+        padding: 7px 10px;
+        text-decoration: none;
+        transition: background-color 150ms ease, color 150ms ease;
+      }
+
+      .side-nav a:hover,
+      .side-nav a:focus-visible {
+        background: #e3ebe2;
+        color: var(--forest-dark);
+      }
+
+      .side-note {
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+        margin: 30px 0 0 12px;
+        padding-top: 15px;
+      }
+
+      .side-note strong {
+        color: var(--ink);
+        display: block;
+        font-size: 12px;
+        margin-bottom: 3px;
+      }
+
+      main {
+        min-width: 0;
+      }
+
+      .intro {
+        align-items: end;
+        display: flex;
+        gap: 32px;
+        justify-content: space-between;
+        margin: 6px 0 30px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+        font-size: clamp(40px, 5vw, 58px);
+        font-weight: 500;
+        letter-spacing: 0;
+        line-height: 1;
+        margin: 9px 0 13px;
+      }
+
+      .intro-copy {
+        color: #515d57;
+        font-size: 16px;
+        margin: 0;
+        max-width: 610px;
+      }
+
+      .doc-count {
+        color: var(--muted);
+        flex: 0 0 auto;
+        font-size: 12px;
+        padding-bottom: 3px;
+      }
+
+      .featured {
+        align-items: stretch;
+        background: #e2ebe3;
+        border: 1px solid #d1ded4;
+        border-radius: 7px;
+        display: grid;
+        gap: 24px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        margin-bottom: 36px;
+        overflow: hidden;
+        padding: 23px 25px;
+        position: relative;
+      }
+
+      .featured::after {
+        background: var(--coral);
+        bottom: 0;
+        content: "";
+        left: 0;
+        position: absolute;
+        top: 0;
+        width: 4px;
+      }
+
+      .featured h2 {
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+        font-size: 24px;
+        font-weight: 500;
+        letter-spacing: 0;
+        line-height: 1.16;
+        margin: 7px 0 7px;
+      }
+
+      .featured p {
+        color: #4e5a54;
+        font-size: 13px;
+        margin: 0;
+        max-width: 600px;
+      }
+
+      .feature-links {
+        align-content: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: end;
+      }
+
+      .feature-links a {
+        background: var(--surface);
+        border: 1px solid #c8d5ca;
+        border-radius: 5px;
+        color: var(--forest-dark);
+        font-size: 12px;
+        font-weight: 700;
+        padding: 8px 11px;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .feature-links a:hover {
+        border-color: var(--forest);
+        color: var(--coral);
+      }
+
+      .catalog-tools {
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px 20px;
+        justify-content: space-between;
+        margin-bottom: 36px;
+        padding-bottom: 17px;
+      }
+
+      .search-wrap {
+        flex: 1 1 270px;
+        max-width: 400px;
+        position: relative;
+      }
+
+      .search-wrap::before {
+        border: 1.5px solid #78847e;
+        border-radius: 50%;
+        content: "";
+        height: 10px;
+        left: 13px;
+        position: absolute;
+        top: 13px;
+        width: 10px;
+      }
+
+      .search-wrap::after {
+        background: #78847e;
+        content: "";
+        height: 5px;
+        left: 24px;
+        position: absolute;
+        top: 24px;
+        transform: rotate(45deg);
+        width: 1.5px;
+      }
+
+      #doc-search {
+        background: var(--surface);
+        border: 1px solid #cbd4cc;
+        border-radius: 5px;
+        color: var(--ink);
+        font: inherit;
+        font-size: 13px;
+        height: 40px;
+        padding: 0 14px 0 38px;
+        width: 100%;
+      }
+
+      #doc-search::placeholder {
+        color: #77827b;
+      }
+
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+      }
+
+      .filter-button {
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        color: var(--muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 650;
+        padding: 7px 10px;
+      }
+
+      .filter-button:hover {
+        background: #e6ebe5;
+        color: var(--ink);
+      }
+
+      .filter-button[aria-pressed="true"] {
+        background: var(--forest);
+        color: white;
+      }
+
+      .doc-section {
+        margin: 0 0 43px;
+        scroll-margin-top: 25px;
+      }
+
+      .section-head {
+        align-items: baseline;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 14px;
+        justify-content: space-between;
+        margin-bottom: 15px;
+        padding-bottom: 9px;
+      }
+
+      .section-head h2 {
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+        font-size: 26px;
+        font-weight: 500;
+        letter-spacing: 0;
+        line-height: 1.15;
+        margin: 4px 0 0;
+      }
+
+      .section-head p {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 0;
+        text-align: right;
+      }
+
+      .doc-grid {
+        display: grid;
+        gap: 9px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .doc-card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        min-width: 0;
+        transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+      }
+
+      .doc-card:hover {
+        border-color: #9eb8a7;
+        box-shadow: var(--shadow);
+        transform: translateY(-2px);
+      }
+
+      .doc-card[hidden],
+      .doc-section[hidden] {
+        display: none;
+      }
+
+      .doc-card a {
+        display: block;
+        height: 100%;
+        padding: 17px 18px 15px;
+        text-decoration: none;
+      }
+
+      .doc-card h3 {
+        font-size: 15px;
+        font-weight: 730;
+        letter-spacing: 0;
+        line-height: 1.3;
+        margin: 6px 0 5px;
+      }
+
+      .doc-card p {
+        color: #5d6963;
+        font-size: 12px;
+        line-height: 1.5;
+        margin: 0 0 11px;
+      }
+
+      .doc-path {
+        color: #77827b;
+        display: block;
+        font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+        font-size: 10px;
+        overflow-wrap: anywhere;
+      }
+
+      .group-kicker {
+        color: var(--coral);
+        font-size: 9px;
+        letter-spacing: 0.8px;
+      }
+
+      .milestone-card {
+        border-top: 2px solid #a9c6b2;
+      }
+
+      .milestone-card:nth-child(4n + 2) {
+        border-top-color: var(--coral);
+      }
+
+      .milestone-card:nth-child(4n + 3) {
+        border-top-color: var(--gold);
+      }
+
+      .empty-state {
+        background: #e8ece6;
+        border: 1px dashed #bac5bb;
+        border-radius: 6px;
+        color: var(--muted);
+        display: none;
+        margin: 0 0 30px;
+        padding: 24px;
+        text-align: center;
+      }
+
+      .empty-state[data-visible="true"] {
+        display: block;
+      }
+
+      .empty-state strong {
+        color: var(--ink);
+        display: block;
+        margin-bottom: 3px;
+      }
+
+      footer {
+        align-items: center;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        display: flex;
+        font-size: 12px;
+        justify-content: space-between;
+        margin-top: 48px;
+        padding-top: 18px;
+      }
+
+      footer a {
+        color: var(--forest-dark);
+        font-weight: 700;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      @media (max-width: 840px) {
+        .layout {
+          gap: 27px;
+          grid-template-columns: 1fr;
+          padding-top: 25px;
+        }
+
+        .sidebar {
+          position: static;
+        }
+
+        .side-label,
+        .side-note {
+          display: none;
+        }
+
+        .side-nav {
+          border: 0;
+          display: flex;
+          overflow-x: auto;
+          padding: 0 0 5px;
+          white-space: nowrap;
+        }
+
+        .side-nav a {
+          background: #e5eae4;
+        }
+
+        .intro {
+          align-items: start;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .topbar {
+          min-height: 66px;
+          padding: 10px 17px;
+        }
+
+        .brand img {
+          height: 38px;
+          width: 38px;
+        }
+
+        .layout {
+          gap: 19px;
+          padding: 16px 17px 54px;
+        }
+
+        .intro {
+          display: block;
+          margin: 5px 0 20px;
+        }
+
+        h1 {
+          font-size: 43px;
+        }
+
+        .intro-copy {
+          font-size: 14px;
+        }
+
+        .doc-count {
+          display: block;
+          margin-top: 10px;
+        }
+
+        .featured {
+          gap: 17px;
+          grid-template-columns: 1fr;
+          margin-bottom: 24px;
+          padding: 20px 18px;
+        }
+
+        .feature-links {
+          justify-content: start;
+        }
+
+        .catalog-tools {
+          align-items: stretch;
+          gap: 10px;
+          margin-bottom: 27px;
+        }
+
+        .search-wrap {
+          max-width: none;
+        }
+
+        .filters {
+          overflow-x: auto;
+          white-space: nowrap;
+        }
+
+        .filter-button {
+          flex: 0 0 auto;
+        }
+
+        .doc-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .section-head h2 {
+          font-size: 23px;
+        }
+
+        .section-head p {
+          max-width: 44%;
+        }
+
+        footer {
+          align-items: start;
+          flex-direction: column;
+          gap: 7px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="../index.html" aria-label="Hermes Control Center project">
+        <img src="../assets/icon2.jpg" alt="" />
+        <span class="brand-name">
+          <span>Hermes Control Center</span>
+          <span>Project documentation</span>
+        </span>
+      </a>
+      <a class="top-link" href="README.md">Markdown index</a>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <p class="side-label">Browse</p>
+        <nav class="side-nav" aria-label="Documentation sections">
+          <a href="#start-here">Start here</a>
+          <a href="#product">Product</a>
+          <a href="#engineering">Engineering</a>
+          <a href="#field-guides">Field guides</a>
+          <a href="#roadmap">Roadmap</a>
+        </nav>
+        <p class="side-note"><strong>HACC</strong>Tauri 2 desktop control center for Hermes Agent on Android.</p>
+      </aside>
+
+      <main>
+        <section class="intro" id="start-here">
+          <div>
+            <p class="eyebrow">Hermes Android Control Center</p>
+            <h1>Project docs</h1>
+            <p class="intro-copy">Product intent, system design, implementation plans, and practical setup notes for managing Hermes over Wireless ADB.</p>
+          </div>
+          <span class="doc-count" id="doc-count" aria-live="polite">28 documents</span>
+        </section>
+
+        <section class="featured" aria-labelledby="start-title">
+          <div>
+            <p class="eyebrow">Orientation</p>
+            <h2 id="start-title">A good place to begin</h2>
+            <p>Read the brief for the product shape, the architecture for its boundaries, then use the roadmap to find the active work.</p>
+          </div>
+          <div class="feature-links">
+            <a href="INITIAL.md">Product brief</a>
+            <a href="ARCHITECTURE.md">Architecture</a>
+            <a href="MILESTONES.md">Milestones</a>
+          </div>
+        </section>
+
+        <section class="catalog-tools" aria-label="Document search and filters">
+          <label class="search-wrap">
+            <span class="sr-only" hidden>Search documents</span>
+            <input id="doc-search" type="search" placeholder="Search documents" autocomplete="off" aria-label="Search documents" />
+          </label>
+          <div class="filters" role="group" aria-label="Filter by category">
+            <button class="filter-button" type="button" data-filter="all" aria-pressed="true">All</button>
+            <button class="filter-button" type="button" data-filter="product" aria-pressed="false">Product</button>
+            <button class="filter-button" type="button" data-filter="engineering" aria-pressed="false">Engineering</button>
+            <button class="filter-button" type="button" data-filter="field" aria-pressed="false">Field guides</button>
+            <button class="filter-button" type="button" data-filter="roadmap" aria-pressed="false">Roadmap</button>
+          </div>
+        </section>
+
+        <p class="empty-state" id="empty-state" data-visible="false" role="status">
+          <strong>No matching documents</strong>
+          Try another title, topic, or category.
+        </p>
+
+        <section class="doc-section" id="product" aria-labelledby="product-title">
+          <div class="section-head">
+            <div>
+              <p class="group-kicker">Purpose and decisions</p>
+              <h2 id="product-title">Product &amp; design</h2>
+            </div>
+            <p>What we are building and why</p>
+          </div>
+          <div class="doc-grid">
+            <article class="doc-card" data-category="product" data-search="initial product brief requirements goals scope">
+              <a href="INITIAL.md"><span class="group-kicker">Brief</span><h3>Product brief</h3><p>Source of truth for product requirements, goals, and constraints.</p><span class="doc-path">INITIAL.md</span></a>
+            </article>
+            <article class="doc-card" data-category="product" data-search="brainstorm risks options exploration">
+              <a href="BRAINSTORM.md"><span class="group-kicker">Exploration</span><h3>Brainstorm</h3><p>Problem exploration, key risks, and options considered.</p><span class="doc-path">BRAINSTORM.md</span></a>
+            </article>
+            <article class="doc-card" data-category="product engineering" data-search="architecture system modules traits ipc contract data types boundaries">
+              <a href="ARCHITECTURE.md"><span class="group-kicker">System map</span><h3>Architecture</h3><p>Module boundaries, core traits, IPC contracts, and data types.</p><span class="doc-path">ARCHITECTURE.md</span></a>
+            </article>
+            <article class="doc-card" data-category="product engineering" data-search="decisions adr architecture decision records">
+              <a href="DECISIONS.md"><span class="group-kicker">ADRs</span><h3>Architecture decisions</h3><p>Recorded decisions and the reasoning behind them.</p><span class="doc-path">DECISIONS.md</span></a>
+            </article>
+          </div>
+        </section>
+
+        <section class="doc-section" id="engineering" aria-labelledby="engineering-title">
+          <div class="section-head">
+            <div>
+              <p class="group-kicker">Build and ship</p>
+              <h2 id="engineering-title">Engineering</h2>
+            </div>
+            <p>Quality, security, releases</p>
+          </div>
+          <div class="doc-grid">
+            <article class="doc-card" data-category="engineering roadmap" data-search="milestones roadmap task plans acceptance criteria">
+              <a href="MILESTONES.md"><span class="group-kicker">Roadmap</span><h3>Milestones</h3><p>Release sequence, dependencies, and exit criteria.</p><span class="doc-path">MILESTONES.md</span></a>
+            </article>
+            <article class="doc-card" data-category="engineering" data-search="testing strategy fixtures ci checks manual qa">
+              <a href="TESTING.md"><span class="group-kicker">Quality</span><h3>Testing</h3><p>Test strategy, fixtures, CI checks, and manual QA.</p><span class="doc-path">TESTING.md</span></a>
+            </article>
+            <article class="doc-card" data-category="engineering" data-search="security threat model controls credentials privacy">
+              <a href="SECURITY.md"><span class="group-kicker">Security</span><h3>Security</h3><p>Threat model, security controls, and reporting guidance.</p><span class="doc-path">SECURITY.md</span></a>
+            </article>
+            <article class="doc-card" data-category="engineering" data-search="release build signing notarization versioning checklist">
+              <a href="RELEASE.md"><span class="group-kicker">Delivery</span><h3>Release guide</h3><p>Build, signing, notarization, versioning, and release steps.</p><span class="doc-path">RELEASE.md</span></a>
+            </article>
+          </div>
+        </section>
+
+        <section class="doc-section" id="field-guides" aria-labelledby="field-title">
+          <div class="section-head">
+            <div>
+              <p class="group-kicker">Setup and research</p>
+              <h2 id="field-title">Field guides</h2>
+            </div>
+            <p>Practical notes from the device boundary</p>
+          </div>
+          <div class="doc-grid">
+            <article class="doc-card" data-category="field" data-search="android setup adb wireless debugging pairing termux hermes">
+              <a href="guides/ANDROID_SETUP.md"><span class="group-kicker">Setup</span><h3>Android setup</h3><p>ADB, Developer Options, wireless pairing, Termux, and Hermes.</p><span class="doc-path">guides/ANDROID_SETUP.md</span></a>
+            </article>
+            <article class="doc-card" data-category="field" data-search="troubleshooting adb termux hermes common failures">
+              <a href="guides/TROUBLESHOOTING.md"><span class="group-kicker">Support</span><h3>Troubleshooting</h3><p>Common connection, Termux, and Hermes failures.</p><span class="doc-path">guides/TROUBLESHOOTING.md</span></a>
+            </article>
+            <article class="doc-card" data-category="field engineering" data-search="spike termux access ssh run command adb uid process boundary">
+              <a href="spikes/termux-access.md"><span class="group-kicker">Spike</span><h3>Termux access</h3><p>Findings on the Android shell boundary and SSH transport.</p><span class="doc-path">spikes/termux-access.md</span></a>
+            </article>
+            <article class="doc-card" data-category="field engineering" data-search="spike chat sessions hermes api transcripts rest session interface">
+              <a href="spikes/chat-sessions.md"><span class="group-kicker">Spike</span><h3>Chat session research</h3><p>Hermes session interfaces, data limits, and compatibility checks.</p><span class="doc-path">spikes/chat-sessions.md</span></a>
+            </article>
+          </div>
+        </section>
+
+        <section class="doc-section" id="roadmap" aria-labelledby="roadmap-title">
+          <div class="section-head">
+            <div>
+              <p class="group-kicker">Work breakdown</p>
+              <h2 id="roadmap-title">Milestone plans</h2>
+            </div>
+            <p>Plans link to acceptance criteria</p>
+          </div>
+          <div class="doc-grid">
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m0 foundations spikes scaffold tooling">
+              <a href="tasks/M0-foundations.md"><span class="group-kicker">M0</span><h3>Foundations &amp; spikes</h3><p>Resolve major unknowns and establish the repository foundation.</p><span class="doc-path">tasks/M0-foundations.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m1 desktop shell navigation settings rust skeleton">
+              <a href="tasks/M1-desktop-shell.md"><span class="group-kicker">M1</span><h3>Desktop shell</h3><p>Application shell, navigation, settings, and Rust skeleton.</p><span class="doc-path">tasks/M1-desktop-shell.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m2 adb core devices pairing connection inspection">
+              <a href="tasks/M2-adb-core.md"><span class="group-kicker">M2</span><h3>ADB core</h3><p>Device discovery, pairing, connection, and inspection.</p><span class="doc-path">tasks/M2-adb-core.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m3 terminal live logs logcat">
+              <a href="tasks/M3-basic-terminal-logs.md"><span class="group-kicker">M3</span><h3>Basic terminal &amp; live logs</h3><p>First working terminal and streaming log viewer.</p><span class="doc-path">tasks/M3-basic-terminal-logs.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m4 termux bridge ssh transport setup wizard">
+              <a href="tasks/M4-termux-bridge.md"><span class="group-kicker">M4</span><h3>Termux bridge</h3><p>Secure command execution as the Termux user.</p><span class="doc-path">tasks/M4-termux-bridge.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m5 hermes management status start stop restart">
+              <a href="tasks/M5-hermes.md"><span class="group-kicker">M5</span><h3>Hermes management</h3><p>Configure and control Hermes with clear status and results.</p><span class="doc-path">tasks/M5-hermes.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m6 terminal complete history sessions ansi snippets">
+              <a href="tasks/M6-terminal.md"><span class="group-kicker">M6</span><h3>Terminal complete</h3><p>Sessions, history, ANSI output, snippets, and scrollback.</p><span class="doc-path">tasks/M6-terminal.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m7 logs complete search filter export reconnect">
+              <a href="tasks/M7-logs.md"><span class="group-kicker">M7</span><h3>Logs complete</h3><p>Search, filtering, export, pause, and reconnect behavior.</p><span class="doc-path">tasks/M7-logs.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m8 hermes control api transport websocket">
+              <a href="tasks/M8-control-api.md"><span class="group-kicker">M8</span><h3>Hermes Control API</h3><p>Optional Termux-side service and structured transport.</p><span class="doc-path">tasks/M8-control-api.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m9 multi-device phones profiles overview tabs">
+              <a href="MILESTONES.md"><span class="group-kicker">M9</span><h3>Multi-device</h3><p>Scope and exit criteria are maintained in the roadmap.</p><span class="doc-path">MILESTONES.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m10 production hardening release signing diagnostics">
+              <a href="tasks/M10-production.md"><span class="group-kicker">M10</span><h3>Hardening &amp; production</h3><p>Security, resilience, accessibility, and release readiness.</p><span class="doc-path">tasks/M10-production.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m11 provisioning new phone termux install wizard">
+              <a href="tasks/M11-provisioning.md"><span class="group-kicker">M11</span><h3>New phone provisioning</h3><p>Repeatable setup from a paired phone to running Hermes.</p><span class="doc-path">tasks/M11-provisioning.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m12 cross platform windows linux packaging">
+              <a href="tasks/M12-cross-platform.md"><span class="group-kicker">M12</span><h3>Cross-platform release</h3><p>Windows and Linux support, packaging, and platform QA.</p><span class="doc-path">tasks/M12-cross-platform.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m13 chat session history transcript browser resume">
+              <a href="tasks/M13-chat-sessions.md"><span class="group-kicker">M13</span><h3>Chat session history</h3><p>Browse transcripts and resume Hermes conversations.</p><span class="doc-path">tasks/M13-chat-sessions.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m14 tray lifecycle close minimize restore quit">
+              <a href="tasks/M14-tray-lifecycle.md"><span class="group-kicker">M14</span><h3>Tray &amp; window lifecycle</h3><p>Hide, restore, and quit reliably across desktop platforms.</p><span class="doc-path">tasks/M14-tray-lifecycle.md</span></a>
+            </article>
+            <article class="doc-card milestone-card" data-category="roadmap" data-search="m15 documentation hub html index search catalog">
+              <a href="tasks/M15-documentation-hub.md"><span class="group-kicker">M15</span><h3>Documentation hub</h3><p>Single-page searchable entry point for project docs.</p><span class="doc-path">tasks/M15-documentation-hub.md</span></a>
+            </article>
+          </div>
+        </section>
+
+        <footer>
+          <span>Hermes Android Control Center · Documentation</span>
+          <a href="README.md">Open the Markdown index</a>
+        </footer>
+      </main>
+    </div>
+
+    <script>
+      const searchInput = document.querySelector("#doc-search");
+      const filterButtons = [...document.querySelectorAll("[data-filter]")];
+      const cards = [...document.querySelectorAll(".doc-card")];
+      const sections = [...document.querySelectorAll(".doc-section")];
+      const count = document.querySelector("#doc-count");
+      const emptyState = document.querySelector("#empty-state");
+      let activeFilter = "all";
+
+      function updateCatalog() {
+        const queryTerms = searchInput.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        let visibleCount = 0;
+
+        for (const card of cards) {
+          const categories = card.dataset.category.split(" ");
+          const searchableText = `${card.dataset.search} ${card.textContent}`.toLowerCase();
+          const matchesFilter = activeFilter === "all" || categories.includes(activeFilter);
+          const matchesQuery = queryTerms.every((term) => searchableText.includes(term));
+          card.hidden = !(matchesFilter && matchesQuery);
+          if (!card.hidden) visibleCount += 1;
+        }
+
+        for (const section of sections) {
+          section.hidden = section.querySelectorAll(".doc-card:not([hidden])").length === 0;
+        }
+
+        count.textContent = `${visibleCount} ${visibleCount === 1 ? "document" : "documents"}`;
+        emptyState.dataset.visible = String(visibleCount === 0);
+      }
+
+      for (const button of filterButtons) {
+        button.addEventListener("click", () => {
+          activeFilter = button.dataset.filter;
+          for (const candidate of filterButtons) {
+            candidate.setAttribute("aria-pressed", String(candidate === button));
+          }
+          updateCatalog();
+        });
+      }
+
+      searchInput.addEventListener("input", updateCatalog);
+      updateCatalog();
+    </script>
+  </body>
+</html>

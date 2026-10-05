@@ -2,6 +2,8 @@
 
 Hermes Android Control Center (HACC) is a desktop app (Tauri 2 + Rust + React) for managing a Hermes Agent running in Termux on an Android phone over Wireless ADB. macOS ships first (v1.0); Windows and Linux follow in v1.1 (M12).
 
+Open the [single-page documentation hub](index.html) for a searchable, grouped view of the project docs.
+
 | Document | Purpose |
 |---|---|
 | [INITIAL.md](INITIAL.md) | Original product brief (source of truth for requirements) |
