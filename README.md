@@ -2,7 +2,7 @@
 
 Desktop app (Tauri 2 + Rust + React) for managing a [Hermes Agent](https://github.com/NousResearch/hermes-agent) running in Termux on an Android phone over Wireless ADB. No screen mirroring needed.
 
-**Status:** M0–M4 implemented; M5 Hermes management is implemented and awaiting real-phone verification. See [docs/MILESTONES.md](docs/MILESTONES.md).
+**Status:** M0 foundations are in progress (ADB fixture matrix and fresh-phone provisioning checks remain); M1–M4 implementation milestones are complete. M5 and later work is tracked in [docs/MILESTONES.md](docs/MILESTONES.md).
 
 ## What works today
 - ADB auto-detection (or custom path in Settings)

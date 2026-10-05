@@ -24,7 +24,7 @@ Do not attempt either source's APK as an in-place upgrade on the observed phone 
 - `adb devices -l` showed one online CPH2239 and one stale offline serial. Probes used only the online mDNS serial.
 - Installed Termux reports version `0.119.0-beta.3`, version code 1022, target SDK 28, installer package `com.google.android.packageinstaller`; `com.termux.boot` is not installed.
 - `READ_EXTERNAL_STORAGE` and `WRITE_EXTERNAL_STORAGE` are declared but not granted. `MANAGE_EXTERNAL_STORAGE` app-op is `default`. Android 11's `pm` does not implement `check-permission`; the package dump and app-op query were used instead.
-- `/sdcard/Download` exists; `/sdcard/Download/hacc` does not. Shared-storage read/write was not tested because Termux SSH was unavailable and its special storage access is currently off.
+- `/sdcard/Download` exists; `/sdcard/Download/hacc` does not. Shared-storage read/write is untested; SSH is now available, but Termux's special storage access is off.
 - The user power whitelist did not include `com.termux`. Phantom-process settings queried as `null`, as expected for Android 11; Android 12-15 behavior remains untested.
 - An existing ADB forward maps local `tcp:49438` to device `tcp:8022`; it was left unchanged. The local TCP listener accepted connections, but the remote side closed SSH handshakes, and no `sshd` process was visible. The active Hermes/proot process was left untouched.
 
@@ -32,7 +32,7 @@ Do not attempt either source's APK as an in-place upgrade on the observed phone 
 
 Static inspection of the current [official installer](https://hermes-agent.nousresearch.com/install.sh) shows stages for prerequisites, repository, Python environment/dependencies, config, products, setup, gateway, and completion. Its `setup` stage invokes `hermes setup` only when an interactive TTY is available; its gateway stage invokes `hermes gateway install --if-missing` (not `hermes gateway setup`). Both interactive stages open `/dev/tty`. The installer explicitly rejects running directly under Termux; the planned target is Debian inside proot. These are source observations, not a live installer run. Whether gateway installation attempts systemd and how the current installer edits PATH/profile files inside proot remain unverified.
 
-The Termux RUN_COMMAND documentation requires both the sender's `com.termux.permission.RUN_COMMAND` permission and `allow-external-apps=true`; foreground command sessions may also require user interaction on Android 10+. This probe did not invoke RUN_COMMAND. The M0-S4 keystroke path (`am start`, `input text`, Enter) was not attempted because it could inject text into the active Hermes session.
+The Termux RUN_COMMAND documentation requires both the sender's `com.termux.permission.RUN_COMMAND` permission and `allow-external-apps=true`; foreground command sessions may also require user interaction on Android 10+. A separate M0-S1 probe temporarily enabled `allow-external-apps=true` with a backup, then attempted only the no-op `true` command; Android denied the ADB-shell sender with `Requires permission com.termux.permission.RUN_COMMAND`. The original properties file was restored (mode 0600, setting unset) and the temporary ADB forward was removed. The M0-S4 keystroke path (`am start`, `input text`, Enter) was not attempted because it could inject text into the active Hermes session.
 
 ## Remaining tests
 
@@ -44,3 +44,7 @@ The Termux RUN_COMMAND documentation requires both the sender's `com.termux.perm
 - On the Debian/proot fixture, run the official installer with PTY capture; record prompts, PATH/profile changes, `hermes setup`, gateway service behavior, SIGUSR1/SIGTERM behavior, and `~/.hermes/gateway_state.json` and log paths.
 
 Until those checks are performed on a spare/reset phone, M0-S4 remains partial. The earlier Termux/Hermes inventory is in [termux-access.md](termux-access.md).
+
+## Live recheck (2026-10-06)
+
+Wireless ADB and Termux SSH became available again. The app's ED25519 host-key pin matched the server key, and the saved app key authenticated as Termux uid `u0_a231`. Debian is still installed and Hermes v0.21.4 is present; no APK install, storage permission grant, shared-storage write, input injection, or reboot was performed. `allow-external-apps` remains unset and `/sdcard/Download` is not readable/writable from Termux, so provisioning still needs a reset/spare-device run.
