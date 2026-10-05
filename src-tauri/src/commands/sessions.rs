@@ -23,7 +23,7 @@ import errno, hashlib, hmac, json, os, stat, subprocess, sys, time, urllib.error
 request = json.loads(sys.argv[1])
 port = int(request["port"])
 base = "http://127.0.0.1:{}".format(port)
-timeout = 2
+timeout = 10
 session_token = None
 
 def read_session_token():
@@ -326,10 +326,17 @@ fn parse_messages(
         .ok_or_else(|| {
             AppError::Config("Hermes returned an unsupported transcript response.".into())
         })?;
+    let pagination = value.get("pagination").unwrap_or(value);
     let total = first_u64(
         value,
         &["total", "total_count", "totalCount", "message_count"],
-    );
+    )
+    .or_else(|| {
+        first_u64(
+            pagination,
+            &["total", "total_count", "totalCount", "message_count"],
+        )
+    });
     let parsed = messages
         .iter()
         .enumerate()
@@ -371,10 +378,12 @@ fn parse_messages(
     let reported_more = value
         .get("has_more")
         .or_else(|| value.get("hasMore"))
+        .or_else(|| pagination.get("has_more"))
+        .or_else(|| pagination.get("hasMore"))
         .and_then(serde_json::Value::as_bool);
+    let returned = first_u64(pagination, &["returned"]).unwrap_or(parsed.len() as u64);
     let has_more = reported_more.unwrap_or_else(|| {
-        total.is_some_and(|count| offset as u64 + (parsed.len() as u64) < count)
-            || parsed.len() >= limit as usize
+        total.is_some_and(|count| offset as u64 + returned < count) || returned >= limit as u64
     });
 
     Ok(HermesSessionPage {
@@ -582,6 +591,7 @@ with tempfile.TemporaryDirectory() as directory:
             MAX_TRANSCRIPT_BYTES,
         );
         assert!(command.contains("127.0.0.1"));
+        assert!(API_REQUEST_SCRIPT.contains("timeout = 10"));
         assert!(command.contains("\"hermes\", \"serve\""));
         assert!(command.contains("X-Hermes-Session-Token"));
         assert!(command.contains("tokenFingerprint"));
@@ -626,6 +636,43 @@ with tempfile.TemporaryDirectory() as directory:
         assert_eq!(page.messages[1].content, "hi");
         assert_eq!(page.messages[1].tool_calls, vec!["web_search"]);
         assert!(page.has_more);
+    }
+
+    #[test]
+    fn parses_hermes_serve_transcripts_with_nested_pagination() {
+        let full_page = parse_messages(
+            "s1",
+            &serde_json::json!({
+                "session_id": "s1",
+                "profile": "default",
+                "pagination": { "limit": 2, "offset": 0, "order": "oldest", "returned": 2 },
+                "messages": [
+                    { "id": "m1", "session_id": "s1", "role": "user", "content": "hello" },
+                    { "id": "m2", "session_id": "s1", "role": "assistant", "content": "hi" }
+                ]
+            }),
+            0,
+            2,
+        )
+        .unwrap();
+        assert_eq!(full_page.messages.len(), 2);
+        assert!(full_page.has_more);
+
+        let final_page = parse_messages(
+            "s1",
+            &serde_json::json!({
+                "session_id": "s1",
+                "pagination": { "limit": 2, "offset": 2, "order": "oldest", "returned": 1 },
+                "messages": [
+                    { "id": "m3", "session_id": "s1", "role": "assistant", "content": "done" }
+                ]
+            }),
+            2,
+            2,
+        )
+        .unwrap();
+        assert_eq!(final_page.messages.len(), 1);
+        assert!(!final_page.has_more);
     }
 
     #[test]

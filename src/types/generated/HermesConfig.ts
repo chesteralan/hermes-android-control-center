@@ -20,6 +20,10 @@ gatewayMatch: string,
  */
 hermesHome: string,
 /**
+ * Log paths inside the Hermes environment; gateway first, tool calls second.
+ */
+logFiles: Array<string>,
+/**
  * Prepended to PATH inside the environment (installers often only update interactive shells).
  */
 pathPrepend: Array<string>,

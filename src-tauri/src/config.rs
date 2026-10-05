@@ -59,6 +59,8 @@ pub struct HermesConfig {
     pub gateway_match: String,
     /// HERMES_HOME inside the environment.
     pub hermes_home: String,
+    /// Log paths inside the Hermes environment; gateway first, tool calls second.
+    pub log_files: Vec<String>,
     /// Prepended to PATH inside the environment (installers often only update interactive shells).
     pub path_prepend: Vec<String>,
     /// Optional overrides; when set they replace the built-in supervisor actions.
@@ -83,6 +85,10 @@ impl Default for HermesConfig {
             process_match: "hermes-agent/venv/bin/python".into(),
             gateway_match: "gateway run".into(),
             hermes_home: "/root/.hermes".into(),
+            log_files: vec![
+                "/root/.hermes/logs/gateway.log".into(),
+                "/root/.hermes/logs/tool_calls.log".into(),
+            ],
             path_prepend: vec!["/root/.local/bin".into()],
             start_command: String::new(),
             stop_command: String::new(),
@@ -324,6 +330,7 @@ mod tests {
         assert_eq!(cfg.hermes.start_command, "custom-start");
         assert_eq!(cfg.hermes.stop_command, "custom-stop");
         assert_eq!(cfg.hermes.status_command, "custom-status");
+        assert_eq!(cfg.hermes.log_files, HermesConfig::default().log_files);
         assert_eq!(
             cfg.hermes.environment,
             HermesEnvironment::ProotDistro {

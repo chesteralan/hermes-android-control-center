@@ -5,12 +5,14 @@ import { AdbBanner } from "./features/adb/AdbBanner";
 import { DashboardView } from "./features/dashboard/DashboardView";
 import { DeviceView } from "./features/device/DeviceView";
 import { LogsView } from "./features/logs/LogsView";
+import { LogAutoStart } from "./features/logs/LogAutoStart";
 import { HermesStatusCard } from "./features/hermes/HermesStatusCard";
 import { ChatView } from "./features/chat/ChatView";
 import { PairDialog } from "./features/device/PairDialog";
 import { SettingsView } from "./features/settings/SettingsView";
 import { TerminalView } from "./features/terminal/TerminalView";
 import { useDevices } from "./stores/devices";
+import { useSettings } from "./stores/settings";
 import { useRoute, type Route } from "./stores/route";
 
 function View({ route }: { route: Route }) {
@@ -35,15 +37,21 @@ function View({ route }: { route: Route }) {
 export default function App() {
   const route = useRoute((s) => s.route);
   const { subscribe, detectAdb, refresh } = useDevices();
+  const loadSettings = useSettings((s) => s.load);
+  const autoStartLogs = useSettings(
+    (s) => s.draft?.logs.autoStart ?? s.saved?.logs.autoStart ?? false,
+  );
 
   useEffect(() => {
     const unsubscribe = subscribe();
+    void loadSettings();
     void detectAdb().then(refresh);
     return unsubscribe;
-  }, [subscribe, detectAdb, refresh]);
+  }, [subscribe, detectAdb, refresh, loadSettings]);
 
   return (
     <>
+      <LogAutoStart enabled={autoStartLogs} />
       <Layout>
         <AdbBanner />
         <div className="p-6">

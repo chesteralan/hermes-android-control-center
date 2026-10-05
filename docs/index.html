@@ -118,6 +118,7 @@
 
       .sidebar {
         align-self: start;
+        min-width: 0;
         position: sticky;
         top: 26px;
       }
@@ -141,6 +142,7 @@
         border-left: 1px solid var(--line);
         display: grid;
         gap: 3px;
+        min-width: 0;
         padding: 0 0 0 11px;
       }
 
@@ -510,7 +512,7 @@
       @media (max-width: 840px) {
         .layout {
           gap: 27px;
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(0, 1fr);
           padding-top: 25px;
         }
 

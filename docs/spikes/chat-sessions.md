@@ -1,7 +1,7 @@
 # Chat Session Access Spike
 
-**Status:** Hermes REST API selected for the M13 read path; live-device verification still required.
-**Checked:** 2026-10-03 against the current Hermes Agent CLI reference and Web Dashboard documentation.
+**Status:** Hermes REST API selected for the M13 read path; session-list and transcript-page reads verified on one connected device running Hermes Agent v0.21.4. Gateway-session resume and the supported version range remain unverified.
+**Checked:** 2026-10-05 against the Hermes Agent CLI reference and Web Dashboard documentation, plus one live device.
 
 ## Findings
 
@@ -18,14 +18,16 @@
 
 Use the dashboard REST API from inside the selected Hermes environment, through the existing authenticated Termux SSH transport. Start/reuse `hermes serve` bound only to `127.0.0.1`; issue API requests to its loopback listener from that same environment. No new ADB port forward is needed, and the service must never bind to Wi-Fi/LAN.
 
-The Hermes store remains authoritative. The app parses only documented REST responses, requests message pages on demand, and persists no transcript content. Session identity is scoped by stable device ID plus configured Hermes environment/home.
+The Hermes store remains authoritative. The app parses only documented REST responses, requests message pages on demand, and persists no transcript content. Session identity is scoped by stable device ID plus configured Hermes environment/home. The desktop stores only the selected session ID for restoration; it does not persist message content, previews, or free-text search terms, which may themselves contain sensitive session content.
+
+Live verification on Hermes Agent v0.21.4 confirmed the session-list `id` field, string message content with `role`, and a transcript `pagination` object containing `limit`, `offset`, `order`, and `returned`. The API health, configured home, owner token, session list, and one-message page all verified while bound to 127.0.0.1. Cold `/api/status` took 5.9–7.3 seconds, so the request helper timeout was raised from 2 to 10 seconds. The temporary server was stopped after each probe.
 
 ## Compatibility checks still required
 
-- Verify the exact JSON field names and error envelopes against a connected Termux/proot install before treating DTOs as stable.
-- Verify whether `hermes serve --skip-build` is available and sufficient for API-only use; do not trigger a web UI build or open a browser as a side effect.
-- Verify server startup/readiness, already-running detection, and behavior when another process owns port 9119.
-- Verify a gateway-created session can be opened and resumed through `hermes chat --resume` without changing its source/platform identity.
+- No minimum Hermes version is claimed yet. The live check covers v0.21.4 only; the minimum/current supported version matrix remains open.
+- Verify documented JSON fields and error envelopes against the minimum supported Hermes version before treating DTOs as stable across versions.
+- `hermes serve --skip-build`, loopback readiness, owner-token validation, and a bounded transcript page were verified on v0.21.4. Port-conflict behavior still needs live verification against an unrelated listener.
+- The connected phone exposed CLI, cron, and oneshot sessions, but no gateway-created session; verify gateway-session browsing and resume without changing source/platform identity.
 
 ## References
 

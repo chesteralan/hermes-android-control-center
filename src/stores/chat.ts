@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
-import type { HermesChatEvent, HermesSessionMessage, HermesSessionSummary } from "../types";
+import type {
+  HermesChatEvent,
+  HermesEnvironment,
+  HermesSessionMessage,
+  HermesSessionSummary,
+} from "../types";
 
 export interface ChatMessage {
   id: string;
@@ -8,9 +13,17 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface QueuedPrompt {
+  id: string;
+  prompt: string;
+  serial: string;
+  preferenceKey?: string;
+}
+
 export interface ChatEntry {
   sessionId: string | null;
   messages: ChatMessage[];
+  queuedPrompts: QueuedPrompt[];
   streamId: string | null;
   requestId: string | null;
   running: boolean;
@@ -27,6 +40,7 @@ export interface ChatEntry {
 const EMPTY_CHAT: ChatEntry = {
   sessionId: null,
   messages: [],
+  queuedPrompts: [],
   streamId: null,
   requestId: null,
   running: false,
@@ -42,12 +56,43 @@ const EMPTY_CHAT: ChatEntry = {
 
 interface ChatStore {
   byDevice: Record<string, ChatEntry>;
-  send: (key: string, serial: string, prompt: string) => Promise<void>;
+  send: (
+    key: string,
+    serial: string,
+    prompt: string,
+    preferenceKey?: string,
+    fromQueue?: boolean,
+  ) => Promise<void>;
+  removeQueuedPrompt: (key: string, promptId: string) => void;
+  runNextQueued: (key: string) => Promise<void>;
   refreshSessions: (key: string, serial: string) => Promise<void>;
-  openSession: (key: string, serial: string, sessionId: string) => Promise<void>;
+  openSession: (
+    key: string,
+    serial: string,
+    sessionId: string,
+    preferenceKey?: string,
+  ) => Promise<void>;
   loadMoreMessages: (key: string, serial: string) => Promise<void>;
   stop: (key: string) => Promise<void>;
-  newConversation: (key: string) => Promise<void>;
+  newConversation: (key: string, preferenceKey?: string) => Promise<void>;
+}
+
+export function chatSessionPreferenceKey(
+  deviceId: string,
+  environment: HermesEnvironment,
+  hermesHome: string,
+): string {
+  return `hermes-control-center:chat-selection:${JSON.stringify([deviceId, environment, hermesHome])}`;
+}
+
+function persistSelectedSession(preferenceKey: string | undefined, sessionId: string | null) {
+  if (!preferenceKey || typeof localStorage === "undefined") return;
+  try {
+    if (sessionId) localStorage.setItem(preferenceKey, sessionId);
+    else localStorage.removeItem(preferenceKey);
+  } catch {
+    return;
+  }
 }
 
 function messageId(): string {
@@ -110,6 +155,18 @@ export const useChat = create<ChatStore>((set, get) => {
 
   return {
     byDevice: {},
+    removeQueuedPrompt: (key, promptId) => {
+      const current = get().byDevice[key] ?? EMPTY_CHAT;
+      patch(key, { queuedPrompts: current.queuedPrompts.filter((item) => item.id !== promptId) });
+    },
+    runNextQueued: async (key) => {
+      const current = get().byDevice[key] ?? EMPTY_CHAT;
+      if (current.running || current.stopping || !current.queuedPrompts.length) return;
+      const [next, ...queuedPrompts] = current.queuedPrompts;
+      if (!next) return;
+      patch(key, { queuedPrompts });
+      await get().send(key, next.serial, next.prompt, next.preferenceKey, true);
+    },
     refreshSessions: async (key, serial) => {
       patch(key, { loadingSessions: true, sessionsError: null });
       try {
@@ -122,9 +179,10 @@ export const useChat = create<ChatStore>((set, get) => {
         });
       }
     },
-    openSession: async (key, serial, sessionId) => {
+    openSession: async (key, serial, sessionId, preferenceKey) => {
       const current = get().byDevice[key] ?? EMPTY_CHAT;
       if (current.running) return;
+      persistSelectedSession(preferenceKey, sessionId);
       patch(key, {
         sessionId,
         messages: [],
@@ -179,10 +237,20 @@ export const useChat = create<ChatStore>((set, get) => {
         }
       }
     },
-    send: async (key, serial, prompt) => {
+    send: async (key, serial, prompt, preferenceKey, fromQueue = false) => {
       const text = prompt.trim();
       const current = get().byDevice[key] ?? EMPTY_CHAT;
-      if (!text || current.running) return;
+      if (!text) return;
+      if (current.running || (current.queuedPrompts.length > 0 && !fromQueue)) {
+        patch(key, {
+          queuedPrompts: [
+            ...current.queuedPrompts,
+            { id: messageId(), prompt: text, serial, preferenceKey },
+          ],
+        });
+        if (!current.running) void get().runNextQueued(key);
+        return;
+      }
 
       const assistantId = messageId();
       patch(key, {
@@ -204,6 +272,7 @@ export const useChat = create<ChatStore>((set, get) => {
         if (entry.requestId !== assistantId || entry.stopping) return;
         switch (event.type) {
           case "session":
+            persistSelectedSession(preferenceKey, event.sessionId);
             patch(key, { sessionId: event.sessionId });
             break;
           case "text":
@@ -243,6 +312,7 @@ export const useChat = create<ChatStore>((set, get) => {
             break;
           case "complete":
             completed = true;
+            persistSelectedSession(preferenceKey, event.sessionId ?? entry.sessionId);
             patch(key, {
               sessionId: event.sessionId ?? entry.sessionId,
               running: false,
@@ -254,6 +324,7 @@ export const useChat = create<ChatStore>((set, get) => {
                   : entry.error,
             });
             void get().refreshSessions(key, serial);
+            void get().runNextQueued(key);
             break;
         }
       };
@@ -268,6 +339,7 @@ export const useChat = create<ChatStore>((set, get) => {
             const afterCancel = get().byDevice[key] ?? EMPTY_CHAT;
             if (afterCancel.requestId === assistantId) {
               patch(key, { running: false, stopping: false, requestId: null, streamId: null });
+              void get().runNextQueued(key);
             }
           }
         } else if (!completed && latest.requestId === assistantId) {
@@ -287,6 +359,7 @@ export const useChat = create<ChatStore>((set, get) => {
                 ? String(error.message)
                 : String(error),
           });
+          if (get().byDevice[key]?.queuedPrompts.length) void get().runNextQueued(key);
         }
       }
     },
@@ -306,14 +379,17 @@ export const useChat = create<ChatStore>((set, get) => {
             requestId: null,
             streamId: null,
           });
+          void get().runNextQueued(key);
         }
       }
     },
-    newConversation: async (key) => {
+    newConversation: async (key, preferenceKey) => {
       await get().stop(key);
+      persistSelectedSession(preferenceKey, null);
       patch(key, {
         sessionId: null,
         messages: [],
+        queuedPrompts: [],
         streamId: null,
         requestId: null,
         running: false,

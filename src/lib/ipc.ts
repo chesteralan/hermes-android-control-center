@@ -32,6 +32,9 @@ export const EVENTS = {
   reconnect: "device://reconnect",
 } as const;
 
+export type LogExportFormat = "log" | "jsonl";
+export type TerminalPtyEvent = { type: "data"; data: number[] } | { type: "closed" };
+
 function isErrorPayload(e: unknown): e is ErrorPayload {
   return typeof e === "object" && e !== null && "kind" in e && "message" in e;
 }
@@ -107,11 +110,30 @@ export const ipc = {
       limit,
     }),
   cancelStream: (streamId: string) => call<boolean>("cancel_stream", { streamId }),
+  startTerminalPty: (
+    serial: string,
+    columns: number,
+    rows: number,
+    onEvent: (event: TerminalPtyEvent) => void,
+  ) => {
+    const channel = new Channel<TerminalPtyEvent>();
+    channel.onmessage = onEvent;
+    return call<string>("start_terminal_pty", { serial, columns, rows, onEvent: channel });
+  },
+  writeTerminalPty: (sessionId: string, data: number[]) =>
+    call<void>("write_terminal_pty", { sessionId, data }),
+  resizeTerminalPty: (sessionId: string, columns: number, rows: number) =>
+    call<void>("resize_terminal_pty", { sessionId, columns, rows }),
+  closeTerminalPty: (sessionId: string) =>
+    call<boolean>("close_terminal_pty", { sessionId }),
+  exportTerminalText: (text: string) => call<string | null>("export_terminal_text", { text }),
   startLogStream: (serial: string, source: LogSourceKind, onBatch: (lines: LogLine[]) => void) => {
     const channel = new Channel<LogLine[]>();
     channel.onmessage = onBatch;
     return call<string>("start_log_stream", { serial, source, onBatch: channel });
   },
+  exportLogs: (lines: LogLine[], format: LogExportFormat) =>
+    call<string | null>("export_logs", { lines, format }),
   onDevicesChanged: (cb: (d: AndroidDevice[]) => void): Promise<UnlistenFn> =>
     listen<AndroidDevice[]>(EVENTS.devices, (e) => cb(e.payload)),
   onReconnect: (cb: (s: ReconnectStatus) => void): Promise<UnlistenFn> =>

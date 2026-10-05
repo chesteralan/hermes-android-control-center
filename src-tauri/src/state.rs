@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use russh::keys::PrivateKey;
@@ -17,7 +18,77 @@ use crate::streams::StreamRegistry;
 use crate::termux::forward::ForwardManager;
 use crate::termux::keys;
 use crate::termux::known_hosts::KnownHosts;
-use crate::termux::ssh::{self, SshPool, TermuxSshTransport};
+use crate::termux::ssh::{self, PtyInput, PtySessionControl, SshPool, TermuxSshTransport};
+
+struct PtySessionEntry {
+    serial: String,
+    control: PtySessionControl,
+}
+
+#[derive(Default)]
+pub struct PtySessionRegistry {
+    next_id: AtomicU64,
+    sessions: Mutex<HashMap<String, PtySessionEntry>>,
+}
+
+impl PtySessionRegistry {
+    pub fn insert(&self, serial: &str, control: PtySessionControl) -> String {
+        let id = format!("pty-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
+        self.sessions.lock().unwrap().insert(
+            id.clone(),
+            PtySessionEntry {
+                serial: serial.to_string(),
+                control,
+            },
+        );
+        id
+    }
+
+    pub fn control(&self, id: &str) -> Option<PtySessionControl> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|entry| entry.control.clone())
+    }
+
+    pub async fn close(&self, id: &str) -> bool {
+        let entry = self.sessions.lock().unwrap().remove(id);
+        if let Some(entry) = entry {
+            let _ = entry.control.send(PtyInput::Close).await;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn close_device(&self, serial: &str) {
+        let ids = self
+            .sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, entry)| entry.serial == serial)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        for id in ids {
+            self.close(&id).await;
+        }
+    }
+
+    pub async fn close_all(&self) {
+        let ids = self
+            .sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in ids {
+            self.close(&id).await;
+        }
+    }
+}
 
 pub type LogLevelSetter = Box<dyn Fn(LogLevelSetting) + Send + Sync>;
 
@@ -37,6 +108,7 @@ pub struct AppState {
     pub known_hosts: KnownHosts,
     pub forwards: ForwardManager,
     pub ssh: SshPool,
+    pub pty_sessions: Arc<PtySessionRegistry>,
 }
 
 impl AppState {
@@ -63,6 +135,7 @@ impl AppState {
             ssh_key_init: Mutex::new(()),
             forwards: ForwardManager::default(),
             ssh: SshPool::default(),
+            pty_sessions: Arc::new(PtySessionRegistry::default()),
         }
     }
 
@@ -111,6 +184,7 @@ impl AppState {
 
     /// Drop SSH sessions and port forwards for a device.
     pub async fn release_device(&self, serial: &str) {
+        self.pty_sessions.close_device(serial).await;
         self.ssh.drop_device(serial).await;
         if let Ok(client) = self.adb_client().await {
             self.forwards.remove_device(&client, serial).await;

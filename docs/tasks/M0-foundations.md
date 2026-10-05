@@ -23,7 +23,7 @@
 - Capture 200 lines of real log output (redacted) as a fixture.
 - **Output:** `docs/spikes/hermes-commands.md` + `src-tauri/tests/fixtures/hermes/*.txt`.
 
-### [ ] M0-S4 Provisioning feasibility (fresh or reset phone)
+### [~] M0-S4 Provisioning feasibility (fresh or reset phone)
 - `adb install` of Termux APK (F-Droid and GitHub builds); note OEM prompts.
 - Locate download metadata + SHA-256 source for each (F-Droid index, GitHub release assets/checksums).
 - `pm grant` storage/notification permissions for Termux; Termux can read/write `/sdcard/Download/hacc/`.
@@ -33,6 +33,7 @@
 - Record the exact Hermes install + configure steps inside the chosen distro (becomes the default recipe).
 - Debian + official installer: does `install.sh` prompt (needs PTY)? Which PATH/profile files does it edit? Does `hermes setup` / `hermes gateway setup` try to install a systemd service and how does it fail? Does `hermes gateway run` honor SIGUSR1 drain and SIGTERM in proot? Confirm `~/.hermes/gateway_state.json` + `~/.hermes/logs/*` paths.
 - **Output:** `docs/spikes/provisioning.md`.
+- **Progress:** Release metadata, GitHub APK checksum, and read-only state from the existing CPH2239 are recorded in [provisioning.md](../spikes/provisioning.md). Fresh install, permissions, shared-storage, keystroke bootstrap, Termux:Boot, and reboot checks remain unverified; this phone has an active Hermes session and is not a reset test device.
 
 ### [~] M0-S3 ADB output fixtures
 - Capture raw output (redact serials/IPs) for: `adb version`, `adb devices -l` (none / USB / wireless / unauthorized / offline / multiple), `adb track-devices -l` (hex-length frames), `adb connect` (success / refused / already connected / timeout / failed to authenticate), `adb pair` (success / wrong code), `adb disconnect`, `adb mdns check`, `adb mdns services` (idle, and while the phone shows "Pair device with QR code" after scanning), `getprop`, `dumpsys battery`, `df -k /data`, `/proc/meminfo`, `/proc/cpuinfo`, `ip -f inet addr show wlan0`.

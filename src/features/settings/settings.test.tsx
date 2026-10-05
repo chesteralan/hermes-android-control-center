@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useDevices } from "../../stores/devices";
@@ -28,6 +28,7 @@ const cfg: AppConfig = {
     processMatch: "hermes-agent/venv/bin/python",
     gatewayMatch: "gateway run",
     hermesHome: "/root/.hermes",
+    logFiles: ["/root/.hermes/logs/gateway.log", "/root/.hermes/logs/tool_calls.log"],
     pathPrepend: ["/root/.local/bin"],
   },
   logs: { autoStart: false, logcatFilter: "*:I" },
@@ -51,6 +52,29 @@ describe("SettingsView", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(fn).toHaveBeenCalledWith("update_settings", {
       config: { ...cfg, hermes: { ...cfg.hermes, startCommand: "hermes gateway run" } },
+    });
+  });
+
+  it("edits Hermes log file paths", async () => {
+    const fn = mockIpc({
+      get_settings: () => cfg,
+      update_settings: (args) => args?.config,
+    });
+    render(<SettingsView />);
+    const files = await screen.findByRole("textbox", { name: "Hermes log files" });
+    fireEvent.change(files, {
+      target: { value: "/root/logs/gateway.log, /root/logs/tool_calls.log" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fn).toHaveBeenCalledWith("update_settings", {
+      config: {
+        ...cfg,
+        hermes: {
+          ...cfg.hermes,
+          logFiles: ["/root/logs/gateway.log", "/root/logs/tool_calls.log"],
+        },
+      },
     });
   });
 

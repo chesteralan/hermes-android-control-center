@@ -284,6 +284,28 @@ export function SettingsView() {
             }
           />
         </Row>
+        <Row
+          label="Hermes log files"
+          hint="Comma-separated paths inside the configured Hermes environment; gateway first, tool calls second."
+        >
+          <input
+            aria-label="Hermes log files"
+            className={input}
+            value={d.hermes.logFiles.join(", ")}
+            onChange={(e) =>
+              edit((c) => ({
+                ...c,
+                hermes: {
+                  ...c.hermes,
+                  logFiles: e.target.value
+                    .split(",")
+                    .map((path) => path.trim())
+                    .filter(Boolean),
+                },
+              }))
+            }
+          />
+        </Row>
         <Row label="Command preview" hint="Gateway command wrapped for the selected environment.">
           <code className="block overflow-x-auto whitespace-pre rounded bg-bg p-2 font-mono text-[12px]">
             {previewHermesCommand(d.hermes)}

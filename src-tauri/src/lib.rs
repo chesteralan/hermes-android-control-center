@@ -26,6 +26,7 @@ use crate::state::AppState;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let handle = app.handle().clone();
             let cfg = config_store::load(&handle);
@@ -47,7 +48,12 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                window.state::<AppState>().shutdown.cancel();
+                let state = window.state::<AppState>();
+                state.shutdown.cancel();
+                let pty_sessions = state.pty_sessions.clone();
+                tauri::async_runtime::spawn(async move {
+                    pty_sessions.close_all().await;
+                });
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -69,7 +75,13 @@ pub fn run() {
             commands::terminal::execute_command,
             commands::terminal::stream_command,
             commands::terminal::cancel_stream,
+            commands::terminal::start_terminal_pty,
+            commands::terminal::write_terminal_pty,
+            commands::terminal::resize_terminal_pty,
+            commands::terminal::close_terminal_pty,
+            commands::terminal::export_terminal_text,
             commands::logs::start_log_stream,
+            commands::logs::export_logs,
             commands::termux::get_termux_public_key,
             commands::termux::check_termux,
             commands::termux::forget_termux_host_key,
