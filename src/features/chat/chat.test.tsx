@@ -453,7 +453,7 @@ describe("ChatView", () => {
     expect(screen.queryByText("No sessions found.")).not.toBeInTheDocument();
   });
 
-  it("restores only the selected session for the same device and Hermes home", async () => {
+  it("restores only the selected session for the same device and Hermes environment/home", async () => {
     const preferenceKey = chatSessionPreferenceKey(
       deviceKey(device()),
       testConfig.hermes.environment,
@@ -526,6 +526,20 @@ describe("ChatView", () => {
     expect(await screen.findByText("New conversation")).toBeInTheDocument();
     expect(messageSerials).toHaveLength(2);
     otherHomeView.unmount();
+
+    const otherEnvironment = {
+      ...testConfig,
+      hermes: {
+        ...testConfig.hermes,
+        environment: { ...testConfig.hermes.environment, distro: "ubuntu" },
+      },
+    };
+    useSettings.setState({ saved: otherEnvironment, draft: otherEnvironment });
+    const otherEnvironmentView = render(<ChatView />);
+    expect(await screen.findByText("New conversation")).toBeInTheDocument();
+    expect(messageSerials).toHaveLength(2);
+    expect(localStorage.getItem(preferenceKey)).toBe("session-old");
+    otherEnvironmentView.unmount();
   });
 
   it("renders a measured viewport slice for long transcripts", async () => {

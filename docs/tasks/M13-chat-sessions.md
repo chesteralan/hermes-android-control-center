@@ -25,7 +25,8 @@
 - Selected the Hermes REST API served by `hermes serve`/`hermes dashboard`, called from inside the configured Hermes environment over the existing SSH bridge. The API stays bound to 127.0.0.1; no extra ADB forward or LAN listener is needed.
 - Hermes CLI `sessions list` is human-readable, so the app will not parse its table. `sessions export` JSONL remains a fallback for transcript diagnosis, not the session-list path. The app will not read Hermes' internal SQLite schema.
 - Documented source references, dependencies, bounds, and remaining compatibility checks in [spikes/chat-sessions.md](../spikes/chat-sessions.md).
-- **Remaining live checks:** port-conflict handling with an unrelated listener and resuming a gateway-created session on a supported minimum/current Hermes version.
+- **Local test:** an unrelated HTTP service on the loopback API port is rejected without spawning a duplicate Hermes service.
+- **Remaining live checks:** verify port-conflict handling on-device and resume a gateway-created session on a supported minimum/current Hermes version.
 
 ### [~] M13-T2 Typed Rust session access
 - Add Rust session DTOs and commands to list/filter sessions and retrieve a bounded transcript through the existing Termux SSH bridge and Hermes loopback REST API.
@@ -53,18 +54,19 @@
 - **Implementation note:** A rotated session ID from Hermes updates the device/environment-scoped selected-session preference. Additional prompts stay queued until the current response completes or is stopped, then drain in order with the latest session ID.
 - **Tests:** transcript hydration, resume args, stream append, new-session isolation, compression/session-ID update, queue FIFO/removal/cancel-advance, cancellation, and failed resume.
 
-### [~] M13-T5 Device-scoped restoration and documentation
+### [x] M13-T5 Device-scoped restoration and documentation
 - Persist the selected session ID and non-sensitive list preferences per stable `device_id` and configured Hermes environment/home. Do not persist transcripts or preview text by default.
 - If the phone is unavailable, retain the selection and show an explicit reconnect state; do not fabricate cached session data.
 - Document session sources, environment/profile scope, privacy behavior, supported Hermes version/interface, and troubleshooting.
 - **Implementation note:** The selected session ID is stored per device/environment/home and its transcript is reloaded from Hermes. Free-text search, previews, and transcript content are not persisted because search terms may contain session content.
+- **Documentation:** Session source labels, device/environment/home scope, local persistence and privacy behavior, profile limitations, the v0.21.4-only live verification, and troubleshooting are documented in [TROUBLESHOOTING.md](../guides/TROUBLESHOOTING.md#chat-sessions) and [the access spike](../spikes/chat-sessions.md). No minimum supported Hermes version is claimed.
 - **Tests:** app restart restoration, wireless serial change with stable device ID, environment separation, and unavailable-device behavior.
 
 ### [~] M13-T6 Cross-platform and performance QA
 - Verify list/transcript flows on macOS, Windows, and Linux after M12, including cancellation and reconnect during retrieval.
 - Bound list page size, transcript size, and render work; virtualize long transcripts if needed.
 - Run the normal milestone CI gates and add a manual connected-phone check against the minimum and current supported Hermes versions.
-- **Implementation note:** Rust caps session-list response bodies at 2 MiB, transcript response bodies at 8 MiB, and clamps each message page to 1–500 entries. The Chat view virtualizes transcripts over 100 messages; a 250-message viewport-slice test passes. Rust parsing/pagination tests pass. Cross-platform and connected-phone/version-matrix performance checks remain open.
+- **Implementation note:** Rust caps session-list response bodies at 2 MiB, transcript response bodies at 8 MiB, and clamps each message page to 1–500 entries. Regression tests cover page-size clamping and oversized-response rejection. The Chat view virtualizes transcripts over 100 messages; a 250-message viewport-slice test passes. Cross-platform and connected-phone/version-matrix performance checks remain open.
 
 ## Exit check
 
@@ -72,5 +74,6 @@
 - [x] A user can open an old session and continue it in Chat without losing the existing transcript or streaming behavior.
 - [x] Session selection survives app restart and wireless serial changes without crossing devices/environments.
 - [x] No second canonical session database exists; transcript content is not logged or persisted by the app.
-- [ ] Supported Hermes versions and any session-list/transcript limits are documented and tested.
+- [x] Session-list and transcript limits are documented and tested.
+- [ ] Supported Hermes versions are documented and tested across the supported range.
 - [ ] All M12-supported desktop platforms pass CI and manual connected-phone QA.

@@ -40,7 +40,7 @@
 ### [~] M0-S3 ADB output fixtures
 - Capture raw output (redact serials/IPs) for: `adb version`, `adb devices -l` (none / USB / wireless / unauthorized / offline / multiple), `adb track-devices -l` (hex-length frames), `adb connect` (success / refused / already connected / timeout / failed to authenticate), `adb pair` (success / wrong code), `adb disconnect`, `adb mdns check`, `adb mdns services` (idle, and while the phone shows "Pair device with QR code" after scanning), `getprop`, `dumpsys battery`, `df -k /data`, `/proc/meminfo`, `/proc/cpuinfo`, `ip -f inet addr show wlan0`.
 - **Output:** `src-tauri/tests/fixtures/adb/*.txt`.
-- **Progress:** Captured ADB version, no-device and wireless-alias listings, host-local refused and live already-connected results, selected getprop fields, battery, `/data` df, meminfo, CPU summary, WLAN IP, and idle/live mDNS output with serial/IP redaction. USB, unauthorized/offline, authentication/timeout/pairing failures, QR discovery, and alternate Android versions still need device-specific captures; see [fixtures README](../../src-tauri/tests/fixtures/README.md).
+- **Progress:** Captured ADB version, no-device and wireless-alias listings, host-local refused and live already-connected results, selected getprop fields, battery, `/data` df, meminfo, CPU summary, WLAN IP, and idle/live mDNS output with serial/IP redaction. Verified the sanitized `track_frames.bin` frame's `0074` prefix matches its 116-byte payload, with an explicit parser regression assertion. USB, unauthorized/offline, authentication/timeout/pairing failures, QR discovery, and alternate Android versions still need device-specific captures; see [fixtures README](../../src-tauri/tests/fixtures/README.md).
 
 ## Scaffolding
 

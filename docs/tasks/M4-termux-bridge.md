@@ -29,9 +29,9 @@
 - Each item: ok / failed + fix hint.
 - Maps failures to `TermuxUnavailable { reason }`.
 
-### [ ] M4-T5 Optional bootstrap via RUN_COMMAND
-- Deferred: M0-S1 RUN_COMMAND spike not run yet (writes to the phone).
-- Only if M0-S1 succeeded: "Start sshd in Termux" button sends the intent. Otherwise hide and show manual instruction.
+### [!] M4-T5 Optional bootstrap via RUN_COMMAND
+- Blocked on the tested Android 11 device: after temporarily enabling `allow-external-apps=true`, a no-op RUN_COMMAND request was denied because the ADB-shell sender lacks `com.termux.permission.RUN_COMMAND`.
+- Do not add a button that sends the intent unless a supported Android/Termux configuration is verified to grant the required permission. Keep the manual SSH setup instructions as the supported path. See the [M0-S1 device findings](../spikes/termux-access.md#live-read-only-recheck-2026-10-06).
 
 ### [x] M4-T6 Transport selection
 - `execute_command`/`stream_command` gain `transport: TransportKind` (`AdbShell` | `TermuxSsh`); `HermesConfig.transport` default `TermuxSsh`.

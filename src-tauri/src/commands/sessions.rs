@@ -439,6 +439,19 @@ pub async fn list_hermes_sessions(
     parse_sessions(&value)
 }
 
+fn session_messages_path(
+    session_id: &str,
+    offset: Option<u32>,
+    limit: Option<u32>,
+) -> (String, u32) {
+    let offset = offset.unwrap_or(0);
+    let limit = limit.unwrap_or(MAX_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
+    (
+        format!("/api/sessions/{session_id}/messages?limit={limit}&offset={offset}&order=oldest"),
+        limit,
+    )
+}
+
 #[tauri::command]
 pub async fn get_hermes_session_messages(
     state: State<'_, AppState>,
@@ -451,11 +464,7 @@ pub async fn get_hermes_session_messages(
         return Err(AppError::Config("Hermes session ID is invalid.".into()));
     }
     let offset = offset.unwrap_or(0);
-    let limit = limit.unwrap_or(MAX_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
-    let path = format!(
-        "/api/sessions/{}/messages?limit={limit}&offset={offset}&order=oldest",
-        session_id
-    );
+    let (path, limit) = session_messages_path(&session_id, Some(offset), limit);
     let cfg = state.config.read().await.hermes.clone();
     let value = request_api(&state, &serial, &cfg, &path, MAX_TRANSCRIPT_BYTES).await?;
     parse_messages(&session_id, &value, offset, limit)
@@ -465,6 +474,43 @@ pub async fn get_hermes_session_messages(
 mod tests {
     use super::*;
     use crate::config::HermesEnvironment;
+
+    #[test]
+    fn health_probe_rejects_an_unrelated_listener_without_spawning() {
+        let helper = API_REQUEST_SCRIPT
+            .split("\ntry:\n    ensure_server()")
+            .next()
+            .unwrap();
+        let checks = r#"
+import io
+def forbid_spawn(*args, **kwargs):
+    raise AssertionError('spawned Hermes beside an unrelated listener')
+subprocess.Popen = forbid_spawn
+def get_json(path, max_bytes, token=None):
+    assert path == '/api/health'
+    raise urllib.error.HTTPError(
+        'http://127.0.0.1:9119/api/health', 404, 'Not Found', {}, io.BytesIO(b'not Hermes')
+    )
+try:
+    ensure_server()
+    raise AssertionError('accepted an unrelated listener')
+except RuntimeError as error:
+    assert str(error) == 'Hermes session API health probe failed; refusing to launch a duplicate server'
+"#;
+        let output = std::process::Command::new("python3")
+            .args([
+                "-c",
+                &format!("{helper}\n{checks}"),
+                r#"{"port":9119,"hermes_home":"~/.hermes"}"#,
+            ])
+            .output()
+            .expect("python3 runs the unrelated-listener regression check");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn verifies_tokens_with_empty_record_home_against_live_server() {
@@ -596,6 +642,68 @@ with tempfile.TemporaryDirectory() as directory:
         assert!(command.contains("X-Hermes-Session-Token"));
         assert!(command.contains("tokenFingerprint"));
         assert!(command.contains("20261003_120000_a1b2c3"));
+        assert!(command.contains(r#""max_bytes":8388608"#));
+
+        let list_command = build_api_command(&cfg, "/api/sessions", MAX_LIST_BYTES);
+        assert!(list_command.contains(r#""max_bytes":2097152"#));
+    }
+
+    #[test]
+    fn clamps_session_message_page_size() {
+        assert_eq!(
+            session_messages_path("s1", None, None),
+            (
+                "/api/sessions/s1/messages?limit=500&offset=0&order=oldest".into(),
+                500
+            )
+        );
+        assert_eq!(
+            session_messages_path("s1", Some(12), Some(0)),
+            (
+                "/api/sessions/s1/messages?limit=1&offset=12&order=oldest".into(),
+                1
+            )
+        );
+        assert_eq!(
+            session_messages_path("s1", Some(12), Some(900)),
+            (
+                "/api/sessions/s1/messages?limit=500&offset=12&order=oldest".into(),
+                500
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_session_api_response_over_the_configured_size_limit() {
+        let helper = API_REQUEST_SCRIPT
+            .split("\ntry:\n    ensure_server()")
+            .next()
+            .unwrap();
+        let checks = r#"
+class OversizedResponse:
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        return False
+    def read(self, size):
+        assert size == 5
+        return b'123456'
+urllib.request.urlopen = lambda request, timeout: OversizedResponse()
+try:
+    get_json('/api/sessions', 4)
+    raise AssertionError('accepted an oversized response')
+except RuntimeError as error:
+    assert str(error) == 'Hermes session response exceeds the size limit'
+"#;
+        let output = std::process::Command::new("python3")
+            .args(["-c", &format!("{helper}\n{checks}"), r#"{"port":9119}"#])
+            .output()
+            .expect("python3 runs the response-size regression check");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]

@@ -36,6 +36,14 @@
 | Logs stop after a while | Termux killed / log file rotated | `tail -F` (capital F) in log command; check battery settings |
 | `adb server version doesn't match this client` | Multiple adb installs (e.g. Homebrew + Android Studio) | Pick one path in Settings; `adb kill-server` |
 
+## Chat sessions
+
+Chat reads sessions from the selected phone's configured Hermes environment and home through Hermes' loopback dashboard REST API over the Termux SSH bridge. Hermes must include its web extra and the API must be available on `127.0.0.1`; the app does not expose it on the phone's LAN. Session source labels come from Hermes. Gateway-created session listing and resume still need live verification.
+
+The last selected session ID is stored locally, scoped by stable device identity, Hermes environment, and home. Transcripts, previews, and search text are not persisted. After reconnecting, the app reloads the transcript from the phone; it does not display a cached copy while the phone is unavailable.
+
+Live session-list and transcript-page reads have been verified on Hermes Agent v0.21.4 only. No minimum supported Hermes version is claimed yet. The list endpoint returns the 20 most recent sessions. Transcript pages request 1–500 messages (Hermes' maximum is 500); the app rejects session-list responses over 2 MiB and transcript pages over 8 MiB. If the session list is unavailable, confirm the selected phone is online, Termux SSH is connected, the configured Hermes environment/home is correct, and that Hermes was installed with the web extra. If a session is missing, refresh and check the selected phone and Hermes environment; the REST list returns recent sessions, not an unrestricted archive. See [the session access compatibility notes](../spikes/chat-sessions.md#compatibility-checks-still-required) before treating another Hermes version or gateway-created session as verified.
+
 ## Useful CLI checks
 ```sh
 adb devices -l

@@ -20,6 +20,10 @@ Use the dashboard REST API from inside the selected Hermes environment, through 
 
 The Hermes store remains authoritative. The app parses only documented REST responses, requests message pages on demand, and persists no transcript content. Session identity is scoped by stable device ID plus configured Hermes environment/home. The desktop stores only the selected session ID for restoration; it does not persist message content, previews, or free-text search terms, which may themselves contain sensitive session content.
 
+The Chat UI has no Hermes profile selector; requests use the session API for the configured environment/home, and saved selection is not keyed by a profile inferred from the session ID. Non-default profile selection and isolation have not been verified and are not claimed as supported.
+
+The app requests the 20-session recent list and clamps transcript pages to 1–500 messages (the Hermes API maximum). It rejects list response bodies over 2 MiB and transcript-page bodies over 8 MiB. These request bounds have regression coverage in `src-tauri/src/commands/sessions.rs`; they are client safeguards, not claims that Hermes will return a full 500-message page within the byte limit.
+
 Live verification on Hermes Agent v0.21.4 confirmed the session-list `id` field, string message content with `role`, and a transcript `pagination` object containing `limit`, `offset`, `order`, and `returned`. The API health, configured home, owner token, session list, and one-message page all verified while bound to 127.0.0.1. Cold `/api/status` took 5.9–7.3 seconds, so the request helper timeout was raised from 2 to 10 seconds. The temporary server was stopped after each probe.
 
 ## Compatibility checks still required
