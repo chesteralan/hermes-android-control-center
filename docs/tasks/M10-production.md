@@ -4,9 +4,11 @@
 
 ## Quality
 
-### [ ] M10-T1 Error audit
+### [~] M10-T1 Error audit
 - Every brief §16 case reproduced and verified to show human message + Details: adb not installed, adb not found, device offline, unauthorized, connection refused, wireless debugging disabled, Termux unavailable, Hermes not found, command failed, network timeout.
 - grep audit: no `unwrap()`/`expect()` in non-test Rust except proven-infallible with comment; no swallowed `Err`.
+- **Progress:** A Rust payload regression test now checks that each listed failure category serializes a human-readable message and non-empty expandable details. End-to-end reproduction and the non-test Rust audit remain open.
+- **Progress:** The Rust error-payload test covers the ten listed ADB/Termux/Hermes failure categories and asserts each serialized payload has a human message and expandable details. The non-test panic/error-propagation grep audit and end-to-end reproductions remain open.
 
 ### [ ] M10-T2 Security review
 - Complete SECURITY.md checklist; `cargo audit`, `cargo deny`, `npm audit --omit=dev` in CI; CSP locked down in `tauri.conf.json`.

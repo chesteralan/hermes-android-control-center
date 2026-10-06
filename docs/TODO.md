@@ -18,6 +18,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 - [~] [M0-S3 — ADB output fixtures](tasks/M0-foundations.md)
 - [~] [M0-S4 — Provisioning feasibility](tasks/M0-foundations.md)
+- [~] [M10-T1 — Error audit](tasks/M10-production.md)
 - [~] [M10-T15 — Root README](tasks/M10-production.md)
 - [~] [M13-T1 — Hermes session interface spike](tasks/M13-chat-sessions.md)
 - [~] [M13-T6 — Cross-platform and performance QA](tasks/M13-chat-sessions.md)
@@ -44,7 +45,6 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [ ] [M8-T9 — Transport switch in Settings](tasks/M8-control-api.md)
 
 ### M10 — Hardening & Production
-- [ ] [M10-T1 — Error audit](tasks/M10-production.md)
 - [ ] [M10-T2 — Security review](tasks/M10-production.md)
 - [ ] [M10-T3 — Performance budgets](tasks/M10-production.md)
 - [ ] [M10-T4 — Accessibility and keyboard](tasks/M10-production.md)
