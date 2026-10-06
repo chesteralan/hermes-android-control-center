@@ -8,15 +8,17 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 - [x] M0-S3 verified the sanitized `track_frames.bin` header (`0074` = 116 payload bytes) and added an exact-length parser assertion. The broader capture ticket remains in progress.
 - [x] [M13-T5 — Device-scoped restoration and documentation](tasks/M13-chat-sessions.md): persistence, unavailable-device behavior, environment separation, privacy, and profile limitations are tested/documented.
+- [x] [M13-T2 — Typed Rust session access](tasks/M13-chat-sessions.md): scoped commands, bounded pagination/responses, token-verified loopback access, and malformed/truncated JSON errors are implemented and tested; one Hermes v0.21.4 live check is recorded.
 - [x] M13 session API limits are documented and regression-tested: 20-session recent list, 1–500 messages per page, 2 MiB list response, and 8 MiB transcript response.
 - [x] M13-T1 local startup test rejects an unrelated loopback HTTP service without spawning Hermes; on-device conflict behavior remains open.
+- [x] [M10-T16 — Contribution guide, security reporting policy, and MIT license](tasks/M10-production.md).
 
 ## In Progress
 
 - [~] [M0-S3 — ADB output fixtures](tasks/M0-foundations.md)
 - [~] [M0-S4 — Provisioning feasibility](tasks/M0-foundations.md)
+- [~] [M10-T15 — Root README](tasks/M10-production.md)
 - [~] [M13-T1 — Hermes session interface spike](tasks/M13-chat-sessions.md)
-- [~] [M13-T2 — Typed Rust session access](tasks/M13-chat-sessions.md)
 - [~] [M13-T6 — Cross-platform and performance QA](tasks/M13-chat-sessions.md)
 
 ## Blocked
@@ -55,8 +57,6 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [ ] [M10-T12 — Auto-updater](tasks/M10-production.md)
 - [ ] [M10-T13 — Release workflow](tasks/M10-production.md)
 - [ ] [M10-T14 — Versioning and changelog](tasks/M10-production.md)
-- [ ] [M10-T15 — Root README](tasks/M10-production.md)
-- [ ] [M10-T16 — CONTRIBUTING, security reporting policy, and license confirmation](tasks/M10-production.md)
 
 ### M11 — New Phone Provisioning
 - [ ] [M11-T1 — Provisioning engine](tasks/M11-provisioning.md)

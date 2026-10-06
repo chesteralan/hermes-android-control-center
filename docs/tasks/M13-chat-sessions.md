@@ -28,13 +28,14 @@
 - **Local test:** an unrelated HTTP service on the loopback API port is rejected without spawning a duplicate Hermes service.
 - **Remaining live checks:** verify port-conflict handling on-device and resume a gateway-created session on a supported minimum/current Hermes version.
 
-### [~] M13-T2 Typed Rust session access
+### [x] M13-T2 Typed Rust session access
 - Add Rust session DTOs and commands to list/filter sessions and retrieve a bounded transcript through the existing Termux SSH bridge and Hermes loopback REST API.
 - Ensure/reuse the API server bound to `127.0.0.1` without opening the browser or building the web frontend; report missing web dependencies and occupied ports clearly.
 - Scope every request to the target serial and configured Hermes environment/home. Use Hermes' supported profile selection where applicable; never infer a profile from a session ID alone.
 - Parse structured output with a JSON/JSONL parser, enforce response/message-size limits, and return explicit unsupported-version, unavailable, and malformed-data errors.
 - Do not include session content in logs. Keep SSH command arguments shell-safe.
 - **Live verification:** On one connected Hermes v0.21.4 device, the configured home and owner token verified, and the session-list/transcript-page schema matched the DTO parser. Cold `/api/status` exceeded 2 seconds, so the bounded inner HTTP timeout is now 10 seconds.
+- **Implementation note:** Raw API JSON parsing maps malformed or truncated responses to a clear configuration error; the truncation case is covered by a regression test.
 - **Tests:** fixtures for structured list/transcript output, multiple sources, missing optional fields, malformed/truncated output, limits, and safe session-ID handling.
 
 ### [x] M13-T3 Session browser and previews

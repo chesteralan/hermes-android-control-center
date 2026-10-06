@@ -425,7 +425,11 @@ async fn request_api(
             },
         });
     }
-    serde_json::from_str(&result.stdout)
+    parse_api_response(&result.stdout)
+}
+
+fn parse_api_response(body: &str) -> Result<serde_json::Value, AppError> {
+    serde_json::from_str(body)
         .map_err(|error| AppError::Config(format!("Hermes returned invalid session JSON: {error}")))
 }
 
@@ -788,5 +792,14 @@ except RuntimeError as error:
         assert!(!valid_session_id("../../state.db"));
         assert!(parse_sessions(&serde_json::json!({"unexpected": []})).is_err());
         assert!(parse_messages("s", &serde_json::json!({"bad": true}), 0, 10).is_err());
+    }
+
+    #[test]
+    fn rejects_truncated_session_api_json() {
+        assert!(matches!(
+            parse_api_response(r#"{"sessions":[{"id":"s1"}"#),
+            Err(AppError::Config(message))
+                if message.starts_with("Hermes returned invalid session JSON:")
+        ));
     }
 }

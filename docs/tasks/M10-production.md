@@ -52,11 +52,13 @@
 
 ## Documentation
 
-### [ ] M10-T15 Root README (brief §25 — all required sections)
+### [~] M10-T15 Root README (brief §25 — all required sections)
 1. Prerequisites 2. Installing ADB 3. Enabling Developer Options 4. Enabling Wireless Debugging 5. Pairing 6. Connecting 7. Configuring Termux 8. Configuring Hermes 9. Running the application 10. Troubleshooting ADB
 - Source content from `docs/guides/`; add screenshots.
+- **Progress:** The root README now covers all ten required sections and links to the maintained setup/troubleshooting guides. UI screenshots and fresh-Mac walkthrough verification remain open.
 
-### [ ] M10-T16 CONTRIBUTING.md, SECURITY policy (reporting), LICENSE confirmed.
+### [x] M10-T16 CONTRIBUTING.md, SECURITY policy (reporting), LICENSE confirmed.
+- Added root contribution instructions and private vulnerability reporting policy; confirmed the existing MIT license.
 
 ## Exit check
 - [ ] Fresh Mac: download DMG → open without Gatekeeper warning → onboard → manage Hermes in < 10 minutes following README only.

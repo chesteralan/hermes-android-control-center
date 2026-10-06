@@ -1,37 +1,120 @@
 # Hermes Control Center
 
-Desktop app (Tauri 2 + Rust + React) for managing a [Hermes Agent](https://github.com/NousResearch/hermes-agent) running in Termux on an Android phone over Wireless ADB. No screen mirroring needed.
+Desktop app (Tauri 2, Rust, and React) for managing a [Hermes Agent](https://github.com/NousResearch/hermes-agent) on an Android phone through Wireless ADB and Termux SSH. No screen mirroring is required.
 
-**Status:** M0 foundations are in progress (ADB fixture matrix and fresh-phone provisioning checks remain); M1–M4 implementation milestones are complete. M5 and later work is tracked in [docs/MILESTONES.md](docs/MILESTONES.md).
+**Release status:** pre-1.0. macOS is the first release target. Windows and Linux are planned for v1.1; see the [roadmap](docs/MILESTONES.md) and [open work](docs/TODO.md).
 
-## What works today
-- ADB auto-detection (or custom path in Settings)
-- Live device list (`adb track-devices`), multiple phones
-- Pair with **QR code** or pairing code, connect by IP:port, mDNS discovery
-- Device info: model, Android/SDK, IP, battery, storage, memory, CPU, Termux package
-- Automatic reconnect with backoff (1s → 30s), manual retry
-- Persistent settings
-- Termux SSH bridge over `adb forward` with per-device key and pinned host key
-- Hermes status, installation/version detection, Start/Stop/Restart, Doctor and Update controls (M5; real-phone action verification pending)
+## What the app does
 
-## Prerequisites
-- Node.js LTS, Rust stable, Xcode Command Line Tools (macOS)
-- `adb` (e.g. `brew install --cask android-platform-tools`)
-- An Android 11+ phone with Wireless debugging — see [docs/guides/ANDROID_SETUP.md](docs/guides/ANDROID_SETUP.md)
+- Discovers, pairs, connects, and reconnects to multiple Android devices.
+- Shows device details including Android version, battery, storage, memory, CPU, and Termux status.
+- Runs commands in Android shell or Termux, with streaming terminal sessions and command history.
+- Manages Hermes status and gateway actions, and provides terminal and log views.
+- Uses an SSH bridge forwarded over ADB. The Termux SSH service is configured for loopback only.
 
-## Run
+## 1. Prerequisites
+
+- macOS 13 or newer for the current release target.
+- An Android 11 or newer phone and a computer on the same Wi-Fi network.
+- Termux from [F-Droid](https://f-droid.org/packages/com.termux/) or [GitHub releases](https://github.com/termux/termux-app/releases). The Play Store build is outdated.
+- Hermes Agent installed in Termux or inside a configured `proot-distro` environment. The app can also guide new-phone setup.
+- For development: Node.js LTS, Rust stable, and Xcode Command Line Tools.
+
+## 2. Install ADB
+
+On macOS, install Android Platform-Tools:
+
+```sh
+brew install --cask android-platform-tools
+adb version
+```
+
+Alternatively, install Platform-Tools through Android Studio SDK Manager. The app detects common ADB locations; set a custom executable under **Settings > ADB** if it is installed elsewhere.
+
+Windows and Linux packaging are planned for v1.1. See [Android setup](docs/guides/ANDROID_SETUP.md#2-install-adb) for their package-manager commands.
+
+## 3. Enable Android Developer Options
+
+On the phone, open **Settings > About phone** and tap **Build number** seven times. Enter the device PIN if prompted. The exact menu location varies by manufacturer; on some phones, Build number is under **Software information**.
+
+## 4. Enable Wireless Debugging
+
+Open **Settings > System > Developer options > Wireless debugging**, turn it on, and allow debugging on the current Wi-Fi network. Keep this screen available for pairing and connection details.
+
+## 5. Pair the Android phone
+
+Pair once per computer.
+
+**QR code:** In the app choose **Pair with QR code**. On the phone, open **Wireless debugging > Pair device with QR code** and scan the code. This requires mDNS discovery on the network.
+
+**Pairing code:** On the phone choose **Pair device with pairing code**. In the app choose **Pair with code** and enter the displayed IP address, pairing port, and six-digit code. The pairing port differs from the connection port. This method works when mDNS is blocked.
+
+## 6. Connect the phone
+
+On the Wireless debugging screen, use **IP address & Port** in the app's Device view, or choose **Discover** to find the device through mDNS. Accept the debugging authorization prompt on the phone.
+
+The connection port may change after a reboot or when Wireless debugging is toggled. The app attempts to rediscover the phone; use **Retry** or enter the new port if needed. Repeat pairing and connection for each phone.
+
+## 7. Configure Termux
+
+The app cannot access Termux files through `adb shell`; it uses SSH through an ADB forward instead. The SSH daemon should listen on `127.0.0.1`, not on the phone's Wi-Fi interface.
+
+In Termux, install and enable the SSH service:
+
+```sh
+pkg update && pkg upgrade
+pkg install openssh termux-services
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+```
+
+In the app, open **Termux setup** and copy its public key into `~/.ssh/authorized_keys`, then run:
+
+```sh
+chmod 600 ~/.ssh/authorized_keys
+echo "ListenAddress 127.0.0.1" >> "$PREFIX/etc/ssh/sshd_config"
+sv-enable sshd
+termux-wake-lock
+```
+
+If `termux-services` was just installed, fully exit and reopen Termux before enabling `sshd`. In the app, choose **Verify** in the Termux setup view. Exclude Termux from battery optimization if Android stops it in the background.
+
+For a new phone, use **Set up new phone** in the app when available. Detailed setup and Android-version notes are in the [Android setup guide](docs/guides/ANDROID_SETUP.md#7-configure-termux).
+
+## 8. Configure Hermes
+
+Open **Settings > Hermes** and choose **Detect Hermes** or configure the environment and commands for the installation. Use **Hermes > Refresh** to check detection.
+
+For Hermes inside Debian `proot-distro`, select **proot-distro > debian** and use **Supervised** start mode with `hermes gateway run`. The app supervises the foreground gateway because systemd is not available inside proot. Run `hermes setup` and configure provider credentials in the selected Hermes environment.
+
+Do not copy commands blindly from another phone: process paths, log locations, and Termux versus proot environments can differ. See [Hermes configuration](docs/guides/ANDROID_SETUP.md#8-configure-hermes) for the Debian example and command reference.
+
+## 9. Run the application
+
+For a development build:
+
 ```sh
 npm install
-npm run tauri dev      # development
-npm run tauri build    # production bundle
+npm run tauri dev
 ```
 
-## Test
+To create a local production bundle:
+
 ```sh
-npm test -- --run      # frontend (Vitest)
-npm run test:rust      # backend (cargo test, uses recorded adb fixtures — no phone needed)
-npm run lint && npm run typecheck
+npm run tauri build
 ```
 
-## Docs
-Start at [docs/README.md](docs/README.md). Troubleshooting: [docs/guides/TROUBLESHOOTING.md](docs/guides/TROUBLESHOOTING.md).
+The bundle is written under `src-tauri/target/release/bundle/`. For contributor checks, run `npm test -- --run`, `npm run test:rust`, `npm run lint`, and `npm run typecheck`.
+
+## 10. Troubleshoot ADB connections
+
+| Symptom                | Likely fix                                                                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| ADB not found          | Install Platform-Tools, then use **Settings > ADB > Detect** or select the executable path.                                                |
+| Device unauthorized    | Unlock the phone and accept the debugging authorization prompt. If it does not return, revoke USB debugging authorizations and pair again. |
+| Device offline         | Wake the phone, confirm both devices are on the same network, then reconnect. Restart the ADB server from Settings if needed.              |
+| Connection refused     | Reopen Wireless debugging and use its current **IP address & Port**; the port changes after toggling debugging or rebooting.               |
+| Pairing fails          | Generate a fresh pairing code and use the pairing port, not the connection port.                                                           |
+| Discover finds nothing | mDNS may be blocked. Pair with a code or connect using the phone's IP address and connection port.                                         |
+| Termux unavailable     | Open Termux, check that `sshd` is running, and use the Termux setup view's **Verify** action.                                              |
+
+See the full [troubleshooting guide](docs/guides/TROUBLESHOOTING.md) for Termux, Hermes, Windows, and Linux issues. The [documentation index](docs/README.md) links to architecture, security, testing, and release information. Contributors can start with [CONTRIBUTING.md](CONTRIBUTING.md); vulnerability reporting is in [SECURITY.md](SECURITY.md).
