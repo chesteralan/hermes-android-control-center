@@ -209,12 +209,12 @@ pub async fn start_hermes_chat(
         }
 
         let exit_code = result_code.or(exit_code);
-        if exit_code.is_some_and(|code| code != 0) {
+        if let Some(code) = exit_code.filter(|code| *code != 0) {
             let message = result_error
                 .clone()
                 .filter(|message| !message.trim().is_empty())
                 .or_else(|| (!stderr.trim().is_empty()).then(|| stderr.trim().to_string()))
-                .unwrap_or_else(|| format!("Hermes chat exited with code {}.", exit_code.unwrap()));
+                .unwrap_or_else(|| format!("Hermes chat exited with code {code}."));
             let _ = on_event.send(HermesChatEvent::Error { message });
         }
         let _ = on_event.send(HermesChatEvent::Complete {
