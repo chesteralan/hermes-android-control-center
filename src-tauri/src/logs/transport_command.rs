@@ -338,6 +338,14 @@ mod tests {
         );
 
         cancel.cancel();
+        let mut trailing = Vec::new();
+        while let Some(line) = lines.recv().await {
+            trailing.push((line.seq, line.raw));
+        }
+        assert!(
+            trailing.is_empty()
+                || trailing == [(4, "2026-10-05 12:30:47,000 INFO worker: next line".into())]
+        );
         assert!(lines.recv().await.is_none());
     }
 

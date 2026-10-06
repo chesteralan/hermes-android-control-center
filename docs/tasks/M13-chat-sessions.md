@@ -67,7 +67,7 @@
 - Verify list/transcript flows on macOS, Windows, and Linux after M12, including cancellation and reconnect during retrieval.
 - Bound list page size, transcript size, and render work; virtualize long transcripts if needed.
 - Run the normal milestone CI gates and add a manual connected-phone check against the minimum and current supported Hermes versions.
-- **Implementation note:** Rust caps session-list response bodies at 2 MiB, transcript response bodies at 8 MiB, and clamps each message page to 1–500 entries. Regression tests cover page-size clamping and oversized-response rejection. The Chat view virtualizes transcripts over 100 messages; a 250-message viewport-slice test passes. Cross-platform and connected-phone/version-matrix performance checks remain open.
+- **Implementation note:** Rust caps session-list response bodies at 2 MiB, transcript response bodies at 8 MiB, and clamps each message page to 1–500 entries. Regression tests cover page-size clamping and oversized-response rejection. The Chat view virtualizes transcripts over 100 messages; a 250-message viewport-slice test passes. Local macOS validation passes all 182 Rust tests, 92 frontend tests, lint, typecheck, formatting, and Clippy. Cross-platform and connected-phone/version-matrix performance checks remain open.
 
 ## Exit check
 
