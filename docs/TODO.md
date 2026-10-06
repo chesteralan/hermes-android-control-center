@@ -14,6 +14,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [x] [M10-T16 — Contribution guide, security reporting policy, and MIT license](tasks/M10-production.md).
 - [x] M13-T6 local macOS validation passes (182 Rust tests, 92 frontend tests, lint, typecheck, formatting, and Clippy); platform/device QA remains open.
 - [x] M10-T1 removed a guarded production chat `exit_code.unwrap()`; the wider panic/error-propagation audit remains in progress.
+- [x] [M8-T1 — Hermes Control API service skeleton](tasks/M8-control-api.md): Python package, aiohttp entrypoint, config/install script, and loopback/token bind guard.
 
 ## In Progress
 
@@ -35,7 +36,6 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [ ] [M3-T10 — Manual QA](tasks/M3-basic-terminal-logs.md)
 
 ### M8 — Hermes Control API
-- [ ] [M8-T1 — Service skeleton](tasks/M8-control-api.md)
 - [ ] [M8-T2 — Endpoints](tasks/M8-control-api.md)
 - [ ] [M8-T3 — Service tests](tasks/M8-control-api.md)
 - [ ] [M8-T4 — JSON schema contract](tasks/M8-control-api.md)

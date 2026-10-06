@@ -4,10 +4,11 @@
 
 ## Termux service (`android/hermes-control/`)
 
-### [ ] M8-T1 Service skeleton
+### [x] M8-T1 Service skeleton
 - Python ≥ 3.11, minimal deps (`aiohttp`), single package + `install.sh` + `hermes-control.toml` config.
 - Config: bind host (default `127.0.0.1`), port (default 8765), Hermes commands (same semantics as `HermesConfig`), log command/path, token.
 - Refuse to start on non-loopback bind without token.
+- **Implementation note:** Added a Python package and aiohttp entrypoint, a Termux install script and sample config, and tested default loopback binding, non-loopback token enforcement, invalid ports, and Hermes defaults. The package installed in an isolated venv and its CLI entrypoint smoke test passed.
 
 ### [ ] M8-T2 Endpoints
 | Method | Path | Body | Response |
