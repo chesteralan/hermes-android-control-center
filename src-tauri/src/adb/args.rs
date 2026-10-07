@@ -1,5 +1,7 @@
 //! Pure argv builders. Every adb invocation in the app is built here.
 
+use std::path::Path;
+
 fn v(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
@@ -32,6 +34,20 @@ pub fn connect(address: &str) -> Vec<String> {
 
 pub fn disconnect(target: &str) -> Vec<String> {
     v(&["disconnect", target])
+}
+
+pub fn install(serial: &str, apk_path: &Path) -> Vec<String> {
+    scoped(
+        serial,
+        &["install", "-r", apk_path.to_string_lossy().as_ref()],
+    )
+}
+
+pub fn push(serial: &str, local_path: &Path, remote_path: &str) -> Vec<String> {
+    scoped(
+        serial,
+        &["push", local_path.to_string_lossy().as_ref(), remote_path],
+    )
 }
 
 pub fn pair(address: &str, code: &str) -> Vec<String> {
@@ -99,6 +115,24 @@ mod tests {
         assert_eq!(
             forward_remove(serial, "tcp:1234"),
             ["-s", serial, "forward", "--remove", "tcp:1234"]
+        );
+        assert_eq!(
+            install(serial, Path::new("/tmp/termux.apk")),
+            ["-s", serial, "install", "-r", "/tmp/termux.apk"]
+        );
+        assert_eq!(
+            push(
+                serial,
+                Path::new("/tmp/bootstrap.sh"),
+                "/sdcard/Download/hacc/bootstrap.sh"
+            ),
+            [
+                "-s",
+                serial,
+                "push",
+                "/tmp/bootstrap.sh",
+                "/sdcard/Download/hacc/bootstrap.sh"
+            ]
         );
         assert_eq!(
             logcat(serial, &["*:I".to_string()]),

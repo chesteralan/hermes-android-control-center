@@ -7,10 +7,11 @@ import { ipc, toErrorPayload, type TerminalPtyEvent } from "../../lib/ipc";
 
 interface InteractiveTerminalProps {
   serial: string;
+  initialCommand?: string;
   onClose: () => void;
 }
 
-export function InteractiveTerminal({ serial, onClose }: InteractiveTerminalProps) {
+export function InteractiveTerminal({ serial, initialCommand, onClose }: InteractiveTerminalProps) {
   const host = useRef<HTMLDivElement>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +74,13 @@ export function InteractiveTerminal({ serial, onClose }: InteractiveTerminalProp
         setSessionId(id);
         terminal.options.disableStdin = false;
         terminal.focus();
+        if (initialCommand) {
+          void ipc
+            .writeTerminalPty(id, Array.from(new TextEncoder().encode(`${initialCommand}\r`)))
+            .catch((cause: unknown) => {
+              if (!disposed) setError(toErrorPayload(cause).message);
+            });
+        }
       })
       .catch((cause: unknown) => {
         if (!disposed) setError(toErrorPayload(cause).message);
@@ -86,18 +94,36 @@ export function InteractiveTerminal({ serial, onClose }: InteractiveTerminalProp
       terminal.dispose();
       if (activeSessionId) void ipc.closeTerminalPty(activeSessionId);
     };
-  }, [serial]);
+  }, [initialCommand, serial]);
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col border-t border-border" aria-label="Interactive shell">
+    <section
+      className="flex min-h-0 flex-1 flex-col border-t border-border"
+      aria-label="Interactive shell"
+    >
       <header className="flex min-h-9 items-center justify-between border-b border-border px-3 text-[11px] text-muted">
-        <span>{error ? "Connection error" : sessionId ? "Interactive SSH shell" : "Connecting to Termux…"}</span>
+        <span>
+          {error
+            ? "Connection error"
+            : sessionId
+              ? "Interactive SSH shell"
+              : "Connecting to Termux…"}
+        </span>
         <Button variant="ghost" onClick={onClose} aria-label="Close interactive shell">
           Close
         </Button>
       </header>
-      {error && <p role="alert" className="border-b border-border px-3 py-2 text-danger">{error}</p>}
-      <div ref={host} className="min-h-0 flex-1 overflow-hidden bg-bg p-2" role="application" aria-label="Interactive Termux terminal" />
+      {error && (
+        <p role="alert" className="border-b border-border px-3 py-2 text-danger">
+          {error}
+        </p>
+      )}
+      <div
+        ref={host}
+        className="min-h-0 flex-1 overflow-hidden bg-bg p-2"
+        role="application"
+        aria-label="Interactive Termux terminal"
+      />
     </section>
   );
 }

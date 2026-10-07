@@ -11,6 +11,7 @@ pub mod logs;
 pub mod monitor;
 pub mod platform;
 pub mod process;
+pub mod provision;
 pub mod state;
 pub mod streams;
 pub mod termux;
@@ -89,6 +90,15 @@ pub fn run() {
             commands::control_api::install_control_api,
             commands::control_api::test_control_api,
             commands::diagnostics::export_diagnostics,
+            commands::provision::list_provision_recipes,
+            commands::provision::get_provision_recipe_source,
+            commands::provision::save_provision_recipe,
+            commands::provision::import_provision_recipe,
+            commands::provision::export_provision_recipe,
+            commands::provision::get_provision_plan,
+            commands::provision::reset_provision_progress,
+            commands::provision::run_provision,
+            commands::provision::cancel_provision,
             commands::device::list_devices,
             commands::device::connect_device,
             commands::device::disconnect_device,

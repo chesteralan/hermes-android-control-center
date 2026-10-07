@@ -1,0 +1,27 @@
+id = "debian-official"
+name = "Debian (proot) + official Hermes installer"
+termux_source = "fdroid"
+distro = "debian"
+minimum_termux_version = "0.118.0"
+termux_packages = ["openssh", "termux-services", "util-linux", "proot-distro"]
+distro_packages = ["curl", "ca-certificates", "git"]
+autostart = true
+
+[hermes_install]
+script_url = "https://hermes-agent.nousresearch.com/install.sh"
+interactive = true
+
+[hermes_configure]
+steps = ["hermes setup", "hermes gateway setup"]
+
+[hermes_runtime]
+start_mode = "supervised"
+gateway_command = "hermes gateway run"
+process_match = "hermes-agent/venv/bin/python"
+status_commands = ["hermes gateway status", "hermes status"]
+version_command = "hermes --version"
+doctor_command = "hermes doctor"
+update_command = "hermes update"
+log_files = ["/root/.hermes/logs/gateway.log", "/root/.hermes/logs/tool_calls.log"]
+state_file = "/root/.hermes/gateway_state.json"
+path_prepend = ["/root/.local/bin"]

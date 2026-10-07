@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -113,6 +113,7 @@ pub struct AppState {
     pub forwards: ForwardManager,
     pub ssh: SshPool,
     pub pty_sessions: Arc<PtySessionRegistry>,
+    pub provisioning_runs: Mutex<HashSet<String>>,
 }
 
 impl AppState {
@@ -140,6 +141,7 @@ impl AppState {
             forwards: ForwardManager::default(),
             ssh: SshPool::default(),
             pty_sessions: Arc::new(PtySessionRegistry::default()),
+            provisioning_runs: Mutex::default(),
         }
     }
 

@@ -5,6 +5,7 @@ pub mod device;
 pub mod diagnostics;
 pub mod hermes;
 pub mod logs;
+pub mod provision;
 pub mod sessions;
 pub mod settings;
 pub mod terminal;

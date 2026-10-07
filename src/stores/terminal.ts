@@ -45,9 +45,13 @@ function readHistoryPersistence(): boolean {
 function readStoredHistory(scope: string): string[] {
   if (typeof localStorage === "undefined") return [];
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(commandHistoryStorageKey(scope)) ?? "[]");
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(commandHistoryStorageKey(scope)) ?? "[]",
+    );
     return Array.isArray(parsed)
-      ? parsed.filter((command): command is string => typeof command === "string").slice(-MAX_COMMAND_HISTORY)
+      ? parsed
+          .filter((command): command is string => typeof command === "string")
+          .slice(-MAX_COMMAND_HISTORY)
       : [];
   } catch {
     return [];
@@ -70,7 +74,9 @@ function readStoredSnippets(): CommandSnippet[] {
         "command" in item &&
         typeof item.command === "string" &&
         "transport" in item &&
-        (item.transport === "adbShell" || item.transport === "termuxSsh" || item.transport === "api") &&
+        (item.transport === "adbShell" ||
+          item.transport === "termuxSsh" ||
+          item.transport === "api") &&
         "requiresConfirmation" in item &&
         typeof item.requiresConfirmation === "boolean",
     );
@@ -101,6 +107,11 @@ interface Session {
   blocks: CommandBlock[];
 }
 
+export interface InteractiveLaunchRequest {
+  serial: string;
+  command: string;
+}
+
 export interface TerminalSessionTab {
   id: string;
   title: string;
@@ -119,6 +130,9 @@ interface TerminalStore {
   historyByScope: Record<string, string[]>;
   persistedHistoryByScope: Record<string, string[]>;
   historyPersistenceEnabled: boolean;
+  pendingInteractiveLaunch: InteractiveLaunchRequest | null;
+  requestInteractiveLaunch: (serial: string, command: string) => void;
+  consumeInteractiveLaunch: (serial: string) => string | null;
   run: (
     deviceKey: string,
     serial: string,
@@ -198,6 +212,15 @@ export const useTerminal = create<TerminalStore>((set, get) => {
     historyByScope: {},
     persistedHistoryByScope: {},
     historyPersistenceEnabled: readHistoryPersistence(),
+    pendingInteractiveLaunch: null,
+    requestInteractiveLaunch: (serial, command) =>
+      set({ pendingInteractiveLaunch: { serial, command } }),
+    consumeInteractiveLaunch: (serial) => {
+      const pending = get().pendingInteractiveLaunch;
+      if (!pending || pending.serial !== serial) return null;
+      set({ pendingInteractiveLaunch: null });
+      return pending.command;
+    },
 
     loadCommandHistory: (scope) => {
       if (Object.hasOwn(get().historyByScope, scope)) return;
@@ -220,8 +243,7 @@ export const useTerminal = create<TerminalStore>((set, get) => {
         history[history.length - 1] === normalized
           ? history
           : [...history, normalized].slice(-MAX_COMMAND_HISTORY);
-      let nextPersistedHistory =
-        state.persistedHistoryByScope[scope] ?? EMPTY_COMMAND_HISTORY;
+      let nextPersistedHistory = state.persistedHistoryByScope[scope] ?? EMPTY_COMMAND_HISTORY;
       if (state.historyPersistenceEnabled) {
         if (nextPersistedHistory[nextPersistedHistory.length - 1] !== normalized) {
           nextPersistedHistory = [...nextPersistedHistory, normalized].slice(-MAX_COMMAND_HISTORY);
@@ -274,7 +296,12 @@ export const useTerminal = create<TerminalStore>((set, get) => {
       if (!name || !command) return;
       const next = [
         ...get().snippets,
-        { ...snippet, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name, command },
+        {
+          ...snippet,
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name,
+          command,
+        },
       ];
       try {
         localStorage.setItem(SNIPPETS_STORAGE_KEY, JSON.stringify(next));
@@ -349,7 +376,14 @@ export const useTerminal = create<TerminalStore>((set, get) => {
       });
     },
 
-    run: async (key, serial, command, transport = "adbShell", requestedSessionId, timeoutMs = 0) => {
+    run: async (
+      key,
+      serial,
+      command,
+      transport = "adbShell",
+      requestedSessionId,
+      timeoutMs = 0,
+    ) => {
       const sessionId = requestedSessionId ?? get().ensureSession(key);
       const sessionKey = terminalSessionKey(key, sessionId);
       const timeoutKey = `${sessionKey}:${nextId}`;

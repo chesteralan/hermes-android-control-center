@@ -112,4 +112,24 @@ describe("InteractiveTerminal", () => {
       expect(invoke).toHaveBeenCalledWith("close_terminal_pty", { sessionId: "pty-1" }),
     );
   });
+
+  it("submits a one-shot provisioning command over the interactive PTY", async () => {
+    const invoke = mockIpc({
+      start_terminal_pty: () => "pty-provision",
+      write_terminal_pty: () => undefined,
+      resize_terminal_pty: () => undefined,
+      close_terminal_pty: () => true,
+    });
+    render(
+      <InteractiveTerminal serial="phone-1" initialCommand="hermes setup" onClose={vi.fn()} />,
+    );
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("write_terminal_pty", {
+        sessionId: "pty-provision",
+        data: Array.from(new TextEncoder().encode("hermes setup\r")),
+      }),
+    );
+    expect(useTerminal.getState().historyByScope).toEqual({});
+  });
 });

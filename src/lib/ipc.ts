@@ -20,6 +20,10 @@ import type {
   LogLine,
   LogSourceKind,
   MdnsService,
+  ProvisionEvent,
+  ProvisionPlan,
+  ProvisionRecipe,
+  ProvisionStepId,
   QrPairEvent,
   QrSession,
   ReconnectStatus,
@@ -62,6 +66,38 @@ export const ipc = {
     call<ControlApiInstallPreview>("preview_control_api_install", { serial }),
   installControlApi: (serial: string) => call<CommandResult>("install_control_api", { serial }),
   testControlApi: (serial: string) => call<string>("test_control_api", { serial }),
+  listProvisionRecipes: () => call<ProvisionRecipe[]>("list_provision_recipes"),
+  getProvisionRecipeSource: (recipeId: string) =>
+    call<string>("get_provision_recipe_source", { recipeId }),
+  saveProvisionRecipe: (source: string) =>
+    call<ProvisionRecipe>("save_provision_recipe", { source }),
+  importProvisionRecipe: () => call<ProvisionRecipe | null>("import_provision_recipe"),
+  exportProvisionRecipe: (recipeId: string) =>
+    call<string | null>("export_provision_recipe", { recipeId }),
+  getProvisionPlan: (serial: string, recipeId: string) =>
+    call<ProvisionPlan>("get_provision_plan", { serial, recipeId }),
+  resetProvisionProgress: (serial: string, recipeId: string) =>
+    call<void>("reset_provision_progress", { serial, recipeId }),
+  runProvision: (
+    serial: string,
+    recipeId: string,
+    fromStep: ProvisionStepId | null,
+    onlyStep: boolean,
+    approvedSteps: ProvisionStepId[],
+    onEvent: (event: ProvisionEvent) => void,
+  ) => {
+    const channel = new Channel<ProvisionEvent>();
+    channel.onmessage = onEvent;
+    return call<string>("run_provision", {
+      serial,
+      recipeId,
+      fromStep,
+      onlyStep,
+      approvedSteps,
+      onEvent: channel,
+    });
+  },
+  cancelProvision: (runId: string) => call<boolean>("cancel_provision", { runId }),
   listDevices: () => call<AndroidDevice[]>("list_devices"),
   connectDevice: (address: string) => call<AndroidDevice>("connect_device", { address }),
   disconnectDevice: (serial: string) => call<void>("disconnect_device", { serial }),

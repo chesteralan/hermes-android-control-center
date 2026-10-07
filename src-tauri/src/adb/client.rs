@@ -77,6 +77,50 @@ impl AdbClient {
         parse::parse_disconnect(target, &out.combined())
     }
 
+    pub async fn install_apk(&self, serial: &str, apk_path: &Path) -> AppResult<RawOutput> {
+        let out = self
+            .exec(args::install(serial, apk_path), Duration::from_secs(180))
+            .await?;
+        if !out.success() {
+            return Err(AppError::CommandFailed {
+                command: "Install Android package".into(),
+                exit_code: out.exit_code,
+                stderr: if out.stderr.is_empty() {
+                    out.stdout.clone()
+                } else {
+                    out.stderr.clone()
+                },
+            });
+        }
+        Ok(out)
+    }
+
+    pub async fn push_file(
+        &self,
+        serial: &str,
+        local_path: &Path,
+        remote_path: &str,
+    ) -> AppResult<RawOutput> {
+        let out = self
+            .exec(
+                args::push(serial, local_path, remote_path),
+                Duration::from_secs(60),
+            )
+            .await?;
+        if !out.success() {
+            return Err(AppError::CommandFailed {
+                command: "Copy bootstrap files to Android".into(),
+                exit_code: out.exit_code,
+                stderr: if out.stderr.is_empty() {
+                    out.stdout.clone()
+                } else {
+                    out.stderr.clone()
+                },
+            });
+        }
+        Ok(out)
+    }
+
     pub async fn pair(&self, address: &str, code: &str) -> AppResult<()> {
         validate_address(address)?;
         if code.is_empty() || code.len() > 64 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
@@ -176,6 +220,44 @@ mod tests {
         assert!(client(&f).pair("192.0.2.10:40000", "12 34").await.is_err());
         assert!(client(&f).pair("192.0.2.10:40000", "").await.is_err());
         assert!(f.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn install_apk_uses_device_scoped_argv_and_propagates_failure() {
+        let f = FakeRunner::new();
+        f.on(
+            "-s S install -r /tmp/termux.apk",
+            Ok(RawOutput::ok("Success")),
+        );
+        let result = client(&f)
+            .install_apk("S", Path::new("/tmp/termux.apk"))
+            .await
+            .unwrap();
+        assert_eq!(result.stdout, "Success");
+        let expected = vec![
+            "-s".to_string(),
+            "S".to_string(),
+            "install".to_string(),
+            "-r".to_string(),
+            "/tmp/termux.apk".to_string(),
+        ];
+        assert_eq!(f.calls(), vec![expected]);
+
+        let f = FakeRunner::new();
+        f.on(
+            "-s S install -r /tmp/termux.apk",
+            Ok(RawOutput {
+                stdout: String::new(),
+                stderr: "INSTALL_FAILED_UPDATE_INCOMPATIBLE".into(),
+                exit_code: Some(1),
+                duration_ms: 10,
+            }),
+        );
+        let error = client(&f)
+            .install_apk("S", Path::new("/tmp/termux.apk"))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AppError::CommandFailed { .. }));
     }
 
     #[tokio::test]

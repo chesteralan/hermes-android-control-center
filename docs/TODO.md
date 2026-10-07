@@ -18,6 +18,8 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [x] [M8-T1 — Hermes Control API service skeleton](tasks/M8-control-api.md): Python package, aiohttp entrypoint, config/install script, and loopback/token bind guard.
 - [x] [M8-T2–T9 — Endpoints, schemas, supervision, desktop transports, app install, and Settings switch](tasks/M8-control-api.md)
 - [x] [M14-T1–T2 — Tray menu, close/minimize-to-tray, restore, and explicit quit verified on macOS](tasks/M14-tray-lifecycle.md)
+- [x] [M11-T8 — Provisioning reuses the SSH bridge](tasks/M11-provisioning.md)
+- [x] [M11-T16 — Form/raw-TOML recipe editor, validation, duplication, import/export](tasks/M11-provisioning.md)
 
 ## In Progress
 
@@ -54,22 +56,24 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ### M11 — New Phone Provisioning
 
-- [ ] [M11-T1 — Provisioning engine](tasks/M11-provisioning.md)
-- [ ] [M11-T2 — Recipes](tasks/M11-provisioning.md)
-- [ ] [M11-T3 — Preflight](tasks/M11-provisioning.md)
-- [ ] [M11-T4 — Install Termux and optional Termux:Boot](tasks/M11-provisioning.md)
-- [ ] [M11-T5 — Android settings with consent](tasks/M11-provisioning.md)
-- [ ] [M11-T6 — First Termux launch](tasks/M11-provisioning.md)
-- [ ] [M11-T7 — Bootstrap SSH handoff](tasks/M11-provisioning.md)
-- [ ] [M11-T8 — Connect over SSH](tasks/M11-provisioning.md)
-- [ ] [M11-T9 — Termux packages and wake lock](tasks/M11-provisioning.md)
-- [ ] [M11-T10 — Install proot-distro and distro](tasks/M11-provisioning.md)
-- [ ] [M11-T11 — Install Hermes](tasks/M11-provisioning.md)
-- [ ] [M11-T12 — Configure Hermes](tasks/M11-provisioning.md)
-- [ ] [M11-T13 — Configure autostart](tasks/M11-provisioning.md)
-- [ ] [M11-T14 — Verify and start](tasks/M11-provisioning.md)
-- [ ] [M11-T15 — Setup wizard](tasks/M11-provisioning.md)
-- [ ] [M11-T16 — Recipe editor](tasks/M11-provisioning.md)
+Local foundations are implemented and tested (233 Rust, 101 frontend, 21 Python tests).
+The task file lists remaining implementation details separately from phone-only QA;
+this milestone is not complete.
+
+- [~] [M11-T1 — Provisioning engine; in-operation interruption QA remains](tasks/M11-provisioning.md)
+- [~] [M11-T2 — Recipes; native repository and per-phone configuration remain](tasks/M11-provisioning.md)
+- [~] [M11-T3 — Preflight; uninstall consent and configurable thresholds remain](tasks/M11-provisioning.md)
+- [~] [M11-T4 — Verified Termux/Termux:Boot APK selection; progress/version/OEM coverage remains](tasks/M11-provisioning.md)
+- [~] [M11-T5 — Optional Android settings; storage permissions and command tests remain](tasks/M11-provisioning.md)
+- [~] [M11-T6 — Foreground launch; wake/keyguard checks remain](tasks/M11-provisioning.md)
+- [~] [M11-T7 — Bootstrap SSH handoff; retry and interruption cleanup QA remains](tasks/M11-provisioning.md)
+- [~] [M11-T9 — Termux packages/wake lock; live streaming remains](tasks/M11-provisioning.md)
+- [~] [M11-T10 — Distro installation; partial-install/idempotency QA remains](tasks/M11-provisioning.md)
+- [~] [M11-T11 — Installer review PTY handoff; approved launch/PATH discovery remains](tasks/M11-provisioning.md)
+- [~] [M11-T12 — Interactive setup; portal/hints/config fallback remain](tasks/M11-provisioning.md)
+- [~] [M11-T13 — Autostart hook; phone activation/reboot QA remains](tasks/M11-provisioning.md)
+- [~] [M11-T14 — Start/status verification; M9 profile persistence remains](tasks/M11-provisioning.md)
+- [~] [M11-T15 — Device-page wizard; entry points/state coverage/runtime QA remain](tasks/M11-provisioning.md)
 
 ### M12 — Cross-Platform
 

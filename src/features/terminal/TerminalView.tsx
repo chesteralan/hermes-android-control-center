@@ -1,5 +1,14 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Dialog } from "../../components/Dialog";
@@ -162,10 +171,15 @@ export function TerminalView() {
     overscan: 20,
   });
   const historyScope = device ? terminalHistoryScope(key, transport) : "";
-  const history = useTerminal((state) => state.historyByScope[historyScope] ?? EMPTY_COMMAND_HISTORY);
+  const history = useTerminal(
+    (state) => state.historyByScope[historyScope] ?? EMPTY_COMMAND_HISTORY,
+  );
   const loadCommandHistory = useTerminal((state) => state.loadCommandHistory);
   const historyPersistenceEnabled = useTerminal((state) => state.historyPersistenceEnabled);
   const setHistoryPersistence = useTerminal((state) => state.setHistoryPersistence);
+  const pendingInteractiveLaunch = useTerminal((state) => state.pendingInteractiveLaunch);
+  const consumeInteractiveLaunch = useTerminal((state) => state.consumeInteractiveLaunch);
+  const [initialInteractiveCommand, setInitialInteractiveCommand] = useState<string | undefined>();
   const [inputState, setInputState] = useState<CommandInputState>({
     scope: historyScope,
     command: "",
@@ -215,17 +229,27 @@ export function TerminalView() {
   }, [historyScope, loadCommandHistory]);
 
   useEffect(() => {
+    if (!device || pendingInteractiveLaunch?.serial !== device.serial) return;
+    setTransport("termuxSsh");
+    setInitialInteractiveCommand(consumeInteractiveLaunch(device.serial) ?? undefined);
+    setInteractive(true);
+  }, [consumeInteractiveLaunch, device, pendingInteractiveLaunch]);
+
+  useEffect(() => {
     if (device && !activeSessionId) ensureSession(key);
   }, [activeSessionId, device, ensureSession, key]);
 
-  const requestCloseSession = useCallback((sessionId: string) => {
-    const session = useTerminal.getState().sessions[terminalSessionKey(key, sessionId)];
-    if (session?.blocks.some((block) => block.running)) {
-      setPendingCloseSessionId(sessionId);
-    } else {
-      void closeSession(key, sessionId);
-    }
-  }, [closeSession, key]);
+  const requestCloseSession = useCallback(
+    (sessionId: string) => {
+      const session = useTerminal.getState().sessions[terminalSessionKey(key, sessionId)];
+      if (session?.blocks.some((block) => block.running)) {
+        setPendingCloseSessionId(sessionId);
+      } else {
+        void closeSession(key, sessionId);
+      }
+    },
+    [closeSession, key],
+  );
 
   useEffect(() => {
     if (!device) return;
@@ -298,7 +322,8 @@ export function TerminalView() {
       event.preventDefault();
       if (!history.length) return;
       if (historyCursor === null) updateInputState({ draftCommand: command });
-      const nextIndex = historyCursor === null ? history.length - 1 : Math.max(0, historyCursor - 1);
+      const nextIndex =
+        historyCursor === null ? history.length - 1 : Math.max(0, historyCursor - 1);
       updateInputState({ historyCursor: nextIndex, command: history[nextIndex] ?? "" });
     } else if (event.key === "ArrowDown" && historyCursor !== null) {
       event.preventDefault();
@@ -364,9 +389,7 @@ export function TerminalView() {
 
   async function exportSession() {
     const text = blocks
-      .map((block) =>
-        [`$ ${block.command}`, ...block.lines.map((line) => line.text)].join("\n"),
-      )
+      .map((block) => [`$ ${block.command}`, ...block.lines.map((line) => line.text)].join("\n"))
       .join("\n\n");
     try {
       const path = await ipc.exportTerminalText(text);
@@ -459,10 +482,18 @@ export function TerminalView() {
           >
             Save snippet
           </Button>
-          <Button variant="ghost" onClick={() => activeSessionId && clear(key, activeSessionId)} disabled={!!running}>
+          <Button
+            variant="ghost"
+            onClick={() => activeSessionId && clear(key, activeSessionId)}
+            disabled={!!running}
+          >
             Clear
           </Button>
-          <Button variant="ghost" onClick={() => void exportSession()} disabled={blocks.length === 0}>
+          <Button
+            variant="ghost"
+            onClick={() => void exportSession()}
+            disabled={blocks.length === 0}
+          >
             Export .txt
           </Button>
           <Button
@@ -480,7 +511,11 @@ export function TerminalView() {
           >
             Copy all
           </Button>
-          {actionStatus && <span role="status" className="text-[10px]">{actionStatus}</span>}
+          {actionStatus && (
+            <span role="status" className="text-[10px]">
+              {actionStatus}
+            </span>
+          )}
         </span>
       </header>
       <nav
@@ -510,7 +545,11 @@ export function TerminalView() {
             </button>
           </span>
         ))}
-        <Button variant="ghost" aria-label="New terminal session" onClick={() => createSession(key)}>
+        <Button
+          variant="ghost"
+          aria-label="New terminal session"
+          onClick={() => createSession(key)}
+        >
           New session
         </Button>
       </nav>
@@ -549,78 +588,86 @@ export function TerminalView() {
           <InteractiveTerminal
             key={`${key}:${activeSessionId ?? ""}`}
             serial={device.serial}
-            onClose={() => setInteractive(false)}
+            initialCommand={initialInteractiveCommand}
+            onClose={() => {
+              setInitialInteractiveCommand(undefined);
+              setInteractive(false);
+            }}
           />
         </Suspense>
       ) : (
         <>
-      <div
-        ref={scroller}
-        className="flex-1 overflow-auto p-4 font-mono text-[12.5px]"
-        role="log"
-        aria-label="Terminal output"
-      >
-        {virtualize ? (
-          <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-            {virtualizer.getVirtualItems().map((item) => {
-              const row = rows[item.index];
-              return row ? (
-                <div
-                  key={row.key}
-                  data-index={item.index}
-                  ref={virtualizer.measureElement}
-                  className="absolute left-0 right-0 top-0"
-                  style={{ transform: `translateY(${item.start}px)` }}
-                >
+          <div
+            ref={scroller}
+            className="flex-1 overflow-auto p-4 font-mono text-[12.5px]"
+            role="log"
+            aria-label="Terminal output"
+          >
+            {virtualize ? (
+              <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+                {virtualizer.getVirtualItems().map((item) => {
+                  const row = rows[item.index];
+                  return row ? (
+                    <div
+                      key={row.key}
+                      data-index={item.index}
+                      ref={virtualizer.measureElement}
+                      className="absolute left-0 right-0 top-0"
+                      style={{ transform: `translateY(${item.start}px)` }}
+                    >
+                      <TerminalOutputRow
+                        row={row}
+                        onCancel={(blockId) =>
+                          activeSessionId && void cancel(key, activeSessionId, blockId)
+                        }
+                        onCopyText={(text) => void copyText(text)}
+                      />
+                    </div>
+                  ) : null;
+                })}
+              </div>
+            ) : (
+              <>
+                {rows.map((row) => (
                   <TerminalOutputRow
+                    key={row.key}
                     row={row}
-                    onCancel={(blockId) => activeSessionId && void cancel(key, activeSessionId, blockId)}
+                    onCancel={(blockId) =>
+                      activeSessionId && void cancel(key, activeSessionId, blockId)
+                    }
                     onCopyText={(text) => void copyText(text)}
                   />
-                </div>
-              ) : null;
-            })}
+                ))}
+                <div ref={bottom} />
+              </>
+            )}
           </div>
-        ) : (
-          <>
-            {rows.map((row) => (
-              <TerminalOutputRow
-                key={row.key}
-                row={row}
-                onCancel={(blockId) => activeSessionId && void cancel(key, activeSessionId, blockId)}
-                onCopyText={(text) => void copyText(text)}
-              />
-            ))}
-            <div ref={bottom} />
-          </>
-        )}
-      </div>
-      <form
-        onSubmit={onSubmit}
-        className="flex items-center gap-2 border-t border-border px-4 py-2 font-mono"
-      >
-        <span className="text-accent">$</span>
-        <input
-          aria-label="Command"
-          className="flex-1 bg-transparent outline-none"
-          placeholder={
-            running ? "Waiting for the running command…" : "Type a command and press Enter"
-          }
-          value={command}
-          onChange={(e) => onCommandChange(e.target.value)}
-          onKeyDown={onCommandKeyDown}
-          autoComplete="off"
-          autoFocus
-          spellCheck={false}
-        />
-      </form>
-      {reverseSearchActive && (
-        <p className="border-t border-border px-4 py-1 text-[11px] text-muted" role="status">
-          {reverseMatchIndex === null
-            ? "No history match"
-            : `Reverse search: ${history[reverseMatchIndex]}`}
-        </p>
-      )}
+          <form
+            onSubmit={onSubmit}
+            className="flex items-center gap-2 border-t border-border px-4 py-2 font-mono"
+          >
+            <span className="text-accent">$</span>
+            <input
+              aria-label="Command"
+              className="flex-1 bg-transparent outline-none"
+              placeholder={
+                running ? "Waiting for the running command…" : "Type a command and press Enter"
+              }
+              value={command}
+              onChange={(e) => onCommandChange(e.target.value)}
+              onKeyDown={onCommandKeyDown}
+              autoComplete="off"
+              autoFocus
+              spellCheck={false}
+            />
+          </form>
+          {reverseSearchActive && (
+            <p className="border-t border-border px-4 py-1 text-[11px] text-muted" role="status">
+              {reverseMatchIndex === null
+                ? "No history match"
+                : `Reverse search: ${history[reverseMatchIndex]}`}
+            </p>
+          )}
         </>
       )}
       <Dialog

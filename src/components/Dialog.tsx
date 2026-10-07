@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, type ReactNode } from "react";
 
 export function Dialog({
   open,
@@ -14,16 +14,17 @@ export function Dialog({
   footer?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const closeFromEscape = useEffectEvent(onClose);
   const focusableSelector =
     'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeFromEscape();
     window.addEventListener("keydown", onKey);
     const firstFocusable = ref.current?.querySelector<HTMLElement>(focusableSelector);
     (firstFocusable ?? ref.current)?.focus();
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <div
