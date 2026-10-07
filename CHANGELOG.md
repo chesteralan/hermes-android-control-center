@@ -20,6 +20,8 @@ All notable changes to this project are documented here. This project follows
 
 ### Fixed
 
+- Use certificate-verified native TLS for HTTP downloads and signed updates, removing
+  embedded certificate-root dependencies rejected by the unchanged license policy.
 - Enable feature-branch desktop CI, preserve binary fixtures during Windows checkout,
   target Rust audits at the actual crate, and isolate Windows PowerShell ACL operations
   from inherited PowerShell Core module paths.
