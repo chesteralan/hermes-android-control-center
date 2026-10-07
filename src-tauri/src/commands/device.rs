@@ -13,8 +13,8 @@ async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<AndroidDevice>, A
     let state = app.state::<AppState>();
     let client = state.adb_client().await?;
     let list = client.devices().await?;
-    state.devices.apply_snapshot(list);
-    monitor::emit_devices(app);
+    let diff = state.devices.apply_snapshot(list);
+    monitor::snapshot_applied(app, diff);
     Ok(state.devices.list())
 }
 
@@ -90,6 +90,17 @@ pub async fn retry_connection<R: Runtime>(
             serial: serial.clone(),
         })?;
     state.devices.clear_manual_disconnect(&serial);
+    let devices = refresh(&app).await?;
+    if devices.iter().any(|candidate| {
+        candidate.state == DeviceState::Device
+            && (candidate.serial == serial
+                || device
+                    .device_id
+                    .as_deref()
+                    .is_some_and(|id| candidate.device_id.as_deref() == Some(id)))
+    }) {
+        return Ok(());
+    }
     monitor::spawn_reconnect(app, device);
     Ok(())
 }

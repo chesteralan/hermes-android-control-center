@@ -120,10 +120,9 @@ Mirrors Android's "Pair device with QR code" flow:
 
 ## Live QA record (2026-10-07)
 - Verified on a connected OnePlus CPH2239 (Android 11): the app displayed live connection, device details, and Termux package metadata.
-- mDNS Discover found the phone's current connect service. Connecting to that service kept one device in the UI despite ADB exposing both IP and mDNS serials.
-- Opened and canceled both QR and pairing-code dialogs without submitting a pairing or changing the phone's trusted-device state.
-- The Disconnect confirmation named the selected phone and serial. On the rebuilt app, disconnecting the IP transport removed all entries from `adb devices -l` and returned the UI to “No phone selected.” Discover → Connect restored it.
-- A subsequent host-side `adb disconnect` produced a new ADB transport ID and the rebuilt app returned to Connected. This verifies live automatic recovery from a transient host disconnect, but not the Retry button after retries give up or the phone's Wireless debugging toggle path.
-- Fixed the registry to retain manual-disconnect intent across ADB auto-reconnect, aliases sharing `device_id`, and identity learned after disconnect; retry by either alias clears the shared intent. Regression tests cover each case.
-- Verification: 240 Rust tests (single-threaded), 55 ADB tests, 8 device-registry tests, 17 device UI tests, formatting, and strict Clippy pass.
-- Still pending: fresh-phone QR/code pairing (only the already-paired CPH2239 was attached), and Wireless debugging off/on plus Retry-after-give-up QA. Turning Wireless debugging off would sever the only ADB path, so that check needs a reliable on-device re-enable path. The repository is already beyond the historical `v0.1.0-alpha.2` milestone; no retroactive tag was created. Current strict CI/release gates remain required before any public release.
+- mDNS Discover found the phone's current connect service. The workspace-built QA app's code-pairing flow was accepted using the already-trusted CPH2239; this is not fresh-phone pairing. The QR screen rendered with instructions/countdown and canceled cleanly, but no physical scan was performed.
+- With both IP and mDNS serials active, disconnecting the mDNS entry left the IP transport in `adb devices -l`. The workspace-built QA app then showed that phone as **Disconnected** with **Retry**. Pressing Retry restored **Connected** while keeping the single device identity. This verifies the late-ID refresh path and Retry on a live device.
+- A host-side `adb disconnect` also recovered automatically with a new transport ID. Wireless debugging itself was not toggled off because it would sever the only ADB recovery path.
+- Fixed manual-disconnect tracking across ADB auto-reconnect, IP/mDNS serial aliases, and IDs learned after a refresh; Retry now refreshes the registry before starting a reconnect supervisor.
+- Verification: 241 Rust tests (single-threaded), 55 ADB tests, 7 device-registry tests, 17 device UI tests, formatting, and strict Clippy pass.
+- Still pending: fresh-phone pairing via QR and code, plus Wireless debugging off/on recovery. Only the already-paired CPH2239 was attached; no `v0.1.0-alpha.2` tag was created because the repository has advanced beyond that historical milestone. Current strict CI/release gates remain required before any public release.
