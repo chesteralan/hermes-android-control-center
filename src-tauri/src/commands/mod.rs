@@ -1,6 +1,8 @@
 pub mod adb;
 pub mod chat;
+pub mod control_api;
 pub mod device;
+pub mod diagnostics;
 pub mod hermes;
 pub mod logs;
 pub mod sessions;

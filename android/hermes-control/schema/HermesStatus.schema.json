@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HermesStatus",
+  "type": "object",
+  "required": [
+    "checkedAt",
+    "gateway",
+    "platforms",
+    "processes",
+    "source",
+    "supervisor",
+    "warnings"
+  ],
+  "properties": {
+    "checkedAt": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "gateway": {
+      "$ref": "#/definitions/ComponentStatus"
+    },
+    "gatewayPid": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "platforms": {
+      "description": "Only reported when the state file belongs to the running gateway.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PlatformStatus"
+      }
+    },
+    "processes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/HermesProcess"
+      }
+    },
+    "pythonVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rawStatusOutput": {
+      "description": "Optional output from the user's configured status command.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source": {
+      "description": "\"termuxSsh\" or \"adb\" (limited).",
+      "type": "string"
+    },
+    "supervisor": {
+      "$ref": "#/definitions/SupervisorStatus"
+    },
+    "uptimeSecs": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "definitions": {
+    "ComponentStatus": {
+      "type": "string",
+      "enum": [
+        "running",
+        "degraded",
+        "stopped",
+        "unknown"
+      ]
+    },
+    "HermesProcess": {
+      "type": "object",
+      "required": [
+        "cmdline",
+        "kind",
+        "pid"
+      ],
+      "properties": {
+        "cmdline": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ProcessKind"
+        },
+        "pid": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "uptimeSecs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "PlatformStatus": {
+      "type": "object",
+      "required": [
+        "name",
+        "state"
+      ],
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      }
+    },
+    "ProcessKind": {
+      "type": "string",
+      "enum": [
+        "gateway",
+        "cli",
+        "other"
+      ]
+    },
+    "SupervisorStatus": {
+      "type": "object",
+      "required": [
+        "recentRestarts",
+        "running"
+      ],
+      "properties": {
+        "pid": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "recentRestarts": {
+          "description": "Gateway restarts by the supervisor in the last 10 minutes.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "running": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,6 @@
 //! Log sources (ADR-005): logcat now, Termux files (M7) and API WebSocket (M8) later — same `LogLine`.
 
+pub mod api_ws;
 pub mod batcher;
 pub mod logcat;
 pub mod parse;
@@ -13,7 +14,7 @@ use ts_rs::TS;
 
 use crate::error::AppResult;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 #[ts(export)]
 pub enum LogLevel {
@@ -23,7 +24,7 @@ pub enum LogLevel {
     Error,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct LogLine {

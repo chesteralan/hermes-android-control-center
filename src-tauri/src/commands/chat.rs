@@ -1,14 +1,15 @@
+use std::sync::Arc;
+
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::State;
 use ts_rs::TS;
 
-use crate::config::HermesConfig;
+use crate::config::{HermesConfig, HermesTransportKind};
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::streams::StreamId;
 use crate::termux::shell_escape;
-use crate::termux::ssh::TermuxSshTransport;
 use crate::transport::{DeviceTransport, StreamEvent};
 
 const MAX_PROMPT_BYTES: usize = 32 * 1024;
@@ -136,10 +137,36 @@ pub async fn start_hermes_chat(
 ) -> Result<StreamId, AppError> {
     let cfg = state.config.read().await.hermes.clone();
     let command = build_chat_command(&cfg, &prompt, session_id.as_deref())?;
-    let transport: TermuxSshTransport = state.termux_transport(&serial).await?;
+    let transport: Arc<dyn DeviceTransport> = match state.configured_hermes_transport(&serial).await
+    {
+        Ok(transport) => transport,
+        Err(error) if cfg.fallback_to_ssh => {
+            tracing::warn!(%error, "Control API setup failed; using enabled SSH chat fallback");
+            Arc::new(state.termux_transport(&serial).await?)
+        }
+        Err(error) => return Err(error),
+    };
     let (id, cancel) = state.streams.register(&serial, "chat");
-    let mut stream = match transport.stream(&command, cancel.clone()).await {
+    let stream_result = transport.stream(&command, cancel.clone()).await;
+    let mut stream = match stream_result {
         Ok(stream) => stream,
+        Err(error) if cfg.transport == HermesTransportKind::ControlApi && cfg.fallback_to_ssh => {
+            tracing::warn!(%error, "Control API chat stream failed; using enabled SSH fallback");
+            let ssh = match state.termux_transport(&serial).await {
+                Ok(transport) => transport,
+                Err(ssh_error) => {
+                    state.streams.finish(&id);
+                    return Err(ssh_error);
+                }
+            };
+            match ssh.stream(&command, cancel.clone()).await {
+                Ok(stream) => stream,
+                Err(ssh_error) => {
+                    state.streams.finish(&id);
+                    return Err(ssh_error);
+                }
+            }
+        }
         Err(error) => {
             state.streams.finish(&id);
             return Err(error);

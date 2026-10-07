@@ -6,6 +6,35 @@ on:
   pull_request:
 
 jobs:
+  security:
+    name: Security audits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Audit Rust dependencies
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check Rust dependency policy
+        uses: EmbarkStudios/cargo-deny-action@v2
+
   check:
     name: ${{ matrix.os }}
     strategy:
@@ -36,6 +65,7 @@ jobs:
           workspaces: src-tauri
 
       - run: npm ci
+      - run: npm run version:check
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test -- --run

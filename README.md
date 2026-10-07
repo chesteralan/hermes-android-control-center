@@ -105,7 +105,16 @@ npm run tauri build
 
 The bundle is written under `src-tauri/target/release/bundle/`. For contributor checks, run `npm test -- --run`, `npm run test:rust`, `npm run lint`, and `npm run typecheck`.
 
-## 10. Troubleshoot ADB connections
+## 10. Tray and window behavior
+
+On macOS, Windows, and Linux/X11, closing or minimizing the main window hides it to the Hermes Control Center tray icon when tray support initializes successfully. Choose **Open Hermes Control Center** from the tray menu to restore the existing window; active device connections and streams continue while it is hidden. Choose **Quit Hermes Control Center** to cancel streams, close interactive sessions, and release managed ADB/SSH resources.
+
+Some Linux Wayland desktops do not provide a detectable tray host. In that case, and whenever tray initialization fails, the app keeps normal minimize behavior and closing the window exits the app. The window is never hidden without a working tray restore route.
+
+Use **About > Check for Updates** to check for a signed release. Review the
+version and release notes before installing; the app restarts after installation.
+
+## 11. Troubleshoot ADB connections
 
 | Symptom                | Likely fix                                                                                                                                 |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |

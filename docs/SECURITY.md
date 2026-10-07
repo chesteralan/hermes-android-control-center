@@ -32,7 +32,7 @@
 ## 3. Tauri hardening
 - CSP: `default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost`.
 - `withGlobalTauri: false`.
-- Capabilities: `core:default`, `store:default`, `dialog:allow-open`, `dialog:allow-save`, `clipboard-manager:allow-write-text`, `updater:default` (M10). No `shell:*`, no broad `fs:*`.
+- Capabilities: `core:default`, `dialog:allow-save`, `updater:default`, and `process:allow-restart` for signed update installation. Settings persistence stays in Rust; no `shell:*`, broad `fs:*`, or clipboard plugin permissions.
 - Hardened runtime entitlements: none beyond default unless required (document each).
 
 ## 4. Secrets storage

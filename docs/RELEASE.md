@@ -22,8 +22,14 @@ CI secrets:
 | `APPLE_CERTIFICATE` | base64 .p12 |
 | `APPLE_CERTIFICATE_PASSWORD` | .p12 password |
 | `APPLE_SIGNING_IDENTITY` | `Developer ID Application: Name (TEAMID)` |
-| `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH` | notarization via App Store Connect API key (preferred over Apple ID password) |
+| `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_CONTENT` | notarization via App Store Connect API key (preferred over Apple ID password); the workflow writes the `.p8` contents to a temporary file |
 | `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | updater signatures |
+
+The GitHub release workflow accepts the App Store Connect `.p8` contents as
+`APPLE_API_KEY_CONTENT` and writes it to a temporary runner file for
+`APPLE_API_KEY_PATH`. Keep the updater private key out of the repository; the
+configured public key is safe to commit. Back up the private key before
+publishing, since losing it prevents future updates.
 
 Build: `npm run tauri build -- --target universal-apple-darwin`. Tauri signs, notarizes and staples when the env vars are present. Verify:
 ```

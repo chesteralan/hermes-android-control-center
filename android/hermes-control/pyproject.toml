@@ -9,6 +9,12 @@ description = "Loopback-only control service for Hermes Agent in Termux"
 requires-python = ">=3.11"
 dependencies = ["aiohttp>=3.9,<4"]
 
+[project.optional-dependencies]
+test = ["jsonschema>=4.20,<5", "pytest>=8,<9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [project.scripts]
 hermes-control = "hermes_control.server:main"
 

@@ -5,6 +5,7 @@ pub mod config_store;
 pub mod devices;
 pub mod error;
 pub mod hermes;
+pub mod lifecycle;
 pub mod logging;
 pub mod logs;
 pub mod monitor;
@@ -27,6 +28,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
             let cfg = config_store::load(&handle);
@@ -42,11 +45,30 @@ pub fn run() {
                 set_level,
                 app.path().app_data_dir()?,
             ));
-            monitor::start(handle);
+            monitor::start(handle.clone());
             app.manage(commands::hermes::ActionLocks::default());
+            lifecycle::install_app_menu(&handle)?;
+            let tray_available = lifecycle::install_tray(&handle);
+            app.manage(lifecycle::AppLifecycle::new(tray_available));
             Ok(())
         })
         .on_window_event(|window, event| {
+            let lifecycle = window.state::<lifecycle::AppLifecycle>();
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. }
+                    if lifecycle.should_hide_on_close() =>
+                {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                tauri::WindowEvent::Focused(false) | tauri::WindowEvent::Resized(_)
+                    if lifecycle
+                        .should_hide_on_minimize(window.is_minimized().unwrap_or(false)) =>
+                {
+                    let _ = window.hide();
+                }
+                _ => {}
+            }
             if let tauri::WindowEvent::Destroyed = event {
                 let state = window.state::<AppState>();
                 state.shutdown.cancel();
@@ -63,6 +85,10 @@ pub fn run() {
             commands::adb::detect_adb,
             commands::settings::get_settings,
             commands::settings::update_settings,
+            commands::control_api::preview_control_api_install,
+            commands::control_api::install_control_api,
+            commands::control_api::test_control_api,
+            commands::diagnostics::export_diagnostics,
             commands::device::list_devices,
             commands::device::connect_device,
             commands::device::disconnect_device,

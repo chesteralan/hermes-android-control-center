@@ -1,7 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { Dialog } from "./Dialog";
 import { ErrorPanel } from "./ErrorPanel";
 
 describe("ErrorPanel", () => {
@@ -57,5 +58,26 @@ describe("ConfirmDialog", () => {
       </ConfirmDialog>,
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+describe("Dialog keyboard navigation", () => {
+  it("keeps forward and reverse Tab focus inside the open dialog", () => {
+    render(
+      <Dialog open title="Keyboard dialog" onClose={() => {}}>
+        <button type="button">First action</button>
+        <button type="button">Last action</button>
+      </Dialog>,
+    );
+    const first = screen.getByRole("button", { name: "First action" });
+    const last = screen.getByRole("button", { name: "Last action" });
+
+    last.focus();
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(first).toHaveFocus();
+
+    first.focus();
+    fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
+    expect(last).toHaveFocus();
   });
 });

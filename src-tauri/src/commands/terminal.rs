@@ -67,9 +67,7 @@ async fn transport(
             )))
         }
         TransportKind::TermuxSsh => Ok(Arc::new(state.termux_transport(serial).await?)),
-        TransportKind::Api => Err(AppError::Config(
-            "The Hermes Control API transport is not available yet.".into(),
-        )),
+        TransportKind::Api => Ok(Arc::new(state.api_transport(serial).await?)),
     }
 }
 

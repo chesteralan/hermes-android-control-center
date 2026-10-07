@@ -1,6 +1,7 @@
 //! Device transports (ADR-004): the UI never knows whether a command ran via ADB, SSH or the API.
 
 pub mod adb_shell;
+pub mod api;
 pub mod lines;
 
 use async_trait::async_trait;
@@ -21,7 +22,7 @@ pub enum TransportKind {
     Api,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct CommandResult {
@@ -32,7 +33,7 @@ pub struct CommandResult {
     pub duration_ms: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -48,6 +49,7 @@ pub enum StreamEvent {
     },
     Exit {
         code: Option<i32>,
+        #[serde(rename = "durationMs")]
         #[ts(type = "number")]
         duration_ms: u64,
     },

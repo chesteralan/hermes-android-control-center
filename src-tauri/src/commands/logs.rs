@@ -4,8 +4,9 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::config::{AppConfig, HermesEnvironment};
+use crate::config::{AppConfig, HermesEnvironment, HermesTransportKind};
 use crate::error::AppError;
+use crate::logs::api_ws::ApiWsLogSource;
 use crate::logs::logcat::LogcatSource;
 use crate::logs::transport_command::TransportCommandLogSource;
 use crate::logs::{batcher, LogLine, LogSource, LogSourceKind};
@@ -26,6 +27,23 @@ fn path_argument(path: &str, environment: &HermesEnvironment) -> String {
                 .map(|relative| format!("/root/{relative}"))
                 .unwrap_or_else(|| path.to_string());
             format!("\"$R\"{}", shell_escape(&guest_path))
+        }
+    }
+}
+
+pub(crate) fn recent_tail_command(
+    path: &str,
+    environment: &HermesEnvironment,
+    line_count: usize,
+) -> String {
+    let command = format!(
+        "tail -n {line_count} -- {}",
+        path_argument(path, environment)
+    );
+    match environment {
+        HermesEnvironment::Termux => command,
+        HermesEnvironment::ProotDistro { .. } => {
+            format!("{}; {command}", crate::hermes::env::root_expr(environment))
         }
     }
 }
@@ -142,10 +160,42 @@ pub async fn start_log_stream(
         LogSourceKind::HermesGateway
         | LogSourceKind::HermesToolCalls
         | LogSourceKind::Supervisor => {
-            let command = command_for_source(source, &config)?;
-            let transport: Arc<dyn DeviceTransport> =
-                Arc::new(state.termux_transport(&serial).await?);
-            Box::new(TransportCommandLogSource::new(transport, command))
+            let api_source = if config.hermes.transport == HermesTransportKind::ControlApi
+                && source == LogSourceKind::HermesGateway
+            {
+                let probe = async {
+                    let api = Arc::new(state.api_transport(&serial).await?);
+                    api.health().await?;
+                    api.check_log_stream().await?;
+                    Ok::<_, AppError>(api)
+                }
+                .await;
+                match probe {
+                    Ok(api) => Some(Box::new(ApiWsLogSource::new(api)) as Box<dyn LogSource>),
+                    Err(error) if config.hermes.fallback_to_ssh => {
+                        tracing::warn!(%error, "Control API log startup failed; using enabled SSH fallback");
+                        None
+                    }
+                    Err(error) => return Err(error),
+                }
+            } else {
+                None
+            };
+            if let Some(source) = api_source {
+                source
+            } else {
+                if config.hermes.transport == HermesTransportKind::ControlApi
+                    && !config.hermes.fallback_to_ssh
+                {
+                    return Err(AppError::Config(
+                        "The Control API streams gateway logs only. Enable SSH fallback for this log source.".into(),
+                    ));
+                }
+                let command = command_for_source(source, &config)?;
+                let transport: Arc<dyn DeviceTransport> =
+                    Arc::new(state.termux_transport(&serial).await?);
+                Box::new(TransportCommandLogSource::new(transport, command))
+            }
         }
     };
     let (id, cancel) = state.streams.register(&serial, "logs");

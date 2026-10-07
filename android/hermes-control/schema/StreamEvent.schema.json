@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StreamEvent",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "line",
+        "type"
+      ],
+      "properties": {
+        "line": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "stdout"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "line",
+        "type"
+      ],
+      "properties": {
+        "line": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "stderr"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "durationMs",
+        "type"
+      ],
+      "properties": {
+        "code": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "durationMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "exit"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "error",
+        "type"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/ErrorPayload"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "error"
+          ]
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "ErrorKind": {
+      "type": "string",
+      "enum": [
+        "adbNotFound",
+        "adbFailed",
+        "deviceOffline",
+        "deviceUnauthorized",
+        "deviceNotFound",
+        "connectionRefused",
+        "wirelessDebuggingDisabled",
+        "pairingFailed",
+        "mdnsUnavailable",
+        "termuxUnavailable",
+        "hermesNotFound",
+        "commandFailed",
+        "timeout",
+        "cancelled",
+        "config",
+        "io"
+      ]
+    },
+    "ErrorPayload": {
+      "description": "Shape sent to the UI for every failed command.",
+      "type": "object",
+      "required": [
+        "kind",
+        "message"
+      ],
+      "properties": {
+        "details": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/definitions/ErrorKind"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

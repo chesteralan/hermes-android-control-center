@@ -17,6 +17,8 @@ const testConfig: AppConfig = {
   hermes: {
     environment: { type: "prootDistro", distro: "debian" },
     startMode: "supervised",
+    transport: "termuxSsh",
+    fallbackToSsh: false,
     gatewayCommand: "hermes gateway run",
     processMatch: "hermes-agent/venv/bin/python",
     gatewayMatch: "gateway run",
@@ -243,7 +245,9 @@ describe("ChatView", () => {
       exitCode: 0,
       error: null,
     });
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Queued messages" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Queued messages" })).toBeNull(),
+    );
   });
 
   it("removes a queued prompt without sending it", async () => {
@@ -321,9 +325,13 @@ describe("ChatView", () => {
     });
 
     render(<ChatView />);
-    expect(await screen.findByRole("button", { name: /Telegram launch notes/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Telegram launch notes/ }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Desktop preferences/ })).toBeInTheDocument();
-    expect(screen.getByText("Filters apply only to the loaded recent sessions.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Filters apply only to the loaded recent sessions."),
+    ).toBeInTheDocument();
 
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: "Filter sessions by source" }),

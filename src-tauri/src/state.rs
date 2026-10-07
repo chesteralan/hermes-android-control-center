@@ -9,9 +9,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::adb::parse::device_id_from_serial;
 use crate::adb::{locate, AdbClient, AdbInfo};
-use crate::config::{AppConfig, LogLevelSetting};
+use crate::config::{AppConfig, HermesTransportKind, LogLevelSetting};
 use crate::devices::DeviceRegistry;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::platform::RealEnv;
 use crate::process::ProcessRunner;
 use crate::streams::StreamRegistry;
@@ -19,6 +19,8 @@ use crate::termux::forward::ForwardManager;
 use crate::termux::keys;
 use crate::termux::known_hosts::KnownHosts;
 use crate::termux::ssh::{self, PtyInput, PtySessionControl, SshPool, TermuxSshTransport};
+use crate::transport::api::ApiTransport;
+use crate::transport::DeviceTransport;
 
 struct PtySessionEntry {
     serial: String,
@@ -91,6 +93,8 @@ impl PtySessionRegistry {
 }
 
 pub type LogLevelSetter = Box<dyn Fn(LogLevelSetting) + Send + Sync>;
+
+const API_TOKEN_SERVICE: &str = "com.hermes-control-center.control-api";
 
 pub struct AppState {
     pub runner: Arc<dyn ProcessRunner>,
@@ -180,6 +184,50 @@ impl AppState {
             })
             .await?;
         Ok(TermuxSshTransport::new(handle))
+    }
+
+    pub fn api_token(&self, serial: &str) -> AppResult<Option<String>> {
+        let device_id = self.device_id_for(serial);
+        let entry = keyring::Entry::new(API_TOKEN_SERVICE, &device_id)
+            .map_err(|error| AppError::Io(error.to_string()))?;
+        match entry.get_password() {
+            Ok(token) => Ok(Some(token)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(AppError::Io(format!(
+                "Could not read API token from Keychain: {error}"
+            ))),
+        }
+    }
+
+    pub fn set_api_token(&self, serial: &str, token: &str) -> AppResult<()> {
+        let device_id = self.device_id_for(serial);
+        let entry = keyring::Entry::new(API_TOKEN_SERVICE, &device_id)
+            .map_err(|error| AppError::Io(error.to_string()))?;
+        entry.set_password(token).map_err(|error| {
+            AppError::Io(format!("Could not save API token to Keychain: {error}"))
+        })?;
+        Ok(())
+    }
+
+    pub async fn api_transport(&self, serial: &str) -> AppResult<ApiTransport> {
+        let token = self.api_token(serial)?.ok_or_else(|| {
+            AppError::Config("No Control API token is saved for this device.".into())
+        })?;
+        let client = self.adb_client().await?;
+        let port = self.config.read().await.api_port;
+        let local_port = self.forwards.ensure(&client, serial, port).await?;
+        Ok(ApiTransport::new(local_port, token))
+    }
+
+    pub async fn configured_hermes_transport(
+        &self,
+        serial: &str,
+    ) -> AppResult<Arc<dyn DeviceTransport>> {
+        let transport = self.config.read().await.hermes.transport;
+        match transport {
+            HermesTransportKind::TermuxSsh => Ok(Arc::new(self.termux_transport(serial).await?)),
+            HermesTransportKind::ControlApi => Ok(Arc::new(self.api_transport(serial).await?)),
+        }
     }
 
     /// Drop SSH sessions and port forwards for a device.

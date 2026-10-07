@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import App from "../App";
@@ -45,5 +45,31 @@ describe("App shell", () => {
       await screen.findByText("ADB is not installed or could not be found."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Detect again" })).toBeInTheDocument();
+  });
+
+  it("opens the command palette, filters views, and navigates by selection", async () => {
+    render(<App />);
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+
+    const palette = await screen.findByRole("dialog", { name: "Command palette" });
+    await userEvent.type(
+      within(palette).getByRole("textbox", { name: "Search views and commands" }),
+      "term",
+    );
+    expect(within(palette).getByRole("button", { name: /Terminal/ })).toBeInTheDocument();
+    expect(within(palette).queryByRole("button", { name: /^Dashboard/ })).not.toBeInTheDocument();
+
+    await userEvent.click(within(palette).getByRole("button", { name: /Terminal/ }));
+    expect(useRoute.getState().route).toBe("terminal");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("shows the synchronized application version in About", async () => {
+    render(<App />);
+    expect(screen.getByText(`v${__APP_VERSION__}`)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "About" }));
+    expect(screen.getByRole("dialog", { name: "About Hermes Control Center" })).toHaveTextContent(
+      `v${__APP_VERSION__}`,
+    );
   });
 });

@@ -7,12 +7,13 @@ use tauri::State;
 use tokio::sync::Mutex;
 use ts_rs::TS;
 
-use crate::config::{HermesConfig, StartMode};
+use crate::config::{HermesConfig, HermesTransportKind, StartMode};
 use crate::error::AppError;
 use crate::hermes::detect::{self, HermesInstallReport};
 use crate::hermes::status::{self, ComponentStatus, HermesStatus};
 use crate::hermes::supervisor;
 use crate::state::AppState;
+use crate::transport::api::ApiTransport;
 use crate::transport::{CommandResult, DeviceTransport};
 
 const STATUS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -75,6 +76,21 @@ async fn fetch_status(
     serial: &str,
     cfg: &HermesConfig,
 ) -> Result<HermesStatus, AppError> {
+    if cfg.transport == crate::config::HermesTransportKind::ControlApi {
+        match state.api_transport(serial).await {
+            Ok(api) => match api.status().await {
+                Ok(status) => return Ok(status),
+                Err(error) if cfg.fallback_to_ssh => {
+                    tracing::warn!(%error, "Control API status failed; using enabled SSH fallback");
+                }
+                Err(error) => return Err(error),
+            },
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API setup failed; using enabled SSH fallback");
+            }
+            Err(error) => return Err(error),
+        }
+    }
     match state.termux_transport(serial).await {
         Ok(t) => {
             let out = t
@@ -109,6 +125,32 @@ async fn fetch_status(
             Ok(status::parse_adb_processes(cfg, &out.stdout, now()))
         }
     }
+}
+
+async fn action_transport(
+    state: &AppState,
+    serial: &str,
+    cfg: &HermesConfig,
+) -> Result<(Arc<dyn DeviceTransport>, Option<ApiTransport>), AppError> {
+    if cfg.transport == HermesTransportKind::ControlApi {
+        let api = match state.api_transport(serial).await {
+            Ok(api) => api,
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API setup failed; using enabled SSH fallback");
+                return Ok((Arc::new(state.termux_transport(serial).await?), None));
+            }
+            Err(error) => return Err(error),
+        };
+        match api.health().await {
+            Ok(_) => return Ok((Arc::new(api.clone()), Some(api))),
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API health check failed; using enabled SSH fallback");
+                return Ok((Arc::new(state.termux_transport(serial).await?), None));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok((Arc::new(state.termux_transport(serial).await?), None))
 }
 
 #[tauri::command]
@@ -152,7 +194,7 @@ pub async fn detect_hermes(
     Ok(report)
 }
 
-fn action_command(cfg: &HermesConfig, action: HermesAction) -> String {
+pub(crate) fn action_command(cfg: &HermesConfig, action: HermesAction) -> String {
     let custom = match action {
         HermesAction::Start => &cfg.start_command,
         HermesAction::Stop => &cfg.stop_command,
@@ -198,6 +240,74 @@ pub async fn hermes_action(
     let lock = locks.for_device(&serial).await;
     let _guard = lock.lock().await;
     let cfg = state.config.read().await.hermes.clone();
+    if cfg.transport == crate::config::HermesTransportKind::ControlApi {
+        let api = match state.api_transport(&serial).await {
+            Ok(api) => api,
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API setup failed; using enabled SSH action fallback");
+                return hermes_action_over_ssh(state, serial, action, cfg).await;
+            }
+            Err(error) => return Err(error),
+        };
+        match api.health().await {
+            Ok(_) => {
+                let before = api
+                    .status()
+                    .await
+                    .ok()
+                    .and_then(|status| status.gateway_pid);
+                let action_name = match action {
+                    HermesAction::Start => "start",
+                    HermesAction::Stop => "stop",
+                    HermesAction::Restart | HermesAction::RestartNow => "restart",
+                };
+                let response = api.action(action_name).await?;
+                if response.result.exit_code != Some(0) {
+                    return Err(AppError::CommandFailed {
+                        command: format!("{action:?} Hermes"),
+                        exit_code: response.result.exit_code,
+                        stderr: response.result.stderr,
+                    });
+                }
+                let output = response.result;
+                let mut status = response.status;
+                let mut delays = CONFIRM_DELAYS.to_vec();
+                if action == HermesAction::Restart {
+                    delays.extend([5, 10, 10]);
+                }
+                for delay in delays {
+                    if reached(action, before, &status) {
+                        return Ok(HermesActionResult {
+                            output,
+                            status,
+                            confirmed: true,
+                        });
+                    }
+                    tokio::time::sleep(Duration::from_secs(delay)).await;
+                    status = fetch_status(&state, &serial, &cfg).await?;
+                }
+                let confirmed = reached(action, before, &status);
+                return Ok(HermesActionResult {
+                    output,
+                    status,
+                    confirmed,
+                });
+            }
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API health check failed; using enabled SSH action fallback");
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    hermes_action_over_ssh(state, serial, action, cfg).await
+}
+
+async fn hermes_action_over_ssh(
+    state: State<'_, AppState>,
+    serial: String,
+    action: HermesAction,
+    cfg: HermesConfig,
+) -> Result<HermesActionResult, AppError> {
     let t = state.termux_transport(&serial).await?;
     let before = fetch_status(&state, &serial, &cfg)
         .await
@@ -264,15 +374,27 @@ pub async fn run_hermes_tool(
             "Hermes {tool:?} command is not configured."
         )));
     }
-    let transport = state.termux_transport(&serial).await?;
+    let (transport, api_transport) = action_transport(&state, &serial, &cfg).await?;
     let timeout = if tool == HermesTool::Update {
         UPDATE_TIMEOUT
     } else {
         ACTION_TIMEOUT
     };
-    let mut output = transport
-        .execute(&crate::hermes::env::wrap(&cfg, configured), timeout)
-        .await?;
+    let command = crate::hermes::env::wrap(&cfg, configured);
+    let mut used_api = api_transport.is_some();
+    let mut output = match transport.execute(&command, timeout).await {
+        Ok(output) => output,
+        Err(AppError::Config(message)) if cfg.fallback_to_ssh && message.contains("HTTP 403:") => {
+            tracing::warn!("Control API command execution is disabled; using enabled SSH fallback");
+            used_api = false;
+            state
+                .termux_transport(&serial)
+                .await?
+                .execute(&command, timeout)
+                .await?
+        }
+        Err(error) => return Err(error),
+    };
     if output.exit_code != Some(0) {
         return Err(AppError::CommandFailed {
             command: format!("Hermes {tool:?}"),
@@ -286,12 +408,21 @@ pub async fn run_hermes_tool(
     }
     // In supervised mode Hermes update exits the gateway and the supervisor relaunches it.
     if tool == HermesTool::Update && cfg.start_mode == StartMode::Detached {
-        let restart = transport
-            .execute(
-                &action_command(&cfg, HermesAction::RestartNow),
-                ACTION_TIMEOUT,
-            )
-            .await?;
+        let restart = if used_api {
+            let api = api_transport.ok_or_else(|| {
+                AppError::Config("Control API transport disappeared during update.".into())
+            })?;
+            api.action("restart").await?.result
+        } else {
+            state
+                .termux_transport(&serial)
+                .await?
+                .execute(
+                    &action_command(&cfg, HermesAction::RestartNow),
+                    ACTION_TIMEOUT,
+                )
+                .await?
+        };
         output.stdout.push_str(&restart.stdout);
         output.stderr.push_str(&restart.stderr);
         output.duration_ms += restart.duration_ms;

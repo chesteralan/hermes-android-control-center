@@ -45,12 +45,22 @@ pub enum StartMode {
     Detached,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum HermesTransportKind {
+    TermuxSsh,
+    ControlApi,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
 pub struct HermesConfig {
     pub environment: HermesEnvironment,
     pub start_mode: StartMode,
+    pub transport: HermesTransportKind,
+    pub fallback_to_ssh: bool,
     /// Run inside the environment, e.g. `hermes gateway run`.
     pub gateway_command: String,
     /// Matches any Hermes process command line (gateway or CLI).
@@ -81,6 +91,8 @@ impl Default for HermesConfig {
                 distro: "debian".into(),
             },
             start_mode: StartMode::Supervised,
+            transport: HermesTransportKind::TermuxSsh,
+            fallback_to_ssh: false,
             gateway_command: "hermes gateway run".into(),
             process_match: "hermes-agent/venv/bin/python".into(),
             gateway_match: "gateway run".into(),

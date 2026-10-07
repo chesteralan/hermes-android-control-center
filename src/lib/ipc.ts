@@ -6,6 +6,7 @@ import type {
   AndroidDevice,
   AppConfig,
   CommandResult,
+  ControlApiInstallPreview,
   DeviceInfo,
   ErrorPayload,
   HermesAction,
@@ -34,6 +35,7 @@ export const EVENTS = {
 
 export type LogExportFormat = "log" | "jsonl";
 export type TerminalPtyEvent = { type: "data"; data: number[] } | { type: "closed" };
+export type AppMenuCommand = "about" | "settings" | "checkForUpdates";
 
 function isErrorPayload(e: unknown): e is ErrorPayload {
   return typeof e === "object" && e !== null && "kind" in e && "message" in e;
@@ -56,6 +58,10 @@ export const ipc = {
   detectAdb: () => call<AdbInfo>("detect_adb"),
   getSettings: () => call<AppConfig>("get_settings"),
   updateSettings: (config: AppConfig) => call<AppConfig>("update_settings", { config }),
+  previewControlApiInstall: (serial: string) =>
+    call<ControlApiInstallPreview>("preview_control_api_install", { serial }),
+  installControlApi: (serial: string) => call<CommandResult>("install_control_api", { serial }),
+  testControlApi: (serial: string) => call<string>("test_control_api", { serial }),
   listDevices: () => call<AndroidDevice[]>("list_devices"),
   connectDevice: (address: string) => call<AndroidDevice>("connect_device", { address }),
   disconnectDevice: (serial: string) => call<void>("disconnect_device", { serial }),
@@ -124,8 +130,7 @@ export const ipc = {
     call<void>("write_terminal_pty", { sessionId, data }),
   resizeTerminalPty: (sessionId: string, columns: number, rows: number) =>
     call<void>("resize_terminal_pty", { sessionId, columns, rows }),
-  closeTerminalPty: (sessionId: string) =>
-    call<boolean>("close_terminal_pty", { sessionId }),
+  closeTerminalPty: (sessionId: string) => call<boolean>("close_terminal_pty", { sessionId }),
   exportTerminalText: (text: string) => call<string | null>("export_terminal_text", { text }),
   startLogStream: (serial: string, source: LogSourceKind, onBatch: (lines: LogLine[]) => void) => {
     const channel = new Channel<LogLine[]>();
@@ -134,10 +139,14 @@ export const ipc = {
   },
   exportLogs: (lines: LogLine[], format: LogExportFormat) =>
     call<string | null>("export_logs", { lines, format }),
+  exportDiagnostics: (redactIps: boolean) =>
+    call<string | null>("export_diagnostics", { redactIps }),
   onDevicesChanged: (cb: (d: AndroidDevice[]) => void): Promise<UnlistenFn> =>
     listen<AndroidDevice[]>(EVENTS.devices, (e) => cb(e.payload)),
   onReconnect: (cb: (s: ReconnectStatus) => void): Promise<UnlistenFn> =>
     listen<ReconnectStatus>(EVENTS.reconnect, (e) => cb(e.payload)),
+  onMenuCommand: (cb: (command: AppMenuCommand) => void): Promise<UnlistenFn> =>
+    listen<AppMenuCommand>("hacc://menu-command", (e) => cb(e.payload)),
 };
 
 export type Ipc = typeof ipc;

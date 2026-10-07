@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useDevices } from "../../stores/devices";
@@ -16,6 +16,8 @@ const cfg: AppConfig = {
   hermes: {
     environment: { type: "prootDistro", distro: "debian" },
     startMode: "supervised",
+    transport: "termuxSsh",
+    fallbackToSsh: false,
     gatewayCommand: "hermes gateway run",
     startCommand: "",
     stopCommand: "",
@@ -78,6 +80,36 @@ describe("SettingsView", () => {
     });
   });
 
+  it("selects Control API and previews then installs the offered version", async () => {
+    useDevices.getState().setDevices([device()]);
+    const fn = mockIpc({
+      get_settings: () => cfg,
+      preview_control_api_install: () => ({
+        installedVersion: null,
+        targetVersion: "0.1.0",
+        filesToUpdate: ["src/hermes_control/server.py"],
+      }),
+      install_control_api: () => ({ stdout: "installed", stderr: "", exitCode: 0, durationMs: 1 }),
+      test_control_api: () => "0.1.0",
+    });
+    render(<SettingsView />);
+    await userEvent.selectOptions(await screen.findByLabelText("Hermes transport"), "controlApi");
+    expect(screen.getByLabelText("Fallback to Termux SSH")).not.toBeChecked();
+    await userEvent.click(screen.getByLabelText("Fallback to Termux SSH"));
+    expect(useSettings.getState().draft?.hermes.fallbackToSsh).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Review install" }));
+    expect(await screen.findByText("Version: Not installed to 0.1.0")).toBeInTheDocument();
+    expect(screen.getByText("src/hermes_control/server.py")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Install" }));
+    await waitFor(() =>
+      expect(fn).toHaveBeenCalledWith("install_control_api", { serial: device().serial }),
+    );
+    await waitFor(() =>
+      expect(fn).toHaveBeenCalledWith("test_control_api", { serial: device().serial }),
+    );
+    expect(useSettings.getState().draft?.hermes.transport).toBe("controlApi");
+  });
+
   it("shows validation errors from the backend", async () => {
     mockIpc({
       get_settings: () => cfg,
@@ -125,5 +157,23 @@ describe("SettingsView", () => {
       distro: "debian",
     });
     expect(useSettings.getState().draft?.hermes.pathPrepend).toEqual(["/root/.local/bin"]);
+  });
+
+  it("requires confirmation and exports diagnostics with IP redaction enabled", async () => {
+    const fn = mockIpc({
+      get_settings: () => cfg,
+      export_diagnostics: () => "/tmp/hermes-control-center-diagnostics.zip",
+    });
+    render(<SettingsView />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Export diagnostics" }));
+    expect(
+      screen.getByText(/Logs may contain conversation or other private content/),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Redact IP addresses in diagnostics")).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Export ZIP" }));
+
+    await waitFor(() => expect(fn).toHaveBeenCalledWith("export_diagnostics", { redactIps: true }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

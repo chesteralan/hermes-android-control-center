@@ -131,7 +131,14 @@ function HermesCardForDevice({
                       ? `Running · ${status.supervisor.pid ?? "PID unknown"}`
                       : "Not running",
                   ],
-                  ["Source", status.source === "adb" ? "ADB (limited)" : "Termux SSH"],
+                  [
+                    "Source",
+                    status.source === "adb"
+                      ? "ADB (limited)"
+                      : status.source === "api"
+                        ? "Control API"
+                        : "Termux SSH",
+                  ],
                   ["Last checked", new Date(status.checkedAt * 1000).toLocaleTimeString()],
                 ]}
               />

@@ -4,12 +4,11 @@ use serde::Serialize;
 use tauri::State;
 use ts_rs::TS;
 
-use crate::config::HermesConfig;
+use crate::config::{HermesConfig, HermesTransportKind};
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::termux::shell_escape;
-use crate::termux::ssh::TermuxSshTransport;
-use crate::transport::DeviceTransport;
+use crate::transport::{CommandResult, DeviceTransport};
 
 const DASHBOARD_PORT: u16 = 9119;
 const API_TIMEOUT: Duration = Duration::from_secs(60);
@@ -403,9 +402,8 @@ async fn request_api(
     path: &str,
     max_bytes: usize,
 ) -> Result<serde_json::Value, AppError> {
-    let transport: TermuxSshTransport = state.termux_transport(serial).await?;
     let command = build_api_command(cfg, path, max_bytes);
-    let result = transport.execute(&command, API_TIMEOUT).await?;
+    let result = execute_session_command(state, serial, cfg, &command).await?;
     if result.exit_code != Some(0) {
         let diagnostics = [result.stderr.trim(), result.stdout.trim()]
             .into_iter()
@@ -426,6 +424,34 @@ async fn request_api(
         });
     }
     parse_api_response(&result.stdout)
+}
+
+async fn execute_session_command(
+    state: &AppState,
+    serial: &str,
+    cfg: &HermesConfig,
+    command: &str,
+) -> Result<CommandResult, AppError> {
+    if cfg.transport == HermesTransportKind::ControlApi {
+        match state.api_transport(serial).await {
+            Ok(api) => match api.execute(command, API_TIMEOUT).await {
+                Ok(result) => return Ok(result),
+                Err(error) if cfg.fallback_to_ssh => {
+                    tracing::warn!(%error, "Control API session request failed; using enabled SSH fallback");
+                }
+                Err(error) => return Err(error),
+            },
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API setup failed; using enabled SSH session fallback");
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    state
+        .termux_transport(serial)
+        .await?
+        .execute(command, API_TIMEOUT)
+        .await
 }
 
 fn parse_api_response(body: &str) -> Result<serde_json::Value, AppError> {
