@@ -99,3 +99,9 @@ Format: Context → Decision → Consequences. Status: Accepted / Proposed / Sup
 **Context:** Brief targets macOS; users also want Windows and Linux. Tauri 2, Rust crates (`russh`, `tokio`, `keyring`) and ADB are cross-platform; differences are in paths, process spawning, secret stores, shortcuts, webviews and packaging/signing.
 **Decision:** Ship macOS 1.0 first. From M0 keep the core portable: CI on all three OSes, Tauri path API only, `Mod` shortcut abstraction, all OS-specific code in `platform/` behind a `Platform` trait. Windows (NSIS/MSI, Authenticode) and Linux (AppImage/.deb/.rpm) ship in M12 as v1.1.
 **Consequences:** Small upfront cost (3-OS CI, platform module). Windows needs a code-signing certificate; Linux needs per-desktop QA. Mac App Store remains out of scope (ADR-010).
+
+## ADR-017 Primary host for public release downloads
+**Status:** Proposed
+**Context:** Signed desktop bundles need stable public URLs. The release workflow already assembles platform assets, checksums, updater metadata, and signatures into one GitHub Release draft. Cloudflare R2 would add separate storage credentials and mirror consistency/rollback work.
+**Decision:** Use GitHub Releases as the canonical download host for the first public release. Consider Cloudflare R2 only if a custom domain, independent retention, or measured bandwidth/availability need justifies a mirror. If added, mirror exact signed assets and verification files; do not rebuild or re-sign them.
+**Consequences:** No new hosting service or secrets are needed to begin distribution. GitHub remains the source of truth; any mirror requires byte-parity, signature, caching, and rollback checks. Public release stays blocked until the existing dependency-policy, signing, and platform QA gates pass.

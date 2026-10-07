@@ -31,6 +31,8 @@ gantt
   M14 Tray & Window Lifecycle (1.3) :m14, after m13, 1
   section Documentation
   M15 Documentation Hub :m15, after m14, 1
+  section Distribution
+  M16 Public Download Distribution :m16, after m15, 1
 ```
 
 | # | Milestone | Brief phase | Release tag | Tasks |
@@ -51,11 +53,13 @@ gantt
 | M13 | Chat Session History | — | **`v1.2.0`** | [tasks/M13-chat-sessions.md](tasks/M13-chat-sessions.md) |
 | M14 | Tray & Window Lifecycle | — | **`v1.3.0`** | [tasks/M14-tray-lifecycle.md](tasks/M14-tray-lifecycle.md) |
 | M15 | Documentation Hub | — | — | [tasks/M15-documentation-hub.md](tasks/M15-documentation-hub.md) |
+| M16 | Public Download Distribution | — | — | [tasks/M16-download-distribution.md](tasks/M16-download-distribution.md) |
 
 M6 and M7 can proceed in parallel after M5. M8 and M9 can proceed in parallel after M7. M11 starts after M6 (needs the interactive PTY). M10 waits for M9 and M11. Milestone IDs are stable identifiers, so M11 ships before M10.
 M13 follows M12 so session browsing and resume are verified on the supported desktop platforms.
 M14 follows M13 and adds tray residency with consistent close, minimize, restore, and quit behavior across supported desktop platforms.
 M15 follows M14 in the roadmap; the static documentation hub is independently shippable and does not change the app release version.
+M16 follows M15 and turns the existing signed GitHub Release workflow into a verified public download path. Cloudflare R2 is an optional mirror only if a concrete distribution need is established.
 
 **Multi-device rule (all milestones):** nothing may assume a single phone. Backend state is keyed by device; frontend stores are keyed by `device_id`; every IPC call names its target `serial`. M9 then adds tabs, per-phone profiles and the Overview on top of that groundwork.
 
@@ -175,6 +179,14 @@ M15 follows M14 in the roadmap; the static documentation hub is independently sh
 - `docs/index.html` opens directly in a browser without a server, build step, or external dependency.
 - Project docs are grouped for scanning, searchable, and linked using valid relative paths.
 - Search and category filters are keyboard accessible, and the page remains usable on mobile and desktop.
+
+## M16 — Public Download Distribution
+**Goal:** Publish authentic, verifiable desktop bundles at a stable public URL. **Depends on:** M10, M12, and M15. See [tasks/M16-download-distribution.md](tasks/M16-download-distribution.md).
+**Exit criteria**
+- A maintainer publishes the signed GitHub Release draft only after all platform release jobs and required policy/signing gates pass.
+- Anonymous downloads, checksums/signatures, clean installs, and upgrades are verified for every supported platform.
+- README and release docs clearly identify stable versus prerelease downloads and explain artifact verification.
+- Cloudflare R2 is either explicitly deferred or operates as a byte-identical, verified mirror with tested rollback.
 
 ---
 

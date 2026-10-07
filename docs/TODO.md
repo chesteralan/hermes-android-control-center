@@ -94,6 +94,16 @@ acceptance remain open; no cross-platform release certification is claimed.
 - [!] [M12-T9 — Three-OS build/test jobs pass; dependency-policy review and hosted signing remain](tasks/M12-cross-platform.md)
 - [~] [M12-T11 — QA matrix documented; native runtime/performance cells pending](tasks/M12-cross-platform.md)
 
+### M16 — Public Download Distribution
+
+GitHub Releases is the recommended primary host; the existing tag workflow assembles signed bundles as a draft. Public release remains gated on dependency-policy remediation, signing credentials, and platform install/update QA. Cloudflare R2 is optional pending a concrete custom-domain, retention, or traffic requirement.
+
+- [ ] [M16-T1 — Release publication prerequisites](tasks/M16-download-distribution.md)
+- [ ] [M16-T2 — Verify the GitHub Release pipeline](tasks/M16-download-distribution.md)
+- [ ] [M16-T3 — Public download path and instructions](tasks/M16-download-distribution.md)
+- [ ] [M16-T4 — Download and installation acceptance](tasks/M16-download-distribution.md)
+- [ ] [M16-T5 — Optional Cloudflare R2 mirror evaluation](tasks/M16-download-distribution.md)
+
 ## Open Milestone Exit Checks
 
 ### M1 — Desktop Shell
@@ -154,3 +164,8 @@ acceptance remain open; no cross-platform release certification is claimed.
 - [x] [macOS QA: explicit quit cancels streams and reaps the logcat child](tasks/M14-tray-lifecycle.md)
 - [~] [Behavior/fallback documented; macOS, Windows, and Linux runtime QA pending](tasks/M14-tray-lifecycle.md)
 - [ ] [Tag `v1.3.0`](tasks/M14-tray-lifecycle.md)
+
+### M16 — Public Download Distribution
+
+- [ ] [Public, verified downloads available for each supported platform](tasks/M16-download-distribution.md)
+- [ ] [Clean install and upgrade acceptance completed](tasks/M16-download-distribution.md)
