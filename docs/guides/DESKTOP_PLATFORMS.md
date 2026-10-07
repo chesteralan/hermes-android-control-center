@@ -99,6 +99,12 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 ./Hermes_Control_Center.AppImage
 
 ## Secret Storage
 
+The SSH bridge uses Ed25519 client keys and supports non-RSA host keys such as
+Termux's Ed25519/ECDSA keys. RSA support is disabled to remove the unpatched
+`RUSTSEC-2023-0071` dependency; an RSA-only SSH server is not supported. If a phone
+has only an RSA host key configured, enable an Ed25519 host key in Termux and verify
+its fingerprint before forgetting the old pinned key in the app.
+
 macOS uses Keychain, Windows uses Credential Manager, and Linux uses Secret Service.
 Linux needs an unlocked session keyring such as GNOME Keyring or a Secret-Service-
 enabled KWallet. Failure is reported clearly; the app never silently writes plaintext

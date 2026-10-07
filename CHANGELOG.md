@@ -17,3 +17,11 @@ All notable changes to this project are documented here. This project follows
   install/update certification remain pending.
 - CI check that keeps the application versions in package.json, Cargo.toml, and
   tauri.conf.json synchronized.
+
+### Fixed
+
+- Enable feature-branch desktop CI, preserve binary fixtures during Windows checkout,
+  target Rust audits at the actual crate, and isolate Windows PowerShell ACL operations
+  from inherited PowerShell Core module paths.
+- Remove optional SSH RSA support and the unpatched RSA timing-side-channel dependency;
+  Ed25519 SSH execution, streaming, and cancellation remain tested.

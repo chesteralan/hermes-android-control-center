@@ -61,6 +61,7 @@ impl Platform for WindowsPlatform {
                 script,
             ])
             .env("HACC_SECRET_PATH", path)
+            .env_remove("PSModulePath")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -95,6 +96,7 @@ mod tests {
         let output = Command::new("powershell.exe")
             .args(["-NoProfile", "-NonInteractive", "-Command", script])
             .env("HACC_SECRET_PATH", &path)
+            .env_remove("PSModulePath")
             .creation_flags(CREATE_NO_WINDOW.0)
             .output()
             .unwrap();
