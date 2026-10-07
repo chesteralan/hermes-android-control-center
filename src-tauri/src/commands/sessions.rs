@@ -542,6 +542,7 @@ except RuntimeError as error:
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn verifies_tokens_with_empty_record_home_against_live_server() {
         let helper = API_REQUEST_SCRIPT

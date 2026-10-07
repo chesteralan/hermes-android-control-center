@@ -51,7 +51,7 @@ pub async fn prepare_adb_server(program: &Path, args: &[String]) -> AppResult<()
 
 impl Platform for WindowsPlatform {
     fn restrict_file(path: &Path) -> AppResult<()> {
-        let script = "$ErrorActionPreference='Stop'; $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent().User; $acl=New-Object System.Security.AccessControl.FileSecurity; $acl.SetOwner($identity); $acl.SetAccessRuleProtection($true,$false); $rule=New-Object System.Security.AccessControl.FileSystemAccessRule($identity,'FullControl','Allow'); $acl.AddAccessRule($rule); Set-Acl -LiteralPath $env:HACC_SECRET_PATH -AclObject $acl";
+        let script = "$ErrorActionPreference='Stop'; $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent().User; $acl=Get-Acl -LiteralPath $env:HACC_SECRET_PATH; $acl.SetAccessRuleProtection($true,$false); foreach ($entry in @($acl.Access)) { $acl.RemoveAccessRuleSpecific($entry) }; $rule=[System.Security.AccessControl.FileSystemAccessRule]::new($identity,[System.Security.AccessControl.FileSystemRights]::FullControl,[System.Security.AccessControl.AccessControlType]::Allow); $acl.AddAccessRule($rule); Set-Acl -LiteralPath $env:HACC_SECRET_PATH -AclObject $acl";
         let output = Command::new("powershell.exe")
             .args([
                 "-NoLogo",
@@ -67,7 +67,10 @@ impl Platform for WindowsPlatform {
             .creation_flags(CREATE_NO_WINDOW.0)
             .output()?;
         if !output.status.success() {
-            return Err(AppError::Io("Could not restrict the secret file ACL to the current Windows user; no secret was written.".into()));
+            return Err(AppError::Io(format!(
+                "Could not restrict the secret file ACL to the current Windows user: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
         }
         Ok(())
     }

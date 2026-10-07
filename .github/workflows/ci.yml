@@ -31,9 +31,12 @@ jobs:
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: src-tauri
 
       - name: Check Rust dependency policy
         uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: src-tauri/Cargo.toml
 
   check:
     name: ${{ matrix.os }}
