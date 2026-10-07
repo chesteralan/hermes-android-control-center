@@ -80,10 +80,32 @@ export function SettingsView() {
   const [diagnosticsDialogOpen, setDiagnosticsDialogOpen] = useState(false);
   const [redactDiagnosticsIps, setRedactDiagnosticsIps] = useState(true);
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
+  const [secretStorage, setSecretStorage] = useState<
+    "native" | "encryptedLocked" | "encryptedUnlocked" | null
+  >(null);
+  const [vaultPassphrase, setVaultPassphrase] = useState("");
+  const [vaultOptedIn, setVaultOptedIn] = useState(false);
+  const [vaultBusy, setVaultBusy] = useState(false);
+  const [vaultError, setVaultError] = useState("");
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    void ipc
+      .getSecretStorageState()
+      .then((status) => {
+        if (active) setSecretStorage(status);
+      })
+      .catch(() => {
+        if (active) setVaultError("Could not inspect secret storage.");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const d = s.draft;
   if (!d) return s.error ? <ErrorPanel error={s.error} onRetry={load} /> : null;
@@ -162,6 +184,33 @@ export function SettingsView() {
       toast((e as { message?: string }).message ?? "Diagnostics export failed", "error");
     } finally {
       setExportingDiagnostics(false);
+    }
+  }
+
+  async function unlockVault(): Promise<void> {
+    setVaultBusy(true);
+    setVaultError("");
+    try {
+      await ipc.unlockSecretStorage(vaultPassphrase, vaultOptedIn);
+      setSecretStorage("encryptedUnlocked");
+      setVaultOptedIn(false);
+    } catch (cause) {
+      setVaultError(
+        (cause as { message?: string }).message ?? "Could not unlock encrypted storage.",
+      );
+    } finally {
+      setVaultPassphrase("");
+      setVaultBusy(false);
+    }
+  }
+
+  async function lockVault(): Promise<void> {
+    try {
+      await ipc.lockSecretStorage();
+      setSecretStorage("encryptedLocked");
+      setVaultPassphrase("");
+    } catch {
+      setVaultError("Could not lock encrypted storage.");
     }
   }
 
@@ -532,6 +581,72 @@ export function SettingsView() {
             ))}
           </select>
         </Row>
+      </Card>
+
+      <Card title="Secret storage">
+        <Row label="Token storage">
+          <span role="status">
+            {secretStorage === "native"
+              ? "System credential store"
+              : secretStorage === "encryptedUnlocked"
+                ? "Encrypted file - unlocked"
+                : secretStorage === "encryptedLocked"
+                  ? "Encrypted file - locked"
+                  : "Checking storage..."}
+          </span>
+        </Row>
+        {secretStorage === "encryptedUnlocked" ? (
+          <Row label="Encrypted vault">
+            <Button onClick={() => void lockVault()}>Lock vault</Button>
+          </Row>
+        ) : (
+          <>
+            <Row label="Encrypted file storage">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  aria-label="Use passphrase-encrypted file storage"
+                  checked={vaultOptedIn}
+                  disabled={vaultBusy}
+                  onChange={(event) => setVaultOptedIn(event.target.checked)}
+                />
+                Use passphrase-encrypted file storage
+              </label>
+            </Row>
+            <Row label="Vault passphrase">
+              <input
+                type="password"
+                aria-label="Vault passphrase"
+                autoComplete="current-password"
+                className={input}
+                value={vaultPassphrase}
+                disabled={vaultBusy}
+                onChange={(event) => setVaultPassphrase(event.target.value)}
+              />
+            </Row>
+            <p className="mb-3 text-warning">
+              Existing system-store tokens are not migrated. Losing the passphrase makes encrypted
+              tokens unrecoverable.
+            </p>
+            <Button
+              disabled={
+                !vaultOptedIn || vaultPassphrase.length < 12 || vaultBusy || secretStorage === null
+              }
+              onClick={() => void unlockVault()}
+            >
+              {vaultBusy
+                ? "Unlocking..."
+                : secretStorage === "encryptedLocked"
+                  ? "Unlock vault"
+                  : "Enable encrypted storage"}
+            </Button>
+          </>
+        )}
+        {vaultError && (
+          <p role="alert" className="mt-2 text-danger">
+            {vaultError}
+          </p>
+        )}
       </Card>
 
       <Card title="Diagnostics">

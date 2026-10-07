@@ -17,6 +17,7 @@ Open the [single-page documentation hub](index.html) for a searchable, grouped v
 | [SECURITY.md](SECURITY.md) | Threat model and security controls |
 | [RELEASE.md](RELEASE.md) | Build, signing, notarization, versioning, release checklist |
 | [guides/ANDROID_SETUP.md](guides/ANDROID_SETUP.md) | ADB, Developer Options, pairing, Termux, Hermes setup |
+| [guides/DESKTOP_PLATFORMS.md](guides/DESKTOP_PLATFORMS.md) | Windows/Linux setup, bundles, native/encrypted secret storage, and certification |
 | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) | Common ADB / Termux / Hermes failures |
 
 ## Reading order

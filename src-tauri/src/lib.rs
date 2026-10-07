@@ -12,6 +12,7 @@ pub mod monitor;
 pub mod platform;
 pub mod process;
 pub mod provision;
+pub mod secrets;
 pub mod state;
 pub mod streams;
 pub mod termux;
@@ -85,6 +86,10 @@ pub fn run() {
             commands::sessions::get_hermes_session_messages,
             commands::adb::detect_adb,
             commands::settings::get_settings,
+            commands::settings::get_secret_storage_state,
+            commands::settings::unlock_secret_storage,
+            commands::settings::lock_secret_storage,
+            commands::settings::supports_in_app_updates,
             commands::settings::update_settings,
             commands::control_api::preview_control_api_install,
             commands::control_api::install_control_api,

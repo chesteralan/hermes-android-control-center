@@ -114,6 +114,7 @@ pub struct AppState {
     pub ssh: SshPool,
     pub pty_sessions: Arc<PtySessionRegistry>,
     pub provisioning_runs: Mutex<HashSet<String>>,
+    pub encrypted_secrets: crate::secrets::EncryptedSecrets,
 }
 
 impl AppState {
@@ -135,6 +136,7 @@ impl AppState {
             shutdown,
             set_log_level,
             known_hosts: KnownHosts::load(&data_dir),
+            encrypted_secrets: crate::secrets::EncryptedSecrets::new(&data_dir),
             data_dir,
             ssh_key: OnceLock::new(),
             ssh_key_init: Mutex::new(()),
@@ -190,23 +192,29 @@ impl AppState {
 
     pub fn api_token(&self, serial: &str) -> AppResult<Option<String>> {
         let device_id = self.device_id_for(serial);
+        if self.encrypted_secrets.status() != "native" {
+            return self.encrypted_secrets.get(&device_id);
+        }
         let entry = keyring::Entry::new(API_TOKEN_SERVICE, &device_id)
             .map_err(|error| AppError::Io(error.to_string()))?;
         match entry.get_password() {
             Ok(token) => Ok(Some(token)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(error) => Err(AppError::Io(format!(
-                "Could not read API token from Keychain: {error}"
+                "System credential store unavailable: {error}. Unlock your desktop keyring or explicitly enable encrypted file storage in Settings. No plaintext fallback is used."
             ))),
         }
     }
 
     pub fn set_api_token(&self, serial: &str, token: &str) -> AppResult<()> {
         let device_id = self.device_id_for(serial);
+        if self.encrypted_secrets.status() != "native" {
+            return self.encrypted_secrets.set(&device_id, token);
+        }
         let entry = keyring::Entry::new(API_TOKEN_SERVICE, &device_id)
             .map_err(|error| AppError::Io(error.to_string()))?;
         entry.set_password(token).map_err(|error| {
-            AppError::Io(format!("Could not save API token to Keychain: {error}"))
+            AppError::Io(format!("System credential store unavailable: {error}. Unlock your desktop keyring or explicitly enable encrypted file storage in Settings. No plaintext fallback is used."))
         })?;
         Ok(())
     }

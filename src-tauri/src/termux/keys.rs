@@ -23,6 +23,7 @@ fn io(e: impl std::fmt::Display) -> AppError {
 pub fn load_or_create(data_dir: &Path) -> AppResult<PrivateKey> {
     let path = key_path(data_dir);
     if path.is_file() {
+        platform::restrict_file(&path)?;
         let pem = std::fs::read_to_string(&path).map_err(io)?;
         return PrivateKey::from_openssh(pem).map_err(io);
     }
@@ -45,8 +46,8 @@ pub fn load_or_create(data_dir: &Path) -> AppResult<PrivateKey> {
         }
         Err(e) => return Err(io(e)),
     };
-    std::io::Write::write_all(&mut file, pem.as_bytes()).map_err(io)?;
     platform::restrict_file(&path)?;
+    std::io::Write::write_all(&mut file, pem.as_bytes()).map_err(io)?;
     tracing::info!("generated new SSH key for the Termux bridge");
     Ok(key)
 }

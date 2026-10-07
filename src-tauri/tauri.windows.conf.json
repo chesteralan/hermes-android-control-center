@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "targets": ["nsis", "msi"],
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "tsp": true,
+      "nsis": { "installMode": "currentUser" }
+    }
+  }
+}

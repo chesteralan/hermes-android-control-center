@@ -20,6 +20,8 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [x] [M14-T1–T2 — Tray menu, close/minimize-to-tray, restore, and explicit quit verified on macOS](tasks/M14-tray-lifecycle.md)
 - [x] [M11-T8 — Provisioning reuses the SSH bridge](tasks/M11-provisioning.md)
 - [x] [M11-T16 — Form/raw-TOML recipe editor, validation, duplication, import/export](tasks/M11-provisioning.md)
+- [x] [M12-T1 — Per-OS ADB candidates and install hints](tasks/M12-cross-platform.md)
+- [x] [M12-T10 — Desktop setup, development, security, and troubleshooting guide](tasks/M12-cross-platform.md)
 
 ## In Progress
 
@@ -77,17 +79,19 @@ this milestone is not complete.
 
 ### M12 — Cross-Platform
 
-- [ ] [M12-T1 — ADB detection per OS](tasks/M12-cross-platform.md)
-- [ ] [M12-T2 — Windows process spawning](tasks/M12-cross-platform.md)
-- [ ] [M12-T3 — Secrets and key files](tasks/M12-cross-platform.md)
-- [ ] [M12-T4 — UI and shortcuts](tasks/M12-cross-platform.md)
-- [ ] [M12-T5 — Linux specifics](tasks/M12-cross-platform.md)
-- [ ] [M12-T6 — Windows bundles](tasks/M12-cross-platform.md)
-- [ ] [M12-T7 — Linux bundles](tasks/M12-cross-platform.md)
-- [ ] [M12-T8 — Updater per platform](tasks/M12-cross-platform.md)
-- [ ] [M12-T9 — Release workflow matrix](tasks/M12-cross-platform.md)
-- [ ] [M12-T10 — Documentation](tasks/M12-cross-platform.md)
-- [ ] [M12-T11 — QA matrix](tasks/M12-cross-platform.md)
+Local implementation passes 237 Rust, 106 frontend, and 3 release-assembly tests.
+Native Windows/Linux execution, signing, and installed-update acceptance remain open;
+no cross-platform release or runtime certification is claimed.
+
+- [~] [M12-T2 — Job Objects/no-console clients; Windows runtime/orphan QA remains](tasks/M12-cross-platform.md)
+- [~] [M12-T3 — Native stores/private keys/encrypted fallback; platform runtime QA remains](tasks/M12-cross-platform.md)
+- [~] [M12-T4 — Modifier/font mapping and PTY copy; native visual QA remains](tasks/M12-cross-platform.md)
+- [~] [M12-T5 — Wayland/portal/udev/DMABUF guidance; Linux runtime QA remains](tasks/M12-cross-platform.md)
+- [!] [M12-T6 — NSIS/MSI configuration; Authenticode credentials and Windows install QA required](tasks/M12-cross-platform.md)
+- [!] [M12-T7 — AppImage/deb/rpm configuration; GPG credentials and Linux install QA required](tasks/M12-cross-platform.md)
+- [~] [M12-T8 — Consolidated metadata/package-manager guard; installed update QA remains](tasks/M12-cross-platform.md)
+- [~] [M12-T9 — Three-OS build/single-publisher workflow; hosted signing run remains](tasks/M12-cross-platform.md)
+- [~] [M12-T11 — QA matrix documented; native runtime/performance cells pending](tasks/M12-cross-platform.md)
 
 ## Open Milestone Exit Checks
 

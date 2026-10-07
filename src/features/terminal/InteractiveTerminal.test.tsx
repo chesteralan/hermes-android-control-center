@@ -10,6 +10,8 @@ const terminalHarness = vi.hoisted(() => ({
   resize: undefined as ((size: { cols: number; rows: number }) => void) | undefined,
   writes: [] as Array<number[] | string>,
   options: undefined as { disableStdin: boolean } | undefined,
+  keyHandler: undefined as ((event: KeyboardEvent) => boolean) | undefined,
+  selection: "",
 }));
 
 vi.mock("@xterm/xterm", () => ({
@@ -26,6 +28,15 @@ vi.mock("@xterm/xterm", () => ({
     open() {}
     focus() {}
     dispose() {}
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      terminalHarness.keyHandler = handler;
+    }
+    hasSelection() {
+      return Boolean(terminalHarness.selection);
+    }
+    getSelection() {
+      return terminalHarness.selection;
+    }
     write(data: Uint8Array | string) {
       terminalHarness.writes.push(data instanceof Uint8Array ? Array.from(data) : data);
     }
@@ -56,6 +67,8 @@ describe("InteractiveTerminal", () => {
     terminalHarness.resize = undefined;
     terminalHarness.writes = [];
     terminalHarness.options = undefined;
+    terminalHarness.keyHandler = undefined;
+    terminalHarness.selection = "";
     useTerminal.setState({ sessions: {}, historyByScope: {}, persistedHistoryByScope: {} });
     vi.stubGlobal(
       "ResizeObserver",
@@ -131,5 +144,21 @@ describe("InteractiveTerminal", () => {
       }),
     );
     expect(useTerminal.getState().historyByScope).toEqual({});
+  });
+
+  it("copies a selection but leaves unselected Ctrl+C to the PTY", async () => {
+    mockIpc({ start_terminal_pty: () => "pty-copy", close_terminal_pty: () => true });
+    const clipboard = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText: clipboard } });
+    render(<InteractiveTerminal serial="phone-1" onClose={vi.fn()} />);
+    await screen.findByText("Interactive SSH shell");
+    const event = new KeyboardEvent("keydown", { key: "c", ctrlKey: true, cancelable: true });
+    expect(terminalHarness.keyHandler?.(event)).toBe(true);
+    expect(clipboard).not.toHaveBeenCalled();
+    terminalHarness.selection = "selected output";
+    expect(terminalHarness.keyHandler?.(event)).toBe(false);
+    await waitFor(() => expect(clipboard).toHaveBeenCalledWith("selected output"));
+    expect(event.defaultPrevented).toBe(true);
+    vi.unstubAllGlobals();
   });
 });

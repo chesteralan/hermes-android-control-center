@@ -4,6 +4,15 @@ Desktop app (Tauri 2, Rust, and React) for managing a [Hermes Agent](https://git
 
 **Release status:** pre-1.0. macOS is the first release target. Windows and Linux are planned for v1.1; see the [roadmap](docs/MILESTONES.md) and [open work](docs/TODO.md).
 
+| Platform | Bundles | Verification Status |
+|---|---|---|
+| macOS | Universal app + DMG | Local Apple Silicon tests; signed-release/Intel QA pending |
+| Windows x86_64 | Per-user NSIS + managed MSI | Build/signing workflow implemented; Windows runtime QA pending |
+| Linux x86_64 | AppImage, `.deb`, `.rpm` | Build/signing workflow implemented; Wayland/X11 runtime QA pending |
+
+Published downloads: [GitHub Releases](https://github.com/chesteralan/hermes-android-control-center/releases).
+See [desktop setup, build prerequisites, and secret storage](docs/guides/DESKTOP_PLATFORMS.md).
+
 ## What the app does
 
 - Discovers, pairs, connects, and reconnects to multiple Android devices.
@@ -31,7 +40,9 @@ adb version
 
 Alternatively, install Platform-Tools through Android Studio SDK Manager. The app detects common ADB locations; set a custom executable under **Settings > ADB** if it is installed elsewhere.
 
-Windows and Linux packaging are planned for v1.1. See [Android setup](docs/guides/ANDROID_SETUP.md#2-install-adb) for their package-manager commands.
+Windows and Linux packaging configuration is implemented for v1.1; signing and runtime QA
+remain pending. See [desktop platforms](docs/guides/DESKTOP_PLATFORMS.md) for package-manager
+commands and development prerequisites.
 
 ## 3. Enable Android Developer Options
 
@@ -113,6 +124,7 @@ Some Linux Wayland desktops do not provide a detectable tray host. In that case,
 
 Use **About > Check for Updates** to check for a signed release. Review the
 version and release notes before installing; the app restarts after installation.
+Linux `.deb`/`.rpm` installs use their package manager instead of the AppImage updater.
 
 ## 11. Troubleshoot ADB connections
 

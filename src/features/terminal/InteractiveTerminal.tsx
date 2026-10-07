@@ -4,6 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../components/Button";
 import { ipc, toErrorPayload, type TerminalPtyEvent } from "../../lib/ipc";
+import { isModKey, monospaceFont } from "../../lib/platform";
 
 interface InteractiveTerminalProps {
   serial: string;
@@ -25,7 +26,7 @@ export function InteractiveTerminal({ serial, initialCommand, onClose }: Interac
     const terminal = new Terminal({
       cursorBlink: true,
       disableStdin: true,
-      fontFamily: '"SF Mono", Menlo, Consolas, monospace',
+      fontFamily: monospaceFont,
       fontSize: 12,
       scrollback: 1000,
       theme: {
@@ -39,6 +40,25 @@ export function InteractiveTerminal({ serial, initialCommand, onClose }: Interac
     terminal.loadAddon(fit);
     terminal.open(container);
     fit.fit();
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (
+        event.type === "keydown" &&
+        event.key.toLowerCase() === "c" &&
+        isModKey(event) &&
+        terminal.hasSelection()
+      ) {
+        event.preventDefault();
+        if (!navigator.clipboard) {
+          setError("Clipboard is unavailable in this desktop session.");
+          return false;
+        }
+        void navigator.clipboard.writeText(terminal.getSelection()).catch(() => {
+          if (!disposed) setError("Could not copy terminal selection.");
+        });
+        return false;
+      }
+      return true;
+    });
 
     const output = (event: TerminalPtyEvent) => {
       if (disposed) return;

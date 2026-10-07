@@ -38,6 +38,13 @@
 
 ## Chat sessions
 
+For desktop installation, signing, Linux portals/FUSE/udev, Windows Firewall,
+and explicit passphrase-encrypted token storage, see [Desktop Platforms](DESKTOP_PLATFORMS.md).
+Linux `.deb`/`.rpm` installs deliberately do not use the AppImage updater; install a
+newer distribution package instead. An encrypted vault must be unlocked after every
+restart; neither a missing Secret Service nor an incorrect passphrase triggers a
+plaintext fallback.
+
 Chat reads sessions from the selected phone's configured Hermes environment and home through Hermes' loopback dashboard REST API over the Termux SSH bridge. Hermes must include its web extra and the API must be available on `127.0.0.1`; the app does not expose it on the phone's LAN. Session source labels come from Hermes. Gateway-created session listing and resume still need live verification.
 
 The last selected session ID is stored locally, scoped by stable device identity, Hermes environment, and home. Transcripts, previews, and search text are not persisted. After reconnecting, the app reloads the transcript from the phone; it does not display a cached copy while the phone is unavailable.

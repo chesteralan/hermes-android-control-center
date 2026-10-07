@@ -103,7 +103,7 @@ impl AppError {
     pub fn user_message(&self) -> String {
         match self {
             Self::AdbNotFound { .. } => {
-                "ADB is not installed or could not be found. Install Android platform-tools or set the ADB path in Settings.".into()
+                format!("ADB is not installed or could not be found. {}", crate::platform::adb_install_hint(crate::platform::current_os()))
             }
             Self::AdbFailed { message, .. } => format!("ADB command failed: {message}"),
             Self::DeviceOffline { serial } => {

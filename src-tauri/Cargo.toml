@@ -14,9 +14,12 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 async-trait = "0.1.92"
+argon2 = "0.5.3"
 base64 = "0.22.1"
+chacha20poly1305 = "0.10.1"
 futures-util = "0.3.31"
-keyring = { version = "3.6.3", features = ["apple-native"] }
+keyring = { version = "3.6.3" }
+process-wrap = { version = "10.0.1", features = ["tokio1"] }
 qrcode = "0.14.1"
 rand = "0.9.5"
 regex = "1.12"
@@ -41,6 +44,17 @@ tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 ts-rs = { version = "12.0.1", features = ["serde-compat"] }
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+zeroize = "1.8"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", features = ["windows-native"] }
+windows = { version = "0.62.2", features = ["Win32_System_Threading"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 
 [profile.release]
 codegen-units = 1

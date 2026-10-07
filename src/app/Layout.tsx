@@ -62,6 +62,12 @@ export function Layout({ children }: { children: ReactNode }) {
     setCheckingForUpdates(true);
     setUpdateMessage("");
     try {
+      if (!(await ipc.supportsInAppUpdates())) {
+        setUpdateMessage(
+          "This installation is managed by your Linux package manager. Update it with apt, dnf, or your package installer.",
+        );
+        return;
+      }
       const update = await check();
       if (update) {
         setAvailableUpdate(update);

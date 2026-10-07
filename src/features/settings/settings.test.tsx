@@ -42,6 +42,35 @@ const cfg: AppConfig = {
 describe("SettingsView", () => {
   beforeEach(() => resetStores());
 
+  it("requires explicit vault consent and clears the passphrase after unlock", async () => {
+    const invoke = mockIpc({
+      get_settings: () => cfg,
+      get_secret_storage_state: () => "native",
+      unlock_secret_storage: () => undefined,
+      lock_secret_storage: () => undefined,
+    });
+    render(<SettingsView />);
+    await screen.findByText("System credential store");
+    const passphrase = screen.getByLabelText("Vault passphrase");
+    fireEvent.change(passphrase, { target: { value: "test vault passphrase" } });
+    const enable = screen.getByRole("button", { name: "Enable encrypted storage" });
+    expect(enable).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Use passphrase-encrypted file storage" }),
+    );
+    await userEvent.click(enable);
+    expect(invoke).toHaveBeenCalledWith("unlock_secret_storage", {
+      passphrase: "test vault passphrase",
+      optedIn: true,
+    });
+    await screen.findByText("Encrypted file - unlocked");
+    expect(screen.queryByLabelText("Vault passphrase")).not.toBeInTheDocument();
+    expect(JSON.stringify(useSettings.getState().saved)).not.toContain("test vault passphrase");
+    await userEvent.click(screen.getByRole("button", { name: "Lock vault" }));
+    expect(await screen.findByLabelText("Vault passphrase")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Unlock vault" })).toBeDisabled();
+  });
+
   it("saves edited settings", async () => {
     const fn = mockIpc({
       get_settings: () => cfg,

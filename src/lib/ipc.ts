@@ -59,6 +59,12 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 }
 
 export const ipc = {
+  getSecretStorageState: () =>
+    call<"native" | "encryptedLocked" | "encryptedUnlocked">("get_secret_storage_state"),
+  unlockSecretStorage: (passphrase: string, optedIn: boolean) =>
+    call<void>("unlock_secret_storage", { passphrase, optedIn }),
+  lockSecretStorage: () => call<void>("lock_secret_storage"),
+  supportsInAppUpdates: () => call<boolean>("supports_in_app_updates"),
   detectAdb: () => call<AdbInfo>("detect_adb"),
   getSettings: () => call<AppConfig>("get_settings"),
   updateSettings: (config: AppConfig) => call<AppConfig>("update_settings", { config }),

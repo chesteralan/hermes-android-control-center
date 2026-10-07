@@ -69,6 +69,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test -- --run
+      - run: npm run test:release
 
       - name: cargo fmt
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --check

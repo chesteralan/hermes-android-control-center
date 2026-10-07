@@ -43,18 +43,38 @@ Not distributed via the Mac App Store (sandbox prevents spawning `adb`) — ADR-
 ### Windows & Linux (v1.1, M12)
 | Platform | Artifacts | Signing | CI secrets |
 |---|---|---|---|
-| Windows | NSIS `.exe` (per-user), `.msi`, updater `.nsis.zip` + `.sig` | Authenticode (OV/EV cert or Azure Trusted Signing), timestamped | `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD` (or Azure signing credentials) |
-| Linux | `.AppImage` (+ updater `.tar.gz` + `.sig`), `.deb`, `.rpm` | GPG-signed `SHA256SUMS` / AppImage signature | `LINUX_GPG_KEY`, `LINUX_GPG_PASSPHRASE` |
+| Windows | NSIS `.exe` (per-user), `.msi`, NSIS updater `.exe` + `.sig` | Authenticode PFX (OV/EV), SHA-256 and RFC 3161 timestamp | `WINDOWS_CERTIFICATE` (base64 PFX), `WINDOWS_CERTIFICATE_PASSWORD` |
+| Linux | `.AppImage` + updater `.sig`, `.deb`, `.rpm` | Detached GPG signatures for `SHA256SUMS` and AppImage | `LINUX_GPG_KEY` (ASCII-armored private key), `LINUX_GPG_PASSPHRASE` |
+
+Azure Trusted Signing is an alternative future signing provider, not configured by
+this workflow. Hardware-bound/non-exportable certificates need a provider-specific
+signing command instead of the PFX import. Publish the Linux public signing key and
+its fingerprint through a trusted maintainer channel before asking users to verify
+downloads. Never store signing secrets in source control. Secrets must be supplied
+in GitHub repository/environment settings; no real signed Windows/Linux artifacts
+have been produced during local M12 implementation.
 
 Verify: `signtool verify /pa /v <installer>.exe` (Windows); `gpg --verify SHA256SUMS.asc` (Linux).
 
 ## 4. Release workflow (`.github/workflows/release.yml`)
 1. Trigger on tag `v*`.
 2. `npm ci`, full CI gates (TESTING.md §5).
-3. Import certificate into temporary keychain.
-4. `tauri-apps/tauri-action` builds universal target, signs, notarizes, uploads `.dmg`, `.app.tar.gz`, `.sig`, `latest.json`.
-5. Generate `SHA256SUMS`.
-6. Draft release with CHANGELOG section; human publishes.
+3. Build matrix: universal macOS, Windows x86_64, Ubuntu 22.04 x86_64. Import macOS
+	notarization credentials / Windows signing PFX; every build requires the updater key.
+4. `tauri-apps/tauri-action` builds/signs bundles without publishing. Windows verifies
+	timestamped installer signatures. Each job uploads uniquely platform-prefixed assets
+	as workflow artifacts; no parallel job overwrites release metadata.
+5. One publisher downloads all assets, generates `latest.json` with `darwin-universal`,
+	`windows-x86_64`, `linux-x86_64`, and native Darwin aliases, then hashes the exact
+	published filenames including updater signatures and metadata. Unbuilt Windows/Linux
+	aarch64 targets are deliberately omitted. Missing assets/signatures fail the assembly.
+6. Require `LINUX_GPG_KEY`, sign/verify `SHA256SUMS` and the AppImage, then upload all
+	files to one draft release with CHANGELOG notes. A human publishes after QA.
+
+Linux package installs do not invoke the AppImage updater. Maintainers distribute newer
+`.deb`/`.rpm` packages separately; the app shows a package-manager notice. Release assembly
+tests run with `npm run test:release`. The workflow is configured but Windows/Linux
+runner execution, actual signing, and upgrade acceptance still require external evidence.
 
 ## 5. Release checklist
 - [ ] All milestone tasks checked; CI green on tag commit

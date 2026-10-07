@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:release": "node --test scripts/release-artifacts.test.mjs",
     "version:check": "node scripts/check-version.mjs",
     "gen:types": "node scripts/generate-types.mjs",
     "gen:schemas": "cargo run --manifest-path src-tauri/Cargo.toml --example export_schemas",
