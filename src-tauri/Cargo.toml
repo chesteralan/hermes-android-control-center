@@ -2,6 +2,7 @@
 name = "hermes-control-center"
 version = "0.1.0"
 description = "Desktop control center for Hermes Agent on Android (Termux) over Wireless ADB"
+license = "MIT"
 edition = "2021"
 rust-version = "1.89"
 

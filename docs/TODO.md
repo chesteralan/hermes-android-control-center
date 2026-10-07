@@ -80,8 +80,9 @@ this milestone is not complete.
 ### M12 — Cross-Platform
 
 Local implementation passes 237 Rust, 106 frontend, and 3 release-assembly tests.
-Native Windows/Linux execution, signing, and installed-update acceptance remain open;
-no cross-platform release or runtime certification is claimed.
+Hosted macOS/Windows/Ubuntu build/test jobs now pass; dependency policy still blocks
+on existing license/advisory findings. Interactive runtime, signing, and installed-update
+acceptance remain open; no cross-platform release certification is claimed.
 
 - [~] [M12-T2 — Job Objects/no-console clients; Windows runtime/orphan QA remains](tasks/M12-cross-platform.md)
 - [~] [M12-T3 — Native stores/private keys/encrypted fallback; platform runtime QA remains](tasks/M12-cross-platform.md)
@@ -90,7 +91,7 @@ no cross-platform release or runtime certification is claimed.
 - [!] [M12-T6 — NSIS/MSI configuration; Authenticode credentials and Windows install QA required](tasks/M12-cross-platform.md)
 - [!] [M12-T7 — AppImage/deb/rpm configuration; GPG credentials and Linux install QA required](tasks/M12-cross-platform.md)
 - [~] [M12-T8 — Consolidated metadata/package-manager guard; installed update QA remains](tasks/M12-cross-platform.md)
-- [~] [M12-T9 — Three-OS build/single-publisher workflow; hosted signing run remains](tasks/M12-cross-platform.md)
+- [!] [M12-T9 — Three-OS build/test jobs pass; dependency-policy review and hosted signing remain](tasks/M12-cross-platform.md)
 - [~] [M12-T11 — QA matrix documented; native runtime/performance cells pending](tasks/M12-cross-platform.md)
 
 ## Open Milestone Exit Checks

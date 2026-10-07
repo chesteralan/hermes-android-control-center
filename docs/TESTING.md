@@ -103,7 +103,12 @@ Coverage targets: Rust parsers/backoff/status ≥ 90 %, overall Rust ≥ 70 %, f
 
 ## 7. Cross-Platform QA (M12)
 
-No Windows/Linux runtime result is recorded yet. Run every row on each environment;
+Hosted [run 37611442113](https://github.com/chesteralan/hermes-android-control-center/actions/runs/37611442113)
+passed macOS, Windows, and Ubuntu automated build/test jobs, including Windows ACL,
+Job Object cancellation, and encrypted-vault checks. Its dependency-policy job remains
+blocked by existing license/advisory findings; the overall run is not green.
+
+No interactive Windows/Linux runtime result is recorded yet. Run every row on each environment;
 attach OS/build/WebView version, hardware, Android/ADB versions, measurements, and
 sanitized screenshots/logs. Also run [M10 resilience checks](tasks/M10-production.md)
 and [M3 first-workflow QA](tasks/M3-basic-terminal-logs.md).

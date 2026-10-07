@@ -13,15 +13,31 @@ three-OS signing/release workflow, desktop guide, and QA matrix are implemented.
 
 Local macOS verification: 237 Rust tests, 106 frontend tests, 3 Node release tests,
 strict Clippy, ESLint, TypeScript, production web build, and Tauri platform-config schema
-checks pass. Windows-only Job Object/CRLF/ACL tests are added to the existing CI matrix,
-but were not run on this Mac. Platform install/update and performance results are not
-inferred from these tests.
+checks pass. Hosted [CI run 37611442113](https://github.com/chesteralan/hermes-android-control-center/actions/runs/37611442113)
+on commit `8396633` passed all macOS, Ubuntu, and Windows build/test jobs, including
+Windows Job Object/CRLF/ACL tests. Platform install/update and interactive performance
+results are not inferred from these automated checks.
+
+CI follow-up fixes: feature-branch triggers, exact binary fixture checkout, Unix-only
+execution of the Android POSIX token-permission test, corrected audit crate paths and
+Check Run permissions, and isolated Windows PowerShell module paths. Optional RSA
+support was removed; Ed25519 SSH execution/streaming/cancellation still passes. Rust
+audit reports zero vulnerabilities, with existing `proc-macro-error` unmaintained and
+`glib` unsoundness warnings.
+
+The dependency-policy job still blocks the overall run. It rejects existing MPL-2.0,
+Apache-2.0 WITH LLVM-exception, and CDLA-Permissive-2.0 dependencies, and reports
+`RUSTSEC-2024-0370` (`proc-macro-error`). `RUSTSEC-2024-0429` (`glib`) remains an
+audit warning requiring review. No license allowances or advisory ignores were added.
+The project's existing MIT license is now declared in crate metadata. Completing this
+gate requires approved license policy and dependency remediation or an explicit,
+reviewed advisory exception, not disabling the check.
 
 A mocked-IPC browser smoke run at 1280x900 and the native 900x600 minimum verified
 vault consent, passphrase input clearing, locked state, package-update notice, and
 control bounds. This is not WebView2/WebKitGTK or native secret-store certification.
 
-External gates: Windows/Linux hosts and green CI; Apple/Authenticode/updater/GPG
+External gates: interactive Windows/Linux hosts and a resolved dependency-policy gate; Apple/Authenticode/updater/GPG
 credentials; publication of a trusted Linux signing-key fingerprint; signed installer
 and previous-version update runs; the complete manual matrix below. No v1.1 tag or
 public release was created. The shared ADB server is intentionally persistent and is
@@ -32,13 +48,14 @@ Implementation details and remaining checks:
 	locations; configured path remains authoritative. Verify real package installations in QA.
 - T2: process-wrap uses suspended-spawn Windows Job Objects and no-console flags,
 	Unix groups, explicit timeout/cancel cleanup, and cancellation during output backpressure/EOF.
-	Windows prepares the shared ADB daemon outside client jobs. Verify daemon restart,
-	descendant cleanup, and fresh-server startup on Windows.
+	Windows prepares the shared ADB daemon outside client jobs. Native dummy-descendant
+	cleanup tests pass in CI; real ADB daemon restart and fresh-server startup QA remain.
 - T3: Keychain/Credential Manager/Secret Service features are target-specific. SSH keys
 	are restricted before writing. Encrypted storage requires checkbox consent and a
 	passphrase; Argon2id/ChaCha20-Poly1305, locked reload, wrong-password/corruption tests
-	pass. Existing native tokens are not migrated automatically. Windows ACL and Linux
-	keyring/no-keyring runtime checks remain.
+	pass. Existing native tokens are not migrated automatically. Native Windows ACL,
+	key-file, encrypted-vault, and in-process SSH tests pass in CI; Linux desktop
+	keyring/no-keyring interactive checks remain.
 - T4/T5: native menus already use CmdOrCtrl; fonts, labels, PTY selection copy, Wayland
 	fallback, portals/udev/DMABUF guidance are covered. Visual/clipboard/dialog QA remains.
 - T6/T7: Windows NSIS/MSI embed the online WebView2 bootstrapper; NSIS is per-user.
@@ -103,7 +120,7 @@ Implementation details and remaining checks:
 ### [~] M12-T8 Updater per platform
 - `latest.json` with `darwin-universal`, `windows-x86_64`, `linux-x86_64` (+ `aarch64` where built); `.deb`/`.rpm` users update via package (in-app notice only).
 
-### [~] M12-T9 Release workflow matrix
+### [!] M12-T9 Release workflow matrix
 - Tag → build on 3 OSes → sign each → upload all artifacts + `SHA256SUMS` to one GitHub Release.
 
 ## Docs & QA
