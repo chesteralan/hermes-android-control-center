@@ -136,10 +136,23 @@ impl DeviceRegistry {
         if g.manual_disconnect.remove(serial) {
             g.manual_disconnect.insert(id.to_string());
         }
+        let is_manual_disconnect = g.manual_disconnect.contains(id);
         let mut changed = false;
         if let Some(d) = g.devices.get_mut(serial) {
             changed = d.device_id.as_deref() != Some(id);
             d.device_id = Some(id.to_string());
+            if is_manual_disconnect && d.state != DeviceState::Disconnected {
+                d.state = DeviceState::Disconnected;
+                d.raw_state = "manual disconnect".into();
+                changed = true;
+            }
+        }
+        if let Some(d) = g.last_seen.get_mut(serial) {
+            d.device_id = Some(id.to_string());
+            if is_manual_disconnect {
+                d.state = DeviceState::Disconnected;
+                d.raw_state = "manual disconnect".into();
+            }
         }
         changed
     }
@@ -333,9 +346,19 @@ mod tests {
         let r = DeviceRegistry::new();
         let mdns = snap("adb-SER1-token._adb-tls-connect._tcp device model:P\n");
         r.apply_snapshot(mdns.clone());
-        r.apply_snapshot(snap("192.0.2.10:5555 device model:P\n"));
-        assert!(r.set_device_id("192.0.2.10:5555", "SER1"));
         r.mark_manual_disconnect(&mdns[0].serial);
+
+        r.apply_snapshot(snap("192.0.2.10:5555 device model:P\n"));
+        assert_eq!(
+            r.get("192.0.2.10:5555").unwrap().state,
+            DeviceState::Device,
+            "the alias is unidentifiable until its device ID is learned"
+        );
+        assert!(r.set_device_id("192.0.2.10:5555", "SER1"));
+        assert_eq!(
+            r.get("192.0.2.10:5555").unwrap().state,
+            DeviceState::Disconnected
+        );
 
         r.apply_snapshot([mdns, snap("192.0.2.10:5555 device model:P\n")].concat());
 
