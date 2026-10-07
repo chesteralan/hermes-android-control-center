@@ -112,7 +112,7 @@ GitHub Releases is the recommended primary host; the existing tag workflow assem
 
 ### M2 — ADB Core
 
-- [ ] [Exercise device, pairing, reconnect, and release checks on a real phone](tasks/M2-adb-core.md)
+- [~] [Live device info and mDNS discovery verified; fresh QR/code pairing, wireless-toggle retry, rebuilt-app disconnect QA, and release gates remain](tasks/M2-adb-core.md)
 
 ### M3 — Basic Terminal + Live Logs
 
