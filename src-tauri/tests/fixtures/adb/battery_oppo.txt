@@ -1,0 +1,32 @@
+Current OPPO Battery Service state:
+  Charger voltage : 4711
+  Battery current : -344
+  ChargerTechnology: 0
+  ChargeFastCharger: false
+  PlugType: 1
+  UpdatesStopped: false
+  UsbHwStatus: 0
+  BatteryHwStatus: 1
+  HwStatusIsSet: 1
+  BatteryIcStatus: 1
+  IcStatusIsSet: 1
+  UpgradePrj: true
+
+  mUsbStatus: 0
+  PhoneTemp: 330
+  ThermalFeatureOn: true
+Current Battery Service state:
+  AC powered: true
+  USB powered: false
+  Wireless powered: false
+  Max charging current: 0
+  Max charging voltage: 0
+  Charge counter: 5000000
+  status: 5
+  health: 2
+  present: true
+  level: 100
+  scale: 100
+  voltage: 4414
+  temperature: 335
+  technology: Li-ion

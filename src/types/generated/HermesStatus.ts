@@ -14,6 +14,6 @@ platforms: Array<PlatformStatus>, supervisor: SupervisorStatus, warnings: Array<
  */
 rawStatusOutput: string | null,
 /**
- * "termuxSsh" or "adb" (limited).
+ * "termuxSsh", "api", or "adb" (limited).
  */
 source: string, checkedAt: number, };

@@ -6,6 +6,7 @@ import type {
   AndroidDevice,
   AppConfig,
   CommandResult,
+  ControlApiInstallPreview,
   DeviceInfo,
   ErrorPayload,
   HermesAction,
@@ -19,6 +20,10 @@ import type {
   LogLine,
   LogSourceKind,
   MdnsService,
+  ProvisionEvent,
+  ProvisionPlan,
+  ProvisionRecipe,
+  ProvisionStepId,
   QrPairEvent,
   QrSession,
   ReconnectStatus,
@@ -31,6 +36,10 @@ export const EVENTS = {
   devices: "device://changed",
   reconnect: "device://reconnect",
 } as const;
+
+export type LogExportFormat = "log" | "jsonl";
+export type TerminalPtyEvent = { type: "data"; data: number[] } | { type: "closed" };
+export type AppMenuCommand = "about" | "settings" | "checkForUpdates";
 
 function isErrorPayload(e: unknown): e is ErrorPayload {
   return typeof e === "object" && e !== null && "kind" in e && "message" in e;
@@ -50,9 +59,52 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 }
 
 export const ipc = {
+  getSecretStorageState: () =>
+    call<"native" | "encryptedLocked" | "encryptedUnlocked">("get_secret_storage_state"),
+  unlockSecretStorage: (passphrase: string, optedIn: boolean) =>
+    call<void>("unlock_secret_storage", { passphrase, optedIn }),
+  lockSecretStorage: () => call<void>("lock_secret_storage"),
+  supportsInAppUpdates: () => call<boolean>("supports_in_app_updates"),
   detectAdb: () => call<AdbInfo>("detect_adb"),
+  restartAdbServer: () => call<void>("restart_adb_server"),
   getSettings: () => call<AppConfig>("get_settings"),
   updateSettings: (config: AppConfig) => call<AppConfig>("update_settings", { config }),
+  previewControlApiInstall: (serial: string) =>
+    call<ControlApiInstallPreview>("preview_control_api_install", { serial }),
+  installControlApi: (serial: string) => call<CommandResult>("install_control_api", { serial }),
+  testControlApi: (serial: string) => call<string>("test_control_api", { serial }),
+  listProvisionRecipes: () => call<ProvisionRecipe[]>("list_provision_recipes"),
+  getProvisionRecipeSource: (recipeId: string) =>
+    call<string>("get_provision_recipe_source", { recipeId }),
+  saveProvisionRecipe: (source: string) =>
+    call<ProvisionRecipe>("save_provision_recipe", { source }),
+  importProvisionRecipe: () => call<ProvisionRecipe | null>("import_provision_recipe"),
+  exportProvisionRecipe: (recipeId: string) =>
+    call<string | null>("export_provision_recipe", { recipeId }),
+  getProvisionPlan: (serial: string, recipeId: string) =>
+    call<ProvisionPlan>("get_provision_plan", { serial, recipeId }),
+  resetProvisionProgress: (serial: string, recipeId: string) =>
+    call<void>("reset_provision_progress", { serial, recipeId }),
+  runProvision: (
+    serial: string,
+    recipeId: string,
+    fromStep: ProvisionStepId | null,
+    onlyStep: boolean,
+    approvedSteps: ProvisionStepId[],
+    onEvent: (event: ProvisionEvent) => void,
+  ) => {
+    const channel = new Channel<ProvisionEvent>();
+    channel.onmessage = onEvent;
+    return call<string>("run_provision", {
+      serial,
+      recipeId,
+      fromStep,
+      onlyStep,
+      approvedSteps,
+      onEvent: channel,
+    });
+  },
+  cancelProvision: (runId: string) => call<boolean>("cancel_provision", { runId }),
   listDevices: () => call<AndroidDevice[]>("list_devices"),
   connectDevice: (address: string) => call<AndroidDevice>("connect_device", { address }),
   disconnectDevice: (serial: string) => call<void>("disconnect_device", { serial }),
@@ -107,15 +159,37 @@ export const ipc = {
       limit,
     }),
   cancelStream: (streamId: string) => call<boolean>("cancel_stream", { streamId }),
+  startTerminalPty: (
+    serial: string,
+    columns: number,
+    rows: number,
+    onEvent: (event: TerminalPtyEvent) => void,
+  ) => {
+    const channel = new Channel<TerminalPtyEvent>();
+    channel.onmessage = onEvent;
+    return call<string>("start_terminal_pty", { serial, columns, rows, onEvent: channel });
+  },
+  writeTerminalPty: (sessionId: string, data: number[]) =>
+    call<void>("write_terminal_pty", { sessionId, data }),
+  resizeTerminalPty: (sessionId: string, columns: number, rows: number) =>
+    call<void>("resize_terminal_pty", { sessionId, columns, rows }),
+  closeTerminalPty: (sessionId: string) => call<boolean>("close_terminal_pty", { sessionId }),
+  exportTerminalText: (text: string) => call<string | null>("export_terminal_text", { text }),
   startLogStream: (serial: string, source: LogSourceKind, onBatch: (lines: LogLine[]) => void) => {
     const channel = new Channel<LogLine[]>();
     channel.onmessage = onBatch;
     return call<string>("start_log_stream", { serial, source, onBatch: channel });
   },
+  exportLogs: (lines: LogLine[], format: LogExportFormat) =>
+    call<string | null>("export_logs", { lines, format }),
+  exportDiagnostics: (redactIps: boolean) =>
+    call<string | null>("export_diagnostics", { redactIps }),
   onDevicesChanged: (cb: (d: AndroidDevice[]) => void): Promise<UnlistenFn> =>
     listen<AndroidDevice[]>(EVENTS.devices, (e) => cb(e.payload)),
   onReconnect: (cb: (s: ReconnectStatus) => void): Promise<UnlistenFn> =>
     listen<ReconnectStatus>(EVENTS.reconnect, (e) => cb(e.payload)),
+  onMenuCommand: (cb: (command: AppMenuCommand) => void): Promise<UnlistenFn> =>
+    listen<AppMenuCommand>("hacc://menu-command", (e) => cb(e.payload)),
 };
 
 export type Ipc = typeof ipc;

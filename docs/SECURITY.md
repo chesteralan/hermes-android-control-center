@@ -32,7 +32,7 @@
 ## 3. Tauri hardening
 - CSP: `default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost`.
 - `withGlobalTauri: false`.
-- Capabilities: `core:default`, `store:default`, `dialog:allow-open`, `dialog:allow-save`, `clipboard-manager:allow-write-text`, `updater:default` (M10). No `shell:*`, no broad `fs:*`.
+- Capabilities: `core:default`, `dialog:allow-save`, `updater:default`, and `process:allow-restart` for signed update installation. Settings persistence stays in Rust; no `shell:*`, broad `fs:*`, or clipboard plugin permissions.
 - Hardened runtime entitlements: none beyond default unless required (document each).
 
 ## 4. Secrets storage
@@ -52,3 +52,37 @@
 - [ ] Termux services verified bound to 127.0.0.1
 - [ ] Diagnostics bundle redaction verified
 - [ ] Vulnerability reporting process in root `SECURITY.md`
+
+## 6. Strict Dependency Remediation
+
+The license allowlist and advisory checks remain unchanged. No advisory ignores,
+license exceptions, relabeled third-party licenses, or unchecked source substitutions
+are approved. A backport must retain upstream notices and have a reproducible source,
+patch provenance, regression coverage, and native platform validation.
+
+HTTP downloads and the updater use `native-tls`: platform certificate verification
+and hostname checking remain enabled. macOS uses Security Framework, Windows uses
+Schannel, and Linux uses OpenSSL and the host's CA store. This removes bundled
+`webpki-roots` / `webpki-root-certs` and their rejected CDLA-Permissive-2.0 license.
+Updater artifact signatures and provisioning SHA-256 verification are unchanged.
+Linux builders require OpenSSL development files; runtime hosts need current CA
+certificates. Locally trusted enterprise roots now follow OS trust policy.
+
+Remaining blockers, verified from the resolved dependency graph on 2026-10-07:
+- `tauri-build` / `tauri-codegen` require `tauri-utils`' HTML manipulation support,
+  which brings `dom_query`, `cssparser`, `selectors`, and MPL-2.0 dependencies.
+  Disabling optional app features does not remove this build-time path.
+- Tauri's directory lookup brings MPL-2.0 `option-ext`; GTK's system-dependency
+  tooling brings `target-lexicon` under Apache-2.0 WITH LLVM-exception.
+- Linux GTK3 requires GLib `0.18`; `0.18.5` is the latest published compatible
+  release checked. The `VariantStrIter` fix is in GLib `0.20+`, which is not a
+  drop-in dependency upgrade for the GTK3 stack. `glib-macros` also retains the
+  unmaintained `proc-macro-error` dependency.
+
+Strict next steps are to replace noncompliant dependency implementations or obtain
+an upstream permissively licensed alternative, and port the GTK3 stack to maintained
+bindings or maintain verified GLib/macro backports. Security backports do not change
+the licenses of copied code. A Tauri 3 prerelease/GTK4 migration is a separate
+framework/toolchain/API change, not an automatic security patch; it also needs a
+fresh license-graph check and does not by itself prove the HTML-parser licenses are
+resolved. Preserve the current blocked release gate until remediation is verified.

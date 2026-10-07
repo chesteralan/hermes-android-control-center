@@ -11,11 +11,13 @@ Open the [single-page documentation hub](index.html) for a searchable, grouped v
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System design, modules, traits, IPC contract, data types |
 | [DECISIONS.md](DECISIONS.md) | Architecture Decision Records (ADRs) |
 | [MILESTONES.md](MILESTONES.md) | Roadmap from empty repo to production release |
+| [TODO.md](TODO.md) | Consolidated open tickets and milestone exit checks |
 | [tasks/](tasks/) | Per-milestone task breakdowns with acceptance criteria |
 | [TESTING.md](TESTING.md) | Test strategy, mock ADB fixtures, CI gates |
 | [SECURITY.md](SECURITY.md) | Threat model and security controls |
 | [RELEASE.md](RELEASE.md) | Build, signing, notarization, versioning, release checklist |
 | [guides/ANDROID_SETUP.md](guides/ANDROID_SETUP.md) | ADB, Developer Options, pairing, Termux, Hermes setup |
+| [guides/DESKTOP_PLATFORMS.md](guides/DESKTOP_PLATFORMS.md) | Windows/Linux setup, bundles, native/encrypted secret storage, and certification |
 | [guides/TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) | Common ADB / Termux / Hermes failures |
 
 ## Reading order

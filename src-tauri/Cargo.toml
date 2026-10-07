@@ -2,6 +2,7 @@
 name = "hermes-control-center"
 version = "0.1.0"
 description = "Desktop control center for Hermes Agent on Android (Termux) over Wireless ADB"
+license = "MIT"
 edition = "2021"
 rust-version = "1.89"
 
@@ -14,20 +15,47 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 async-trait = "0.1.92"
+argon2 = "0.5.3"
+base64 = "0.22.1"
+chacha20poly1305 = "0.10.1"
+futures-util = "0.3.31"
+keyring = { version = "3.6.3" }
+process-wrap = { version = "10.0.1", features = ["tokio1"] }
 qrcode = "0.14.1"
 rand = "0.9.5"
-russh = "0.63.3"
+regex = "1.12"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "native-tls"] }
+russh = { version = "0.63.3", default-features = false, features = ["aws-lc-rs", "flate2"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-tauri = { version = "2.11.6", features = [] }
+schemars = "0.8.22"
+sha2 = "0.11.0"
+tauri = { version = "2.11.6", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "=2.2.2"
+tauri-plugin-process = "=2.4.0"
+tauri-plugin-updater = { version = "=2.13.1", default-features = false, features = ["native-tls", "system-proxy", "zip"] }
 tauri-plugin-store = "2.4.5"
 thiserror = "2.0.21"
-tokio = { version = "1.53.1", features = ["process", "time", "sync", "macros", "rt-multi-thread", "io-util"] }
+toml = "1.1.6"
+tokio = { version = "1.53.1", features = ["process", "time", "sync", "macros", "rt-multi-thread", "io-util", "net"] }
 tokio-util = { version = "0.7.19", features = ["rt"] }
+tokio-tungstenite = "0.26.2"
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 ts-rs = { version = "12.0.1", features = ["serde-compat"] }
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+zeroize = "1.8"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", features = ["windows-native"] }
+windows = { version = "0.62.2", features = ["Win32_System_Threading"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 
 [profile.release]
 codegen-units = 1

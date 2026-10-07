@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LogLine",
+  "type": "object",
+  "required": [
+    "message",
+    "raw",
+    "receivedAt",
+    "seq"
+  ],
+  "properties": {
+    "level": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/LogLevel"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "message": {
+      "type": "string"
+    },
+    "raw": {
+      "description": "Original line, always preserved.",
+      "type": "string"
+    },
+    "receivedAt": {
+      "description": "Unix ms when the line reached the desktop.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "seq": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "tag": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "timestamp": {
+      "description": "Timestamp text as printed by the source, if any.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "definitions": {
+    "LogLevel": {
+      "type": "string",
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ]
+    }
+  }
+}

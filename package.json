@@ -12,15 +12,23 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:release": "node --test scripts/release-artifacts.test.mjs",
+    "version:check": "node scripts/check-version.mjs",
     "gen:types": "node scripts/generate-types.mjs",
+    "gen:schemas": "cargo run --manifest-path src-tauri/Cargo.toml --example export_schemas",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.13",
     "@tauri-apps/api": "^2.12.1",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.13.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "smol-toml": "^1.9.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CommandResult",
+  "type": "object",
+  "required": [
+    "durationMs",
+    "stderr",
+    "stdout"
+  ],
+  "properties": {
+    "durationMs": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "exitCode": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "int32"
+    },
+    "stderr": {
+      "type": "string"
+    },
+    "stdout": {
+      "type": "string"
+    }
+  }
+}

@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use russh::keys::PrivateKey;
@@ -8,18 +9,92 @@ use tokio_util::sync::CancellationToken;
 
 use crate::adb::parse::device_id_from_serial;
 use crate::adb::{locate, AdbClient, AdbInfo};
-use crate::config::{AppConfig, LogLevelSetting};
+use crate::config::{AppConfig, HermesTransportKind, LogLevelSetting};
 use crate::devices::DeviceRegistry;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::platform::RealEnv;
 use crate::process::ProcessRunner;
 use crate::streams::StreamRegistry;
 use crate::termux::forward::ForwardManager;
 use crate::termux::keys;
 use crate::termux::known_hosts::KnownHosts;
-use crate::termux::ssh::{self, SshPool, TermuxSshTransport};
+use crate::termux::ssh::{self, PtyInput, PtySessionControl, SshPool, TermuxSshTransport};
+use crate::transport::api::ApiTransport;
+use crate::transport::DeviceTransport;
+
+struct PtySessionEntry {
+    serial: String,
+    control: PtySessionControl,
+}
+
+#[derive(Default)]
+pub struct PtySessionRegistry {
+    next_id: AtomicU64,
+    sessions: Mutex<HashMap<String, PtySessionEntry>>,
+}
+
+impl PtySessionRegistry {
+    pub fn insert(&self, serial: &str, control: PtySessionControl) -> String {
+        let id = format!("pty-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
+        self.sessions.lock().unwrap().insert(
+            id.clone(),
+            PtySessionEntry {
+                serial: serial.to_string(),
+                control,
+            },
+        );
+        id
+    }
+
+    pub fn control(&self, id: &str) -> Option<PtySessionControl> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|entry| entry.control.clone())
+    }
+
+    pub async fn close(&self, id: &str) -> bool {
+        let entry = self.sessions.lock().unwrap().remove(id);
+        if let Some(entry) = entry {
+            let _ = entry.control.send(PtyInput::Close).await;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn close_device(&self, serial: &str) {
+        let ids = self
+            .sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, entry)| entry.serial == serial)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        for id in ids {
+            self.close(&id).await;
+        }
+    }
+
+    pub async fn close_all(&self) {
+        let ids = self
+            .sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in ids {
+            self.close(&id).await;
+        }
+    }
+}
 
 pub type LogLevelSetter = Box<dyn Fn(LogLevelSetting) + Send + Sync>;
+
+const API_TOKEN_SERVICE: &str = "com.hermes-control-center.control-api";
 
 pub struct AppState {
     pub runner: Arc<dyn ProcessRunner>,
@@ -37,6 +112,9 @@ pub struct AppState {
     pub known_hosts: KnownHosts,
     pub forwards: ForwardManager,
     pub ssh: SshPool,
+    pub pty_sessions: Arc<PtySessionRegistry>,
+    pub provisioning_runs: Mutex<HashSet<String>>,
+    pub encrypted_secrets: crate::secrets::EncryptedSecrets,
 }
 
 impl AppState {
@@ -58,11 +136,14 @@ impl AppState {
             shutdown,
             set_log_level,
             known_hosts: KnownHosts::load(&data_dir),
+            encrypted_secrets: crate::secrets::EncryptedSecrets::new(&data_dir),
             data_dir,
             ssh_key: OnceLock::new(),
             ssh_key_init: Mutex::new(()),
             forwards: ForwardManager::default(),
             ssh: SshPool::default(),
+            pty_sessions: Arc::new(PtySessionRegistry::default()),
+            provisioning_runs: Mutex::default(),
         }
     }
 
@@ -109,8 +190,59 @@ impl AppState {
         Ok(TermuxSshTransport::new(handle))
     }
 
+    pub fn api_token(&self, serial: &str) -> AppResult<Option<String>> {
+        let device_id = self.device_id_for(serial);
+        if self.encrypted_secrets.status() != "native" {
+            return self.encrypted_secrets.get(&device_id);
+        }
+        let entry = keyring::Entry::new(API_TOKEN_SERVICE, &device_id)
+            .map_err(|error| AppError::Io(error.to_string()))?;
+        match entry.get_password() {
+            Ok(token) => Ok(Some(token)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(AppError::Io(format!(
+                "System credential store unavailable: {error}. Unlock your desktop keyring or explicitly enable encrypted file storage in Settings. No plaintext fallback is used."
+            ))),
+        }
+    }
+
+    pub fn set_api_token(&self, serial: &str, token: &str) -> AppResult<()> {
+        let device_id = self.device_id_for(serial);
+        if self.encrypted_secrets.status() != "native" {
+            return self.encrypted_secrets.set(&device_id, token);
+        }
+        let entry = keyring::Entry::new(API_TOKEN_SERVICE, &device_id)
+            .map_err(|error| AppError::Io(error.to_string()))?;
+        entry.set_password(token).map_err(|error| {
+            AppError::Io(format!("System credential store unavailable: {error}. Unlock your desktop keyring or explicitly enable encrypted file storage in Settings. No plaintext fallback is used."))
+        })?;
+        Ok(())
+    }
+
+    pub async fn api_transport(&self, serial: &str) -> AppResult<ApiTransport> {
+        let token = self.api_token(serial)?.ok_or_else(|| {
+            AppError::Config("No Control API token is saved for this device.".into())
+        })?;
+        let client = self.adb_client().await?;
+        let port = self.config.read().await.api_port;
+        let local_port = self.forwards.ensure(&client, serial, port).await?;
+        Ok(ApiTransport::new(local_port, token))
+    }
+
+    pub async fn configured_hermes_transport(
+        &self,
+        serial: &str,
+    ) -> AppResult<Arc<dyn DeviceTransport>> {
+        let transport = self.config.read().await.hermes.transport;
+        match transport {
+            HermesTransportKind::TermuxSsh => Ok(Arc::new(self.termux_transport(serial).await?)),
+            HermesTransportKind::ControlApi => Ok(Arc::new(self.api_transport(serial).await?)),
+        }
+    }
+
     /// Drop SSH sessions and port forwards for a device.
     pub async fn release_device(&self, serial: &str) {
+        self.pty_sessions.close_device(serial).await;
         self.ssh.drop_device(serial).await;
         if let Ok(client) = self.adb_client().await {
             self.forwards.remove_device(&client, serial).await;

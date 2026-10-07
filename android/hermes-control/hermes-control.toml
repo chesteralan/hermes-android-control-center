@@ -1,0 +1,27 @@
+[server]
+host = "127.0.0.1"
+port = 8765
+token = ""
+allow_arbitrary_commands = false
+
+[hermes]
+environment = "proot-distro"
+distro = "debian"
+start_mode = "supervised"
+gateway_command = "hermes gateway run"
+process_match = "hermes-agent/venv/bin/python"
+gateway_match = "gateway run"
+hermes_home = "/root/.hermes"
+log_files = ["/root/.hermes/logs/gateway.log", "/root/.hermes/logs/tool_calls.log"]
+path_prepend = ["/root/.local/bin"]
+start_command = ""
+stop_command = ""
+restart_command = ""
+status_command = ""
+version_command = "hermes --version"
+doctor_command = "hermes doctor"
+update_command = "hermes update"
+
+[logs]
+command = "tail -n 200 -F /root/.hermes/logs/gateway.log"
+path = "/root/.hermes/logs/gateway.log"

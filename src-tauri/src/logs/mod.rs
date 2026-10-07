@@ -1,8 +1,10 @@
 //! Log sources (ADR-005): logcat now, Termux files (M7) and API WebSocket (M8) later — same `LogLine`.
 
+pub mod api_ws;
 pub mod batcher;
 pub mod logcat;
 pub mod parse;
+pub mod transport_command;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -12,7 +14,7 @@ use ts_rs::TS;
 
 use crate::error::AppResult;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 #[ts(export)]
 pub enum LogLevel {
@@ -22,7 +24,7 @@ pub enum LogLevel {
     Error,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct LogLine {
@@ -45,6 +47,9 @@ pub struct LogLine {
 #[ts(export)]
 pub enum LogSourceKind {
     Logcat,
+    HermesGateway,
+    HermesToolCalls,
+    Supervisor,
 }
 
 #[async_trait]

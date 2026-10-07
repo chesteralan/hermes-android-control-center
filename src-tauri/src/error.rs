@@ -1,7 +1,7 @@
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum ErrorKind {
@@ -24,7 +24,7 @@ pub enum ErrorKind {
 }
 
 /// Shape sent to the UI for every failed command.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct ErrorPayload {
@@ -103,7 +103,7 @@ impl AppError {
     pub fn user_message(&self) -> String {
         match self {
             Self::AdbNotFound { .. } => {
-                "ADB is not installed or could not be found. Install Android platform-tools or set the ADB path in Settings.".into()
+                format!("ADB is not installed or could not be found. {}", crate::platform::adb_install_hint(crate::platform::current_os()))
             }
             Self::AdbFailed { message, .. } => format!("ADB command failed: {message}"),
             Self::DeviceOffline { serial } => {
@@ -143,15 +143,44 @@ impl AppError {
     /// Technical details for the expandable "Details" section.
     pub fn details(&self) -> Option<String> {
         match self {
-            Self::AdbNotFound { searched } => Some(format!("Searched:\n{}", searched.join("\n"))),
+            Self::AdbNotFound { searched } => Some(if searched.is_empty() {
+                "No ADB executable paths were available to check.".into()
+            } else {
+                format!("Searched:\n{}", searched.join("\n"))
+            }),
             Self::AdbFailed {
                 stderr, exit_code, ..
             } => Some(format!("exit code: {exit_code:?}\n{stderr}")),
+            Self::DeviceOffline { serial } => {
+                Some(format!("ADB reported device {serial} in the offline state."))
+            }
+            Self::DeviceUnauthorized { serial } => Some(format!(
+                "ADB has not received authorization from device {serial}."
+            )),
+            Self::DeviceNotFound { serial } => {
+                Some(format!("Device {serial} was not present in the ADB device list."))
+            }
             Self::ConnectionRefused { output, .. }
             | Self::WirelessDebuggingDisabled { output, .. }
             | Self::PairingFailed { output }
             | Self::MdnsUnavailable { output } => Some(format!("ADB returned:\n{output}")),
-            Self::CommandFailed { stderr, .. } if !stderr.is_empty() => Some(stderr.clone()),
+            Self::TermuxUnavailable { reason } if !reason.trim().is_empty() => Some(reason.clone()),
+            Self::TermuxUnavailable { .. } => {
+                Some("Check that Termux is installed, sshd is running, and the ADB forward is available.".into())
+            }
+            Self::HermesNotFound => Some(
+                "Check the selected Hermes environment and configured process match.".into(),
+            ),
+            Self::CommandFailed {
+                stderr, exit_code, ..
+            } if !stderr.trim().is_empty() => Some(stderr.clone()),
+            Self::CommandFailed { exit_code, .. } => Some(format!(
+                "The command returned no stderr. Exit code: {exit_code:?}."
+            )),
+            Self::Timeout {
+                operation,
+                after_ms,
+            } => Some(format!("{operation} exceeded its {after_ms} ms timeout.")),
             _ => None,
         }
     }
@@ -241,5 +270,61 @@ mod tests {
         assert_eq!(e.kind(), ErrorKind::ConnectionRefused);
         assert!(e.details().unwrap().contains("refused"));
         assert!(e.user_message().contains("1.2.3.4:5"));
+    }
+
+    #[test]
+    fn brief_connection_errors_include_expandable_details() {
+        let errors = [
+            AppError::AdbNotFound {
+                searched: vec!["/missing/adb".into()],
+            },
+            AppError::AdbFailed {
+                message: "failed".into(),
+                stderr: "permission denied".into(),
+                exit_code: Some(1),
+            },
+            AppError::DeviceOffline {
+                serial: "device-1".into(),
+            },
+            AppError::DeviceUnauthorized {
+                serial: "device-1".into(),
+            },
+            AppError::ConnectionRefused {
+                address: "192.0.2.1:5555".into(),
+                output: "connection refused".into(),
+            },
+            AppError::WirelessDebuggingDisabled {
+                address: "192.0.2.1:5555".into(),
+                output: "closed".into(),
+            },
+            AppError::TermuxUnavailable {
+                reason: "SSH authentication failed".into(),
+            },
+            AppError::HermesNotFound,
+            AppError::CommandFailed {
+                command: "hermes status".into(),
+                exit_code: Some(1),
+                stderr: String::new(),
+            },
+            AppError::Timeout {
+                operation: "ADB connect".into(),
+                after_ms: 5_000,
+            },
+        ];
+
+        for error in errors {
+            let payload = error.to_payload();
+            assert!(
+                !payload.message.trim().is_empty(),
+                "missing user message for {error:?}"
+            );
+            assert!(
+                payload
+                    .details
+                    .as_deref()
+                    .is_some_and(|details| !details.trim().is_empty()),
+                "missing details for {error:?}"
+            );
+        }
     }
 }

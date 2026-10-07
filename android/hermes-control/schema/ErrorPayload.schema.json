@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ErrorPayload",
+  "description": "Shape sent to the UI for every failed command.",
+  "type": "object",
+  "required": [
+    "kind",
+    "message"
+  ],
+  "properties": {
+    "details": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "kind": {
+      "$ref": "#/definitions/ErrorKind"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "ErrorKind": {
+      "type": "string",
+      "enum": [
+        "adbNotFound",
+        "adbFailed",
+        "deviceOffline",
+        "deviceUnauthorized",
+        "deviceNotFound",
+        "connectionRefused",
+        "wirelessDebuggingDisabled",
+        "pairingFailed",
+        "mdnsUnavailable",
+        "termuxUnavailable",
+        "hermesNotFound",
+        "commandFailed",
+        "timeout",
+        "cancelled",
+        "config",
+        "io"
+      ]
+    }
+  }
+}

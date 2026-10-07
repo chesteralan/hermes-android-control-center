@@ -11,7 +11,7 @@ use crate::termux::shell_escape;
 /// Heartbeat older than this while the process is alive means the gateway is stuck.
 pub const STALE_SECS: i64 = 120;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum ComponentStatus {
@@ -21,7 +21,7 @@ pub enum ComponentStatus {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum ProcessKind {
@@ -30,7 +30,7 @@ pub enum ProcessKind {
     Other,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct HermesProcess {
@@ -41,7 +41,7 @@ pub struct HermesProcess {
     pub cmdline: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct PlatformStatus {
@@ -50,7 +50,7 @@ pub struct PlatformStatus {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct SupervisorStatus {
@@ -60,7 +60,7 @@ pub struct SupervisorStatus {
     pub recent_restarts: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct HermesStatus {
@@ -76,7 +76,7 @@ pub struct HermesStatus {
     pub warnings: Vec<String>,
     /// Optional output from the user's configured status command.
     pub raw_status_output: Option<String>,
-    /// "termuxSsh" or "adb" (limited).
+    /// "termuxSsh", "api", or "adb" (limited).
     pub source: String,
     #[ts(type = "number")]
     pub checked_at: u64,

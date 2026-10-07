@@ -588,6 +588,10 @@ mod tests {
 
     #[test]
     fn track_parser_handles_real_and_split_frames() {
+        let declared_len =
+            usize::from_str_radix(std::str::from_utf8(&TRACK[..4]).unwrap(), 16).unwrap();
+        assert_eq!(declared_len, TRACK.len() - 4);
+
         let mut p = TrackParser::default();
         let frames = p.push(TRACK);
         assert_eq!(frames.len(), 1);

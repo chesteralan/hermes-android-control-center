@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use process_wrap::tokio::{CommandWrap, KillOnDrop};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -69,15 +70,16 @@ pub trait ProcessRunner: Send + Sync {
     ) -> AppResult<mpsc::Receiver<StreamChunk>>;
 }
 
-fn command(program: &Path, args: &[String]) -> Command {
+fn command(program: &Path, args: &[String]) -> CommandWrap {
     let mut cmd = Command::new(program);
     cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    crate::platform::configure_command(&mut cmd);
-    cmd
+        .stderr(Stdio::piped());
+    let mut wrapped = CommandWrap::from(cmd);
+    wrapped.wrap(KillOnDrop);
+    crate::platform::configure_command(&mut wrapped);
+    wrapped
 }
 
 fn spawn_error(program: &Path, e: std::io::Error) -> AppError {
@@ -101,22 +103,42 @@ impl ProcessRunner for TokioRunner {
         timeout: Duration,
     ) -> AppResult<RawOutput> {
         let started = Instant::now();
-        let child = command(program, args)
+        crate::platform::prepare_process(program, args).await?;
+        let mut child = command(program, args)
             .spawn()
             .map_err(|e| spawn_error(program, e))?;
-        let out = match tokio::time::timeout(timeout, child.wait_with_output()).await {
-            Ok(r) => r?,
+        let mut stdout = child.stdout().take().expect("piped stdout");
+        let mut stderr = child.stderr().take().expect("piped stderr");
+        let mut output = Vec::new();
+        let mut errors = Vec::new();
+        let collect = async {
+            let (_, _, status) = tokio::try_join!(
+                stdout.read_to_end(&mut output),
+                stderr.read_to_end(&mut errors),
+                child.wait(),
+            )?;
+            Ok::<_, std::io::Error>(status)
+        };
+        let status = match tokio::time::timeout(timeout, collect).await {
+            Ok(Ok(status)) => status,
+            Ok(Err(error)) => {
+                let _ = Box::into_pin(child.kill()).await;
+                let _ = child.wait().await;
+                return Err(error.into());
+            }
             Err(_) => {
+                let _ = Box::into_pin(child.kill()).await;
+                let _ = child.wait().await;
                 return Err(AppError::Timeout {
                     operation: describe(program, args),
                     after_ms: timeout.as_millis() as u64,
-                })
+                });
             }
         };
         Ok(RawOutput {
-            stdout: String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n"),
-            stderr: String::from_utf8_lossy(&out.stderr).replace("\r\n", "\n"),
-            exit_code: out.status.code(),
+            stdout: String::from_utf8_lossy(&output).replace("\r\n", "\n"),
+            stderr: String::from_utf8_lossy(&errors).replace("\r\n", "\n"),
+            exit_code: status.code(),
             duration_ms: started.elapsed().as_millis() as u64,
         })
     }
@@ -127,11 +149,12 @@ impl ProcessRunner for TokioRunner {
         args: &[String],
         cancel: CancellationToken,
     ) -> AppResult<mpsc::Receiver<StreamChunk>> {
+        crate::platform::prepare_process(program, args).await?;
         let mut child = command(program, args)
             .spawn()
             .map_err(|e| spawn_error(program, e))?;
-        let mut stdout = child.stdout.take().expect("piped stdout");
-        let mut stderr = child.stderr.take().expect("piped stderr");
+        let mut stdout = child.stdout().take().expect("piped stdout");
+        let mut stderr = child.stderr().take().expect("piped stderr");
         let (tx, rx) = mpsc::channel(256);
 
         let err_tx = tx.clone();
@@ -158,7 +181,11 @@ impl ProcessRunner for TokioRunner {
                     r = stdout.read(&mut buf) => match r {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
-                            if tx.send(StreamChunk::Stdout(buf[..n].to_vec())).await.is_err() {
+                            let sent = tokio::select! {
+                                _ = cancel.cancelled() => false,
+                                result = tx.send(StreamChunk::Stdout(buf[..n].to_vec())) => result.is_ok(),
+                            };
+                            if !sent {
                                 break;
                             }
                         }
@@ -166,9 +193,19 @@ impl ProcessRunner for TokioRunner {
                 }
             }
             if cancel.is_cancelled() || tx.is_closed() {
-                let _ = child.kill().await;
+                let _ = Box::into_pin(child.kill()).await;
             }
-            let code = child.wait().await.ok().and_then(|s| s.code());
+            let code = tokio::select! {
+                result = child.wait() => result.ok().and_then(|result| result.code()),
+                _ = cancel.cancelled() => {
+                    let _ = Box::into_pin(child.kill()).await;
+                    child.wait().await.ok().and_then(|result| result.code())
+                }
+                _ = tx.closed() => {
+                    let _ = Box::into_pin(child.kill()).await;
+                    child.wait().await.ok().and_then(|result| result.code())
+                }
+            };
             let _ = tx.send(StreamChunk::Exit(code)).await;
         });
 
@@ -314,6 +351,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn timeout_kills_descendant_processes() {
+        let path =
+            std::env::temp_dir().join(format!("hacc-timeout-descendant-{}", std::process::id()));
+        let mut args = sh("sleep 30 & echo $! > \"$1\"; wait");
+        args.push("hacc-test".into());
+        args.push(path.to_string_lossy().into_owned());
+        let result = TokioRunner
+            .run(Path::new("/bin/sh"), &args, Duration::from_millis(300))
+            .await;
+        assert!(matches!(result, Err(AppError::Timeout { .. })));
+        let descendant = std::fs::read_to_string(&path)
+            .unwrap()
+            .trim()
+            .parse::<u32>()
+            .unwrap();
+        std::fs::remove_file(path).unwrap();
+        let state = TokioRunner
+            .run(
+                Path::new("/bin/sh"),
+                &sh(&format!("ps -p {descendant} -o stat=")),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+        assert!(
+            !state.success() || state.stdout.trim().starts_with('Z'),
+            "Descendant remained running after timeout"
+        );
+    }
+
+    #[tokio::test]
     async fn missing_binary_is_adb_not_found() {
         let err = TokioRunner
             .run(Path::new("/nonexistent/adb"), &[], Duration::from_secs(1))
@@ -349,6 +417,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancellation_after_stdout_closes_still_kills_tree() {
+        let cancel = CancellationToken::new();
+        let mut receiver = TokioRunner
+            .spawn_stream(
+                Path::new("/bin/sh"),
+                &sh("echo ready; exec 1>&-; sleep 30"),
+                cancel.clone(),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            receiver.recv().await,
+            Some(StreamChunk::Stdout(_))
+        ));
+        cancel.cancel();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while let Some(chunk) = receiver.recv().await {
+                if matches!(chunk, StreamChunk::Exit(_)) {
+                    return;
+                }
+            }
+            panic!("Missing process exit after cancellation");
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
     async fn stream_cancel_kills_child() {
         let cancel = CancellationToken::new();
         let mut rx = TokioRunner
@@ -366,5 +462,91 @@ mod tests {
         })
         .await;
         assert_eq!(res, Ok(true));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    fn powershell(script: &str) -> Vec<String> {
+        vec![
+            "-NoLogo".into(),
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-Command".into(),
+            script.into(),
+        ]
+    }
+
+    #[tokio::test]
+    async fn normalizes_windows_crlf_and_times_out() {
+        let runner = TokioRunner;
+        let output = runner
+            .run(
+                Path::new("powershell.exe"),
+                &powershell("[Console]::Write(\"a`r`nb`r`n\")"),
+                Duration::from_secs(15),
+            )
+            .await
+            .unwrap();
+        assert_eq!(output.stdout, "a\nb\n");
+        assert!(matches!(
+            runner
+                .run(
+                    Path::new("powershell.exe"),
+                    &powershell("Start-Sleep -Seconds 30"),
+                    Duration::from_millis(100)
+                )
+                .await,
+            Err(AppError::Timeout { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancellation_leaves_no_descendant_process() {
+        let cancel = CancellationToken::new();
+        let mut receiver = TokioRunner.spawn_stream(
+            Path::new("powershell.exe"),
+            &powershell("$child=Start-Process powershell.exe -ArgumentList '-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 60' -PassThru; [Console]::WriteLine($child.Id); Start-Sleep -Seconds 60"),
+            cancel.clone(),
+        ).await.unwrap();
+        let descendant = tokio::time::timeout(Duration::from_secs(20), async {
+            let mut output = String::new();
+            loop {
+                if let Some(StreamChunk::Stdout(bytes)) = receiver.recv().await {
+                    output.push_str(&String::from_utf8_lossy(&bytes));
+                    if let Some(line) = output.lines().next().filter(|_| output.contains('\n')) {
+                        break line.trim().parse::<u32>().unwrap();
+                    }
+                } else {
+                    panic!("No descendant PID received");
+                }
+            }
+        })
+        .await
+        .unwrap();
+        cancel.cancel();
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while let Some(chunk) = receiver.recv().await {
+                if matches!(chunk, StreamChunk::Exit(_)) {
+                    return;
+                }
+            }
+            panic!("Missing Windows job exit");
+        })
+        .await
+        .unwrap();
+        let check = TokioRunner
+            .run(
+                Path::new("powershell.exe"),
+                &powershell(&format!(
+                    "if (Get-Process -Id {descendant} -ErrorAction SilentlyContinue) {{ exit 1 }}"
+                )),
+                Duration::from_secs(15),
+            )
+            .await
+            .unwrap();
+        assert!(check.success(), "Descendant survived job cancellation");
     }
 }

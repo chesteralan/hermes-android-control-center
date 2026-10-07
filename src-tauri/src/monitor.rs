@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use crate::adb::{reconnect, tracker, AndroidDevice, ConnectionType};
-use crate::devices::ReconnectStatus;
+use crate::adb::{reconnect, tracker, AndroidDevice, ConnectionType, DeviceState};
+use crate::devices::{ReconnectStatus, SnapshotDiff};
 use crate::state::AppState;
 
 pub const EVT_DEVICES: &str = "device://changed";
@@ -17,6 +17,28 @@ pub fn emit_devices<R: Runtime>(app: &AppHandle<R>) {
     if let Err(e) = app.emit(EVT_DEVICES, list) {
         tracing::warn!(error = %e, "emit devices failed");
     }
+}
+
+pub fn snapshot_applied<R: Runtime>(app: &AppHandle<R>, diff: SnapshotDiff) {
+    emit_devices(app);
+    for serial in identity_lookup_candidates(app.state::<AppState>().devices.list()) {
+        learn_device_id(app.clone(), serial);
+    }
+    for device in diff.lost {
+        maybe_reconnect(app.clone(), device);
+    }
+}
+
+fn identity_lookup_candidates(devices: Vec<AndroidDevice>) -> Vec<String> {
+    devices
+        .into_iter()
+        .filter(|device| {
+            device.state == DeviceState::Device
+                && device.connection != ConnectionType::Usb
+                && device.device_id.is_none()
+        })
+        .map(|device| device.serial)
+        .collect()
 }
 
 pub fn start<R: Runtime>(app: AppHandle<R>) {
@@ -31,14 +53,8 @@ pub fn start<R: Runtime>(app: AppHandle<R>) {
             let a = client_app.clone();
             Box::pin(async move { a.state::<AppState>().adb_client().await })
         }),
-        on_snapshot: Arc::new(move |list, diff| {
-            let _ = snap_app.emit(EVT_DEVICES, list);
-            for d in diff.ready.into_iter().filter(|d| d.device_id.is_none()) {
-                learn_device_id(snap_app.clone(), d.serial);
-            }
-            for d in diff.lost {
-                maybe_reconnect(snap_app.clone(), d);
-            }
+        on_snapshot: Arc::new(move |_list, diff| {
+            snapshot_applied(&snap_app, diff);
         }),
     };
     tauri::async_runtime::spawn(tracker::run(registry, hooks, cancel));
@@ -141,4 +157,16 @@ pub fn spawn_reconnect<R: Runtime>(app: AppHandle<R>, device: AndroidDevice) {
         }
         emit_devices(&app);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adb::parse::parse_devices;
+
+    #[test]
+    fn identity_lookup_includes_already_registered_ip_aliases() {
+        let devices = parse_devices("192.0.2.10:5555 device model:Phone\n");
+        assert_eq!(identity_lookup_candidates(devices), ["192.0.2.10:5555"]);
+    }
 }

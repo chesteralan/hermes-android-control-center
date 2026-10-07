@@ -1,0 +1,27 @@
+id = "termux-native-apt"
+name = "Hermes Agent (native Termux, experimental)"
+termux_source = "github"
+distro = ""
+termux_packages = ["openssh", "termux-services", "util-linux"]
+distro_packages = []
+autostart = true
+experimental = true
+
+[hermes_install]
+native_apt_package = "hermes-agent"
+apt_key_fingerprint = "C572 B5FD D1A2 9CCF A9A9 12B6 840B 0848 E139 156D"
+interactive = false
+
+[hermes_configure]
+steps = ["hermes setup", "hermes gateway setup"]
+
+[hermes_runtime]
+start_mode = "supervised"
+gateway_command = "hermes gateway run"
+process_match = "hermes"
+status_commands = ["hermes gateway status", "hermes status"]
+version_command = "hermes --version"
+doctor_command = "hermes doctor"
+update_command = "hermes update"
+log_files = ["~/.hermes/logs/gateway.log", "~/.hermes/logs/tool_calls.log"]
+state_file = "~/.hermes/gateway_state.json"

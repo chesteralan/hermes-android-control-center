@@ -66,6 +66,14 @@ impl DeviceRegistry {
             if d.device_id.is_none() {
                 d.device_id = g.ids.get(&d.serial).cloned();
             }
+            if g.manual_disconnect.contains(&d.serial)
+                || d.device_id
+                    .as_ref()
+                    .is_some_and(|id| g.manual_disconnect.contains(id))
+            {
+                d.state = DeviceState::Disconnected;
+                d.raw_state = "manual disconnect".into();
+            }
         }
         let new: BTreeMap<String, AndroidDevice> =
             list.into_iter().map(|d| (d.serial.clone(), d)).collect();
@@ -125,30 +133,73 @@ impl DeviceRegistry {
     pub fn set_device_id(&self, serial: &str, id: &str) -> bool {
         let mut g = self.inner.lock().unwrap();
         g.ids.insert(serial.to_string(), id.to_string());
+        if g.manual_disconnect.remove(serial) {
+            g.manual_disconnect.insert(id.to_string());
+        }
+        let is_manual_disconnect = g.manual_disconnect.contains(id);
         let mut changed = false;
         if let Some(d) = g.devices.get_mut(serial) {
             changed = d.device_id.as_deref() != Some(id);
             d.device_id = Some(id.to_string());
+            if is_manual_disconnect && d.state != DeviceState::Disconnected {
+                d.state = DeviceState::Disconnected;
+                d.raw_state = "manual disconnect".into();
+                changed = true;
+            }
+        }
+        if let Some(d) = g.last_seen.get_mut(serial) {
+            d.device_id = Some(id.to_string());
+            if is_manual_disconnect {
+                d.state = DeviceState::Disconnected;
+                d.raw_state = "manual disconnect".into();
+            }
         }
         changed
     }
 
     pub fn mark_manual_disconnect(&self, serial: &str) {
         let mut g = self.inner.lock().unwrap();
-        g.manual_disconnect.insert(serial.to_string());
+        let id = g
+            .devices
+            .get(serial)
+            .and_then(|device| device.device_id.clone())
+            .or_else(|| g.ids.get(serial).cloned())
+            .or_else(|| {
+                g.last_seen
+                    .get(serial)
+                    .and_then(|device| device.device_id.clone())
+            });
+        g.manual_disconnect
+            .insert(id.unwrap_or_else(|| serial.to_string()));
         g.reconnect.remove(serial);
     }
 
     pub fn clear_manual_disconnect(&self, serial: &str) {
-        self.inner.lock().unwrap().manual_disconnect.remove(serial);
+        let mut g = self.inner.lock().unwrap();
+        g.manual_disconnect.remove(serial);
+        if let Some(id) = g
+            .devices
+            .get(serial)
+            .and_then(|device| device.device_id.clone())
+            .or_else(|| g.ids.get(serial).cloned())
+            .or_else(|| {
+                g.last_seen
+                    .get(serial)
+                    .and_then(|device| device.device_id.clone())
+            })
+        {
+            g.manual_disconnect.remove(&id);
+        }
     }
 
     pub fn is_manual_disconnect(&self, serial: &str) -> bool {
-        self.inner
-            .lock()
-            .unwrap()
-            .manual_disconnect
-            .contains(serial)
+        let g = self.inner.lock().unwrap();
+        g.manual_disconnect.contains(serial)
+            || g.devices
+                .get(serial)
+                .and_then(|device| device.device_id.as_ref())
+                .or_else(|| g.ids.get(serial))
+                .is_some_and(|id| g.manual_disconnect.contains(id))
     }
 
     pub fn set_reconnect(&self, status: ReconnectStatus) {
@@ -253,5 +304,81 @@ mod tests {
         r.mark_manual_disconnect("s");
         assert!(r.is_manual_disconnect("s"));
         assert!(r.reconnect_status("s").is_none());
+    }
+
+    #[test]
+    fn manual_disconnect_ignores_adb_auto_reconnect_snapshot() {
+        let r = DeviceRegistry::new();
+        let connected = snap("adb-SER1-token._adb-tls-connect._tcp device model:P\n");
+        r.apply_snapshot(connected.clone());
+        r.mark_manual_disconnect(&connected[0].serial);
+
+        r.apply_snapshot(connected);
+
+        let devices = r.list();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].state, DeviceState::Disconnected);
+        assert_eq!(devices[0].raw_state, "manual disconnect");
+        assert!(r.is_manual_disconnect(&devices[0].serial));
+    }
+
+    #[test]
+    fn manual_disconnect_moves_to_device_id_when_identity_is_learned() {
+        let r = DeviceRegistry::new();
+        r.apply_snapshot(snap("192.0.2.10:5555 device model:P\n"));
+        r.mark_manual_disconnect("192.0.2.10:5555");
+
+        assert!(r.set_device_id("192.0.2.10:5555", "SER1"));
+        r.apply_snapshot(snap("192.0.2.10:5555 device model:P\n"));
+
+        assert_eq!(
+            r.get("192.0.2.10:5555").unwrap().state,
+            DeviceState::Disconnected
+        );
+        assert!(r.is_manual_disconnect("SER1"));
+        r.clear_manual_disconnect("192.0.2.10:5555");
+        r.apply_snapshot(snap("192.0.2.10:5555 device model:P\n"));
+        assert_eq!(r.get("192.0.2.10:5555").unwrap().state, DeviceState::Device);
+    }
+
+    #[test]
+    fn manual_disconnect_suppresses_sibling_transport_aliases() {
+        let r = DeviceRegistry::new();
+        let mdns = snap("adb-SER1-token._adb-tls-connect._tcp device model:P\n");
+        r.apply_snapshot(mdns.clone());
+        r.mark_manual_disconnect(&mdns[0].serial);
+
+        r.apply_snapshot(snap("192.0.2.10:5555 device model:P\n"));
+        assert_eq!(
+            r.get("192.0.2.10:5555").unwrap().state,
+            DeviceState::Device,
+            "the alias is unidentifiable until its device ID is learned"
+        );
+        assert!(r.set_device_id("192.0.2.10:5555", "SER1"));
+        assert_eq!(
+            r.get("192.0.2.10:5555").unwrap().state,
+            DeviceState::Disconnected
+        );
+
+        r.apply_snapshot([mdns, snap("192.0.2.10:5555 device model:P\n")].concat());
+
+        assert!(r
+            .list()
+            .iter()
+            .all(|device| device.state == DeviceState::Disconnected));
+        assert!(r.is_manual_disconnect("192.0.2.10:5555"));
+
+        r.clear_manual_disconnect("192.0.2.10:5555");
+        r.apply_snapshot(
+            [
+                snap("adb-SER1-token._adb-tls-connect._tcp device model:P\n"),
+                snap("192.0.2.10:5555 device model:P\n"),
+            ]
+            .concat(),
+        );
+        assert!(r
+            .list()
+            .iter()
+            .all(|device| device.state == DeviceState::Device));
     }
 }

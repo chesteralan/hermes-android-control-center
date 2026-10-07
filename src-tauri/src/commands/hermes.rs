@@ -7,12 +7,13 @@ use tauri::State;
 use tokio::sync::Mutex;
 use ts_rs::TS;
 
-use crate::config::{HermesConfig, StartMode};
+use crate::config::{HermesConfig, HermesTransportKind, StartMode};
 use crate::error::AppError;
 use crate::hermes::detect::{self, HermesInstallReport};
 use crate::hermes::status::{self, ComponentStatus, HermesStatus};
 use crate::hermes::supervisor;
 use crate::state::AppState;
+use crate::transport::api::ApiTransport;
 use crate::transport::{CommandResult, DeviceTransport};
 
 const STATUS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -75,6 +76,21 @@ async fn fetch_status(
     serial: &str,
     cfg: &HermesConfig,
 ) -> Result<HermesStatus, AppError> {
+    if cfg.transport == crate::config::HermesTransportKind::ControlApi {
+        match state.api_transport(serial).await {
+            Ok(api) => match api.status().await {
+                Ok(status) => return Ok(status),
+                Err(error) if cfg.fallback_to_ssh => {
+                    tracing::warn!(%error, "Control API status failed; using enabled SSH fallback");
+                }
+                Err(error) => return Err(error),
+            },
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API setup failed; using enabled SSH fallback");
+            }
+            Err(error) => return Err(error),
+        }
+    }
     match state.termux_transport(serial).await {
         Ok(t) => {
             let out = t
@@ -109,6 +125,32 @@ async fn fetch_status(
             Ok(status::parse_adb_processes(cfg, &out.stdout, now()))
         }
     }
+}
+
+async fn action_transport(
+    state: &AppState,
+    serial: &str,
+    cfg: &HermesConfig,
+) -> Result<(Arc<dyn DeviceTransport>, Option<ApiTransport>), AppError> {
+    if cfg.transport == HermesTransportKind::ControlApi {
+        let api = match state.api_transport(serial).await {
+            Ok(api) => api,
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API setup failed; using enabled SSH fallback");
+                return Ok((Arc::new(state.termux_transport(serial).await?), None));
+            }
+            Err(error) => return Err(error),
+        };
+        match api.health().await {
+            Ok(_) => return Ok((Arc::new(api.clone()), Some(api))),
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API health check failed; using enabled SSH fallback");
+                return Ok((Arc::new(state.termux_transport(serial).await?), None));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok((Arc::new(state.termux_transport(serial).await?), None))
 }
 
 #[tauri::command]
@@ -152,7 +194,7 @@ pub async fn detect_hermes(
     Ok(report)
 }
 
-fn action_command(cfg: &HermesConfig, action: HermesAction) -> String {
+pub(crate) fn action_command(cfg: &HermesConfig, action: HermesAction) -> String {
     let custom = match action {
         HermesAction::Start => &cfg.start_command,
         HermesAction::Stop => &cfg.stop_command,
@@ -198,14 +240,99 @@ pub async fn hermes_action(
     let lock = locks.for_device(&serial).await;
     let _guard = lock.lock().await;
     let cfg = state.config.read().await.hermes.clone();
+    if cfg.transport == crate::config::HermesTransportKind::ControlApi {
+        let api = match state.api_transport(&serial).await {
+            Ok(api) => api,
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API setup failed; using enabled SSH action fallback");
+                return hermes_action_over_ssh(state, serial, action, cfg).await;
+            }
+            Err(error) => return Err(error),
+        };
+        match api.health().await {
+            Ok(_) => {
+                let before = api
+                    .status()
+                    .await
+                    .ok()
+                    .and_then(|status| status.gateway_pid);
+                let action_name = match action {
+                    HermesAction::Start => "start",
+                    HermesAction::Stop => "stop",
+                    HermesAction::Restart | HermesAction::RestartNow => "restart",
+                };
+                let response = api.action(action_name).await?;
+                if response.result.exit_code != Some(0) {
+                    return Err(AppError::CommandFailed {
+                        command: format!("{action:?} Hermes"),
+                        exit_code: response.result.exit_code,
+                        stderr: response.result.stderr,
+                    });
+                }
+                let output = response.result;
+                let mut status = response.status;
+                let mut delays = CONFIRM_DELAYS.to_vec();
+                if action == HermesAction::Restart {
+                    delays.extend([5, 10, 10]);
+                }
+                for delay in delays {
+                    if reached(action, before, &status) {
+                        return Ok(HermesActionResult {
+                            output,
+                            status,
+                            confirmed: true,
+                        });
+                    }
+                    tokio::time::sleep(Duration::from_secs(delay)).await;
+                    status = fetch_status(&state, &serial, &cfg).await?;
+                }
+                let confirmed = reached(action, before, &status);
+                return Ok(HermesActionResult {
+                    output,
+                    status,
+                    confirmed,
+                });
+            }
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API health check failed; using enabled SSH action fallback");
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    hermes_action_over_ssh(state, serial, action, cfg).await
+}
+
+async fn hermes_action_over_ssh(
+    state: State<'_, AppState>,
+    serial: String,
+    action: HermesAction,
+    cfg: HermesConfig,
+) -> Result<HermesActionResult, AppError> {
     let t = state.termux_transport(&serial).await?;
     let before = fetch_status(&state, &serial, &cfg)
         .await
         .ok()
         .and_then(|s| s.gateway_pid);
     tracing::info!(%serial, ?action, "hermes action");
-    let output = t
-        .execute(&action_command(&cfg, action), ACTION_TIMEOUT)
+    execute_action_and_confirm(&t, &cfg, action, before, || {
+        fetch_status(&state, &serial, &cfg)
+    })
+    .await
+}
+
+async fn execute_action_and_confirm<Probe, ProbeFuture>(
+    transport: &dyn DeviceTransport,
+    cfg: &HermesConfig,
+    action: HermesAction,
+    before: Option<u32>,
+    mut probe: Probe,
+) -> Result<HermesActionResult, AppError>
+where
+    Probe: FnMut() -> ProbeFuture,
+    ProbeFuture: std::future::Future<Output = Result<HermesStatus, AppError>>,
+{
+    let output = transport
+        .execute(&action_command(cfg, action), ACTION_TIMEOUT)
         .await?;
     if output.exit_code != Some(0) {
         let msg = output.stdout.trim().to_string();
@@ -224,7 +351,7 @@ pub async fn hermes_action(
     if action == HermesAction::Restart {
         delays.extend([5, 10, 10]);
     }
-    let mut status = fetch_status(&state, &serial, &cfg).await?;
+    let mut status = probe().await?;
     for d in delays {
         if reached(action, before, &status) {
             return Ok(HermesActionResult {
@@ -234,7 +361,7 @@ pub async fn hermes_action(
             });
         }
         tokio::time::sleep(Duration::from_secs(d)).await;
-        status = fetch_status(&state, &serial, &cfg).await?;
+        status = probe().await?;
     }
     let confirmed = reached(action, before, &status);
     Ok(HermesActionResult {
@@ -264,15 +391,27 @@ pub async fn run_hermes_tool(
             "Hermes {tool:?} command is not configured."
         )));
     }
-    let transport = state.termux_transport(&serial).await?;
+    let (transport, api_transport) = action_transport(&state, &serial, &cfg).await?;
     let timeout = if tool == HermesTool::Update {
         UPDATE_TIMEOUT
     } else {
         ACTION_TIMEOUT
     };
-    let mut output = transport
-        .execute(&crate::hermes::env::wrap(&cfg, configured), timeout)
-        .await?;
+    let command = crate::hermes::env::wrap(&cfg, configured);
+    let mut used_api = api_transport.is_some();
+    let mut output = match transport.execute(&command, timeout).await {
+        Ok(output) => output,
+        Err(AppError::Config(message)) if cfg.fallback_to_ssh && message.contains("HTTP 403:") => {
+            tracing::warn!("Control API command execution is disabled; using enabled SSH fallback");
+            used_api = false;
+            state
+                .termux_transport(&serial)
+                .await?
+                .execute(&command, timeout)
+                .await?
+        }
+        Err(error) => return Err(error),
+    };
     if output.exit_code != Some(0) {
         return Err(AppError::CommandFailed {
             command: format!("Hermes {tool:?}"),
@@ -286,12 +425,21 @@ pub async fn run_hermes_tool(
     }
     // In supervised mode Hermes update exits the gateway and the supervisor relaunches it.
     if tool == HermesTool::Update && cfg.start_mode == StartMode::Detached {
-        let restart = transport
-            .execute(
-                &action_command(&cfg, HermesAction::RestartNow),
-                ACTION_TIMEOUT,
-            )
-            .await?;
+        let restart = if used_api {
+            let api = api_transport.ok_or_else(|| {
+                AppError::Config("Control API transport disappeared during update.".into())
+            })?;
+            api.action("restart").await?.result
+        } else {
+            state
+                .termux_transport(&serial)
+                .await?
+                .execute(
+                    &action_command(&cfg, HermesAction::RestartNow),
+                    ACTION_TIMEOUT,
+                )
+                .await?
+        };
         output.stdout.push_str(&restart.stdout);
         output.stderr.push_str(&restart.stderr);
         output.duration_ms += restart.duration_ms;
@@ -309,6 +457,173 @@ pub async fn run_hermes_tool(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+    use std::sync::Mutex as StdMutex;
+
+    struct FakeTransport {
+        results: StdMutex<VecDeque<CommandResult>>,
+        commands: StdMutex<Vec<(String, Duration)>>,
+    }
+
+    impl FakeTransport {
+        fn new(results: Vec<CommandResult>) -> Self {
+            Self {
+                results: StdMutex::new(results.into()),
+                commands: StdMutex::new(Vec::new()),
+            }
+        }
+
+        async fn probe(&self) -> Result<HermesStatus, AppError> {
+            let output = self.execute("status", STATUS_TIMEOUT).await?;
+            let mut status = status::parse_status(&HermesConfig::default(), "", 0);
+            status.gateway_pid = output.stdout.parse().ok();
+            status.gateway = if status.gateway_pid.is_some() {
+                ComponentStatus::Running
+            } else {
+                ComponentStatus::Stopped
+            };
+            Ok(status)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl DeviceTransport for FakeTransport {
+        fn kind(&self) -> crate::transport::TransportKind {
+            crate::transport::TransportKind::TermuxSsh
+        }
+
+        async fn execute(
+            &self,
+            command: &str,
+            timeout: Duration,
+        ) -> Result<CommandResult, AppError> {
+            self.commands
+                .lock()
+                .unwrap()
+                .push((command.into(), timeout));
+            self.results
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or_else(|| AppError::Config("Unexpected extra transport call".into()))
+        }
+
+        async fn stream(
+            &self,
+            _command: &str,
+            _cancel: tokio_util::sync::CancellationToken,
+        ) -> Result<tokio::sync::mpsc::Receiver<crate::transport::StreamEvent>, AppError> {
+            Err(AppError::Config("Unexpected stream call".into()))
+        }
+    }
+
+    fn output(stdout: &str, stderr: &str, exit_code: i32) -> CommandResult {
+        CommandResult {
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            exit_code: Some(exit_code),
+            duration_ms: 12,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn actions_execute_then_poll_until_confirmed() {
+        for (action, initial, final_pid) in [
+            (HermesAction::Start, "", "11"),
+            (HermesAction::Stop, "10", ""),
+            (HermesAction::Restart, "10", "11"),
+            (HermesAction::RestartNow, "10", "11"),
+        ] {
+            let cfg = HermesConfig::default();
+            let transport = FakeTransport::new(vec![
+                output("action output", "", 0),
+                output(initial, "", 0),
+                output(final_pid, "", 0),
+            ]);
+            let result = execute_action_and_confirm(&transport, &cfg, action, Some(10), || {
+                transport.probe()
+            })
+            .await
+            .unwrap();
+            assert!(result.confirmed, "{action:?}");
+            assert_eq!(result.output.stdout, "action output");
+            assert_eq!(result.status.gateway_pid, final_pid.parse().ok());
+            assert_eq!(
+                *transport.commands.lock().unwrap(),
+                vec![
+                    (action_command(&cfg, action), ACTION_TIMEOUT),
+                    ("status".into(), STATUS_TIMEOUT),
+                    ("status".into(), STATUS_TIMEOUT),
+                ]
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn restarts_with_unchanged_pid_exhaust_the_bounded_poll_budget() {
+        for (action, polls, seconds) in [
+            (HermesAction::Restart, 8, 36),
+            (HermesAction::RestartNow, 5, 11),
+        ] {
+            let mut results = vec![output("", "", 0)];
+            results.extend((0..polls).map(|_| output("10", "", 0)));
+            let transport = FakeTransport::new(results);
+            let started = tokio::time::Instant::now();
+            let result = execute_action_and_confirm(
+                &transport,
+                &HermesConfig::default(),
+                action,
+                Some(10),
+                || transport.probe(),
+            )
+            .await
+            .unwrap();
+            assert!(!result.confirmed);
+            assert_eq!(result.status.gateway_pid, Some(10));
+            assert_eq!(started.elapsed(), Duration::from_secs(seconds));
+            assert_eq!(transport.commands.lock().unwrap().len(), polls + 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn action_failure_preserves_output_and_skips_confirmation() {
+        let transport = FakeTransport::new(vec![output("start refused", "details", 7)]);
+        let error = execute_action_and_confirm(
+            &transport,
+            &HermesConfig::default(),
+            HermesAction::Start,
+            None,
+            || transport.probe(),
+        )
+        .await
+        .unwrap_err();
+        match error {
+            AppError::CommandFailed {
+                exit_code, stderr, ..
+            } => {
+                assert_eq!(exit_code, Some(7));
+                assert_eq!(stderr, "start refused\ndetails");
+            }
+            other => panic!("Unexpected error: {other:?}"),
+        }
+        assert_eq!(transport.commands.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn status_probe_failure_is_not_reported_as_confirmation() {
+        let transport = FakeTransport::new(vec![output("", "", 0)]);
+        let error = execute_action_and_confirm(
+            &transport,
+            &HermesConfig::default(),
+            HermesAction::Start,
+            None,
+            || async { Err(AppError::Config("status unavailable".into())) },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, AppError::Config(message) if message == "status unavailable"));
+        assert_eq!(transport.commands.lock().unwrap().len(), 1);
+    }
 
     #[test]
     fn custom_commands_override_and_are_wrapped() {

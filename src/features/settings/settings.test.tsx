@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useDevices } from "../../stores/devices";
@@ -16,6 +16,8 @@ const cfg: AppConfig = {
   hermes: {
     environment: { type: "prootDistro", distro: "debian" },
     startMode: "supervised",
+    transport: "termuxSsh",
+    fallbackToSsh: false,
     gatewayCommand: "hermes gateway run",
     startCommand: "",
     stopCommand: "",
@@ -28,6 +30,7 @@ const cfg: AppConfig = {
     processMatch: "hermes-agent/venv/bin/python",
     gatewayMatch: "gateway run",
     hermesHome: "/root/.hermes",
+    logFiles: ["/root/.hermes/logs/gateway.log", "/root/.hermes/logs/tool_calls.log"],
     pathPrepend: ["/root/.local/bin"],
   },
   logs: { autoStart: false, logcatFilter: "*:I" },
@@ -38,6 +41,94 @@ const cfg: AppConfig = {
 
 describe("SettingsView", () => {
   beforeEach(() => resetStores());
+
+  it("restarts ADB once and refreshes detection and devices after completion", async () => {
+    let finishRestart: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      finishRestart = resolve;
+    });
+    useDevices.getState().setDevices([device()]);
+    const invoke = mockIpc({
+      get_settings: () => cfg,
+      get_secret_storage_state: () => "native",
+      restart_adb_server: () => pending,
+      detect_adb: () => ({ path: "/fake/adb", version: "1.0.41" }),
+      list_devices: () => [],
+    });
+    render(<SettingsView />);
+    const refresh = await screen.findByRole("button", { name: "Restart ADB server" });
+    expect(refresh).toHaveTextContent("Refresh");
+    expect(refresh).toHaveAttribute(
+      "title",
+      "Runs adb disconnect, adb kill-server, then adb start-server. Disconnects all devices.",
+    );
+    await userEvent.click(refresh);
+    expect(refresh).toBeDisabled();
+    expect(refresh).toHaveAttribute("aria-busy", "true");
+    await userEvent.click(refresh);
+    expect(invoke.mock.calls.filter(([command]) => command === "restart_adb_server")).toHaveLength(
+      1,
+    );
+    expect(invoke).not.toHaveBeenCalledWith("detect_adb", undefined);
+
+    await act(async () => finishRestart?.());
+    await waitFor(() => expect(refresh).toBeEnabled());
+    expect(
+      invoke.mock.calls
+        .map(([command]) => command)
+        .filter((command) =>
+          ["restart_adb_server", "detect_adb", "list_devices"].includes(command),
+        ),
+    ).toEqual(["restart_adb_server", "detect_adb", "list_devices"]);
+    expect(useDevices.getState().activeKey).toBeNull();
+    expect(screen.getByText(/Found adb 1.0.41/)).toBeInTheDocument();
+  });
+
+  it("shows ADB restart failures and allows retry without refreshing devices", async () => {
+    const invoke = mockIpc({
+      get_settings: () => cfg,
+      get_secret_storage_state: () => "native",
+      restart_adb_server: () => {
+        throw { kind: "adbFailed", message: "Could not start ADB server", details: "Port is busy" };
+      },
+    });
+    render(<SettingsView />);
+    const refresh = await screen.findByRole("button", { name: "Restart ADB server" });
+    await userEvent.click(refresh);
+    expect(await screen.findByText("Could not start ADB server")).toBeInTheDocument();
+    expect(refresh).toBeEnabled();
+    expect(invoke).not.toHaveBeenCalledWith("list_devices", undefined);
+    expect(invoke).not.toHaveBeenCalledWith("detect_adb", undefined);
+  });
+
+  it("requires explicit vault consent and clears the passphrase after unlock", async () => {
+    const invoke = mockIpc({
+      get_settings: () => cfg,
+      get_secret_storage_state: () => "native",
+      unlock_secret_storage: () => undefined,
+      lock_secret_storage: () => undefined,
+    });
+    render(<SettingsView />);
+    await screen.findByText("System credential store");
+    const passphrase = screen.getByLabelText("Vault passphrase");
+    fireEvent.change(passphrase, { target: { value: "test vault passphrase" } });
+    const enable = screen.getByRole("button", { name: "Enable encrypted storage" });
+    expect(enable).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Use passphrase-encrypted file storage" }),
+    );
+    await userEvent.click(enable);
+    expect(invoke).toHaveBeenCalledWith("unlock_secret_storage", {
+      passphrase: "test vault passphrase",
+      optedIn: true,
+    });
+    await screen.findByText("Encrypted file - unlocked");
+    expect(screen.queryByLabelText("Vault passphrase")).not.toBeInTheDocument();
+    expect(JSON.stringify(useSettings.getState().saved)).not.toContain("test vault passphrase");
+    await userEvent.click(screen.getByRole("button", { name: "Lock vault" }));
+    expect(await screen.findByLabelText("Vault passphrase")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Unlock vault" })).toBeDisabled();
+  });
 
   it("saves edited settings", async () => {
     const fn = mockIpc({
@@ -52,6 +143,59 @@ describe("SettingsView", () => {
     expect(fn).toHaveBeenCalledWith("update_settings", {
       config: { ...cfg, hermes: { ...cfg.hermes, startCommand: "hermes gateway run" } },
     });
+  });
+
+  it("edits Hermes log file paths", async () => {
+    const fn = mockIpc({
+      get_settings: () => cfg,
+      update_settings: (args) => args?.config,
+    });
+    render(<SettingsView />);
+    const files = await screen.findByRole("textbox", { name: "Hermes log files" });
+    fireEvent.change(files, {
+      target: { value: "/root/logs/gateway.log, /root/logs/tool_calls.log" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fn).toHaveBeenCalledWith("update_settings", {
+      config: {
+        ...cfg,
+        hermes: {
+          ...cfg.hermes,
+          logFiles: ["/root/logs/gateway.log", "/root/logs/tool_calls.log"],
+        },
+      },
+    });
+  });
+
+  it("selects Control API and previews then installs the offered version", async () => {
+    useDevices.getState().setDevices([device()]);
+    const fn = mockIpc({
+      get_settings: () => cfg,
+      preview_control_api_install: () => ({
+        installedVersion: null,
+        targetVersion: "0.1.0",
+        filesToUpdate: ["src/hermes_control/server.py"],
+      }),
+      install_control_api: () => ({ stdout: "installed", stderr: "", exitCode: 0, durationMs: 1 }),
+      test_control_api: () => "0.1.0",
+    });
+    render(<SettingsView />);
+    await userEvent.selectOptions(await screen.findByLabelText("Hermes transport"), "controlApi");
+    expect(screen.getByLabelText("Fallback to Termux SSH")).not.toBeChecked();
+    await userEvent.click(screen.getByLabelText("Fallback to Termux SSH"));
+    expect(useSettings.getState().draft?.hermes.fallbackToSsh).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Review install" }));
+    expect(await screen.findByText("Version: Not installed to 0.1.0")).toBeInTheDocument();
+    expect(screen.getByText("src/hermes_control/server.py")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Install" }));
+    await waitFor(() =>
+      expect(fn).toHaveBeenCalledWith("install_control_api", { serial: device().serial }),
+    );
+    await waitFor(() =>
+      expect(fn).toHaveBeenCalledWith("test_control_api", { serial: device().serial }),
+    );
+    expect(useSettings.getState().draft?.hermes.transport).toBe("controlApi");
   });
 
   it("shows validation errors from the backend", async () => {
@@ -101,5 +245,23 @@ describe("SettingsView", () => {
       distro: "debian",
     });
     expect(useSettings.getState().draft?.hermes.pathPrepend).toEqual(["/root/.local/bin"]);
+  });
+
+  it("requires confirmation and exports diagnostics with IP redaction enabled", async () => {
+    const fn = mockIpc({
+      get_settings: () => cfg,
+      export_diagnostics: () => "/tmp/hermes-control-center-diagnostics.zip",
+    });
+    render(<SettingsView />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Export diagnostics" }));
+    expect(
+      screen.getByText(/Logs may contain conversation or other private content/),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Redact IP addresses in diagnostics")).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Export ZIP" }));
+
+    await waitFor(() => expect(fn).toHaveBeenCalledWith("export_diagnostics", { redactIps: true }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

@@ -4,12 +4,11 @@ use serde::Serialize;
 use tauri::State;
 use ts_rs::TS;
 
-use crate::config::HermesConfig;
+use crate::config::{HermesConfig, HermesTransportKind};
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::termux::shell_escape;
-use crate::termux::ssh::TermuxSshTransport;
-use crate::transport::DeviceTransport;
+use crate::transport::{CommandResult, DeviceTransport};
 
 const DASHBOARD_PORT: u16 = 9119;
 const API_TIMEOUT: Duration = Duration::from_secs(60);
@@ -23,7 +22,7 @@ import errno, hashlib, hmac, json, os, stat, subprocess, sys, time, urllib.error
 request = json.loads(sys.argv[1])
 port = int(request["port"])
 base = "http://127.0.0.1:{}".format(port)
-timeout = 2
+timeout = 10
 session_token = None
 
 def read_session_token():
@@ -326,10 +325,17 @@ fn parse_messages(
         .ok_or_else(|| {
             AppError::Config("Hermes returned an unsupported transcript response.".into())
         })?;
+    let pagination = value.get("pagination").unwrap_or(value);
     let total = first_u64(
         value,
         &["total", "total_count", "totalCount", "message_count"],
-    );
+    )
+    .or_else(|| {
+        first_u64(
+            pagination,
+            &["total", "total_count", "totalCount", "message_count"],
+        )
+    });
     let parsed = messages
         .iter()
         .enumerate()
@@ -371,10 +377,12 @@ fn parse_messages(
     let reported_more = value
         .get("has_more")
         .or_else(|| value.get("hasMore"))
+        .or_else(|| pagination.get("has_more"))
+        .or_else(|| pagination.get("hasMore"))
         .and_then(serde_json::Value::as_bool);
+    let returned = first_u64(pagination, &["returned"]).unwrap_or(parsed.len() as u64);
     let has_more = reported_more.unwrap_or_else(|| {
-        total.is_some_and(|count| offset as u64 + (parsed.len() as u64) < count)
-            || parsed.len() >= limit as usize
+        total.is_some_and(|count| offset as u64 + returned < count) || returned >= limit as u64
     });
 
     Ok(HermesSessionPage {
@@ -394,9 +402,8 @@ async fn request_api(
     path: &str,
     max_bytes: usize,
 ) -> Result<serde_json::Value, AppError> {
-    let transport: TermuxSshTransport = state.termux_transport(serial).await?;
     let command = build_api_command(cfg, path, max_bytes);
-    let result = transport.execute(&command, API_TIMEOUT).await?;
+    let result = execute_session_command(state, serial, cfg, &command).await?;
     if result.exit_code != Some(0) {
         let diagnostics = [result.stderr.trim(), result.stdout.trim()]
             .into_iter()
@@ -416,7 +423,39 @@ async fn request_api(
             },
         });
     }
-    serde_json::from_str(&result.stdout)
+    parse_api_response(&result.stdout)
+}
+
+async fn execute_session_command(
+    state: &AppState,
+    serial: &str,
+    cfg: &HermesConfig,
+    command: &str,
+) -> Result<CommandResult, AppError> {
+    if cfg.transport == HermesTransportKind::ControlApi {
+        match state.api_transport(serial).await {
+            Ok(api) => match api.execute(command, API_TIMEOUT).await {
+                Ok(result) => return Ok(result),
+                Err(error) if cfg.fallback_to_ssh => {
+                    tracing::warn!(%error, "Control API session request failed; using enabled SSH fallback");
+                }
+                Err(error) => return Err(error),
+            },
+            Err(error) if cfg.fallback_to_ssh => {
+                tracing::warn!(%error, "Control API setup failed; using enabled SSH session fallback");
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    state
+        .termux_transport(serial)
+        .await?
+        .execute(command, API_TIMEOUT)
+        .await
+}
+
+fn parse_api_response(body: &str) -> Result<serde_json::Value, AppError> {
+    serde_json::from_str(body)
         .map_err(|error| AppError::Config(format!("Hermes returned invalid session JSON: {error}")))
 }
 
@@ -428,6 +467,19 @@ pub async fn list_hermes_sessions(
     let cfg = state.config.read().await.hermes.clone();
     let value = request_api(&state, &serial, &cfg, "/api/sessions", MAX_LIST_BYTES).await?;
     parse_sessions(&value)
+}
+
+fn session_messages_path(
+    session_id: &str,
+    offset: Option<u32>,
+    limit: Option<u32>,
+) -> (String, u32) {
+    let offset = offset.unwrap_or(0);
+    let limit = limit.unwrap_or(MAX_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
+    (
+        format!("/api/sessions/{session_id}/messages?limit={limit}&offset={offset}&order=oldest"),
+        limit,
+    )
 }
 
 #[tauri::command]
@@ -442,11 +494,7 @@ pub async fn get_hermes_session_messages(
         return Err(AppError::Config("Hermes session ID is invalid.".into()));
     }
     let offset = offset.unwrap_or(0);
-    let limit = limit.unwrap_or(MAX_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
-    let path = format!(
-        "/api/sessions/{}/messages?limit={limit}&offset={offset}&order=oldest",
-        session_id
-    );
+    let (path, limit) = session_messages_path(&session_id, Some(offset), limit);
     let cfg = state.config.read().await.hermes.clone();
     let value = request_api(&state, &serial, &cfg, &path, MAX_TRANSCRIPT_BYTES).await?;
     parse_messages(&session_id, &value, offset, limit)
@@ -457,6 +505,44 @@ mod tests {
     use super::*;
     use crate::config::HermesEnvironment;
 
+    #[test]
+    fn health_probe_rejects_an_unrelated_listener_without_spawning() {
+        let helper = API_REQUEST_SCRIPT
+            .split("\ntry:\n    ensure_server()")
+            .next()
+            .unwrap();
+        let checks = r#"
+import io
+def forbid_spawn(*args, **kwargs):
+    raise AssertionError('spawned Hermes beside an unrelated listener')
+subprocess.Popen = forbid_spawn
+def get_json(path, max_bytes, token=None):
+    assert path == '/api/health'
+    raise urllib.error.HTTPError(
+        'http://127.0.0.1:9119/api/health', 404, 'Not Found', {}, io.BytesIO(b'not Hermes')
+    )
+try:
+    ensure_server()
+    raise AssertionError('accepted an unrelated listener')
+except RuntimeError as error:
+    assert str(error) == 'Hermes session API health probe failed; refusing to launch a duplicate server'
+"#;
+        let output = std::process::Command::new("python3")
+            .args([
+                "-c",
+                &format!("{helper}\n{checks}"),
+                r#"{"port":9119,"hermes_home":"~/.hermes"}"#,
+            ])
+            .output()
+            .expect("python3 runs the unrelated-listener regression check");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(unix)]
     #[test]
     fn verifies_tokens_with_empty_record_home_against_live_server() {
         let helper = API_REQUEST_SCRIPT
@@ -582,10 +668,73 @@ with tempfile.TemporaryDirectory() as directory:
             MAX_TRANSCRIPT_BYTES,
         );
         assert!(command.contains("127.0.0.1"));
+        assert!(API_REQUEST_SCRIPT.contains("timeout = 10"));
         assert!(command.contains("\"hermes\", \"serve\""));
         assert!(command.contains("X-Hermes-Session-Token"));
         assert!(command.contains("tokenFingerprint"));
         assert!(command.contains("20261003_120000_a1b2c3"));
+        assert!(command.contains(r#""max_bytes":8388608"#));
+
+        let list_command = build_api_command(&cfg, "/api/sessions", MAX_LIST_BYTES);
+        assert!(list_command.contains(r#""max_bytes":2097152"#));
+    }
+
+    #[test]
+    fn clamps_session_message_page_size() {
+        assert_eq!(
+            session_messages_path("s1", None, None),
+            (
+                "/api/sessions/s1/messages?limit=500&offset=0&order=oldest".into(),
+                500
+            )
+        );
+        assert_eq!(
+            session_messages_path("s1", Some(12), Some(0)),
+            (
+                "/api/sessions/s1/messages?limit=1&offset=12&order=oldest".into(),
+                1
+            )
+        );
+        assert_eq!(
+            session_messages_path("s1", Some(12), Some(900)),
+            (
+                "/api/sessions/s1/messages?limit=500&offset=12&order=oldest".into(),
+                500
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_session_api_response_over_the_configured_size_limit() {
+        let helper = API_REQUEST_SCRIPT
+            .split("\ntry:\n    ensure_server()")
+            .next()
+            .unwrap();
+        let checks = r#"
+class OversizedResponse:
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        return False
+    def read(self, size):
+        assert size == 5
+        return b'123456'
+urllib.request.urlopen = lambda request, timeout: OversizedResponse()
+try:
+    get_json('/api/sessions', 4)
+    raise AssertionError('accepted an oversized response')
+except RuntimeError as error:
+    assert str(error) == 'Hermes session response exceeds the size limit'
+"#;
+        let output = std::process::Command::new("python3")
+            .args(["-c", &format!("{helper}\n{checks}"), r#"{"port":9119}"#])
+            .output()
+            .expect("python3 runs the response-size regression check");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]
@@ -629,9 +778,55 @@ with tempfile.TemporaryDirectory() as directory:
     }
 
     #[test]
+    fn parses_hermes_serve_transcripts_with_nested_pagination() {
+        let full_page = parse_messages(
+            "s1",
+            &serde_json::json!({
+                "session_id": "s1",
+                "profile": "default",
+                "pagination": { "limit": 2, "offset": 0, "order": "oldest", "returned": 2 },
+                "messages": [
+                    { "id": "m1", "session_id": "s1", "role": "user", "content": "hello" },
+                    { "id": "m2", "session_id": "s1", "role": "assistant", "content": "hi" }
+                ]
+            }),
+            0,
+            2,
+        )
+        .unwrap();
+        assert_eq!(full_page.messages.len(), 2);
+        assert!(full_page.has_more);
+
+        let final_page = parse_messages(
+            "s1",
+            &serde_json::json!({
+                "session_id": "s1",
+                "pagination": { "limit": 2, "offset": 2, "order": "oldest", "returned": 1 },
+                "messages": [
+                    { "id": "m3", "session_id": "s1", "role": "assistant", "content": "done" }
+                ]
+            }),
+            2,
+            2,
+        )
+        .unwrap();
+        assert_eq!(final_page.messages.len(), 1);
+        assert!(!final_page.has_more);
+    }
+
+    #[test]
     fn rejects_unsafe_session_ids_and_unknown_payload_shapes() {
         assert!(!valid_session_id("../../state.db"));
         assert!(parse_sessions(&serde_json::json!({"unexpected": []})).is_err());
         assert!(parse_messages("s", &serde_json::json!({"bad": true}), 0, 10).is_err());
+    }
+
+    #[test]
+    fn rejects_truncated_session_api_json() {
+        assert!(matches!(
+            parse_api_response(r#"{"sessions":[{"id":"s1"}"#),
+            Err(AppError::Config(message))
+                if message.starts_with("Hermes returned invalid session JSON:")
+        ));
     }
 }

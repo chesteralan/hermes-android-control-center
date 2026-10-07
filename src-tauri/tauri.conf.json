@@ -28,6 +28,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "category": "DeveloperTool",
     "icon": [
@@ -37,5 +38,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENGOTI1QkQwNDAxNTZEOTcKUldTWGJSVkEwRnVTejNpbFpOK1h1WXM0aGF3S1lnelpUK3B1WjV5TVVjc01QYlAvVVFxZWhzeUIK",
+      "endpoints": [
+        "https://github.com/chesteralan/hermes-android-control-center/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

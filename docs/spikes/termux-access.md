@@ -28,5 +28,12 @@ Date: 2026-10-02 · Phone: OPPO CPH2239, Android 11 (SDK 30), arm64-v8a · adb 1
 
 ## Still to verify
 - SIGUSR1 drain / SIGTERM behaviour of `hermes gateway run` under proot.
-- RUN_COMMAND intent from shell uid (M0-S1, writes to phone — run only with consent).
-- Provisioning steps (M0-S4) — need a spare/reset phone.
+- Provisioning steps (M0-S4) that require installs, permission changes, input injection, or reboot; use a spare/reset phone.
+
+## Live read-only recheck (2026-10-06)
+
+- Device is OPPO CPH2239, Android 11 / SDK 30, arm64-v8a. `adb shell id` returns uid 2000 (`shell`); listing `/data/data/com.termux/files/home` still returns `Permission denied`.
+- The existing ADB-forwarded SSH connection authenticated with the app's pinned ED25519 host key and ran as Termux uid `u0_a231`.
+- `sshd` was already running on device port 8022. A temporary host forward was created for SSH and removed after the probe.
+- Termux cannot currently read or write `/sdcard/Download`; no permissions were granted and no probe files were created.
+- With explicit user approval, `allow-external-apps=true` was temporarily added to `~/.termux/termux.properties`, with an exact same-directory backup. A no-op `/data/data/com.termux/files/usr/bin/true` RUN_COMMAND request was denied by Android: `Requires permission com.termux.permission.RUN_COMMAND`; it did not execute. The original properties file was restored with mode `0600`, the backup removed, and the setting is unset again.

@@ -45,12 +45,22 @@ pub enum StartMode {
     Detached,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum HermesTransportKind {
+    TermuxSsh,
+    ControlApi,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
 pub struct HermesConfig {
     pub environment: HermesEnvironment,
     pub start_mode: StartMode,
+    pub transport: HermesTransportKind,
+    pub fallback_to_ssh: bool,
     /// Run inside the environment, e.g. `hermes gateway run`.
     pub gateway_command: String,
     /// Matches any Hermes process command line (gateway or CLI).
@@ -59,6 +69,8 @@ pub struct HermesConfig {
     pub gateway_match: String,
     /// HERMES_HOME inside the environment.
     pub hermes_home: String,
+    /// Log paths inside the Hermes environment; gateway first, tool calls second.
+    pub log_files: Vec<String>,
     /// Prepended to PATH inside the environment (installers often only update interactive shells).
     pub path_prepend: Vec<String>,
     /// Optional overrides; when set they replace the built-in supervisor actions.
@@ -79,10 +91,16 @@ impl Default for HermesConfig {
                 distro: "debian".into(),
             },
             start_mode: StartMode::Supervised,
+            transport: HermesTransportKind::TermuxSsh,
+            fallback_to_ssh: false,
             gateway_command: "hermes gateway run".into(),
             process_match: "hermes-agent/venv/bin/python".into(),
             gateway_match: "gateway run".into(),
             hermes_home: "/root/.hermes".into(),
+            log_files: vec![
+                "/root/.hermes/logs/gateway.log".into(),
+                "/root/.hermes/logs/tool_calls.log".into(),
+            ],
             path_prepend: vec!["/root/.local/bin".into()],
             start_command: String::new(),
             stop_command: String::new(),
@@ -324,6 +342,7 @@ mod tests {
         assert_eq!(cfg.hermes.start_command, "custom-start");
         assert_eq!(cfg.hermes.stop_command, "custom-stop");
         assert_eq!(cfg.hermes.status_command, "custom-status");
+        assert_eq!(cfg.hermes.log_files, HermesConfig::default().log_files);
         assert_eq!(
             cfg.hermes.environment,
             HermesEnvironment::ProotDistro {
