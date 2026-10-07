@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useDevices } from "../../stores/devices";
@@ -41,6 +41,65 @@ const cfg: AppConfig = {
 
 describe("SettingsView", () => {
   beforeEach(() => resetStores());
+
+  it("restarts ADB once and refreshes detection and devices after completion", async () => {
+    let finishRestart: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      finishRestart = resolve;
+    });
+    useDevices.getState().setDevices([device()]);
+    const invoke = mockIpc({
+      get_settings: () => cfg,
+      get_secret_storage_state: () => "native",
+      restart_adb_server: () => pending,
+      detect_adb: () => ({ path: "/fake/adb", version: "1.0.41" }),
+      list_devices: () => [],
+    });
+    render(<SettingsView />);
+    const refresh = await screen.findByRole("button", { name: "Restart ADB server" });
+    expect(refresh).toHaveTextContent("Refresh");
+    expect(refresh).toHaveAttribute(
+      "title",
+      "Runs adb disconnect, adb kill-server, then adb start-server. Disconnects all devices.",
+    );
+    await userEvent.click(refresh);
+    expect(refresh).toBeDisabled();
+    expect(refresh).toHaveAttribute("aria-busy", "true");
+    await userEvent.click(refresh);
+    expect(invoke.mock.calls.filter(([command]) => command === "restart_adb_server")).toHaveLength(
+      1,
+    );
+    expect(invoke).not.toHaveBeenCalledWith("detect_adb", undefined);
+
+    await act(async () => finishRestart?.());
+    await waitFor(() => expect(refresh).toBeEnabled());
+    expect(
+      invoke.mock.calls
+        .map(([command]) => command)
+        .filter((command) =>
+          ["restart_adb_server", "detect_adb", "list_devices"].includes(command),
+        ),
+    ).toEqual(["restart_adb_server", "detect_adb", "list_devices"]);
+    expect(useDevices.getState().activeKey).toBeNull();
+    expect(screen.getByText(/Found adb 1.0.41/)).toBeInTheDocument();
+  });
+
+  it("shows ADB restart failures and allows retry without refreshing devices", async () => {
+    const invoke = mockIpc({
+      get_settings: () => cfg,
+      get_secret_storage_state: () => "native",
+      restart_adb_server: () => {
+        throw { kind: "adbFailed", message: "Could not start ADB server", details: "Port is busy" };
+      },
+    });
+    render(<SettingsView />);
+    const refresh = await screen.findByRole("button", { name: "Restart ADB server" });
+    await userEvent.click(refresh);
+    expect(await screen.findByText("Could not start ADB server")).toBeInTheDocument();
+    expect(refresh).toBeEnabled();
+    expect(invoke).not.toHaveBeenCalledWith("list_devices", undefined);
+    expect(invoke).not.toHaveBeenCalledWith("detect_adb", undefined);
+  });
 
   it("requires explicit vault consent and clears the passphrase after unlock", async () => {
     const invoke = mockIpc({

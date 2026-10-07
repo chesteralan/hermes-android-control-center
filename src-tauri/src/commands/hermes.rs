@@ -314,8 +314,25 @@ async fn hermes_action_over_ssh(
         .ok()
         .and_then(|s| s.gateway_pid);
     tracing::info!(%serial, ?action, "hermes action");
-    let output = t
-        .execute(&action_command(&cfg, action), ACTION_TIMEOUT)
+    execute_action_and_confirm(&t, &cfg, action, before, || {
+        fetch_status(&state, &serial, &cfg)
+    })
+    .await
+}
+
+async fn execute_action_and_confirm<Probe, ProbeFuture>(
+    transport: &dyn DeviceTransport,
+    cfg: &HermesConfig,
+    action: HermesAction,
+    before: Option<u32>,
+    mut probe: Probe,
+) -> Result<HermesActionResult, AppError>
+where
+    Probe: FnMut() -> ProbeFuture,
+    ProbeFuture: std::future::Future<Output = Result<HermesStatus, AppError>>,
+{
+    let output = transport
+        .execute(&action_command(cfg, action), ACTION_TIMEOUT)
         .await?;
     if output.exit_code != Some(0) {
         let msg = output.stdout.trim().to_string();
@@ -334,7 +351,7 @@ async fn hermes_action_over_ssh(
     if action == HermesAction::Restart {
         delays.extend([5, 10, 10]);
     }
-    let mut status = fetch_status(&state, &serial, &cfg).await?;
+    let mut status = probe().await?;
     for d in delays {
         if reached(action, before, &status) {
             return Ok(HermesActionResult {
@@ -344,7 +361,7 @@ async fn hermes_action_over_ssh(
             });
         }
         tokio::time::sleep(Duration::from_secs(d)).await;
-        status = fetch_status(&state, &serial, &cfg).await?;
+        status = probe().await?;
     }
     let confirmed = reached(action, before, &status);
     Ok(HermesActionResult {
@@ -440,6 +457,173 @@ pub async fn run_hermes_tool(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+    use std::sync::Mutex as StdMutex;
+
+    struct FakeTransport {
+        results: StdMutex<VecDeque<CommandResult>>,
+        commands: StdMutex<Vec<(String, Duration)>>,
+    }
+
+    impl FakeTransport {
+        fn new(results: Vec<CommandResult>) -> Self {
+            Self {
+                results: StdMutex::new(results.into()),
+                commands: StdMutex::new(Vec::new()),
+            }
+        }
+
+        async fn probe(&self) -> Result<HermesStatus, AppError> {
+            let output = self.execute("status", STATUS_TIMEOUT).await?;
+            let mut status = status::parse_status(&HermesConfig::default(), "", 0);
+            status.gateway_pid = output.stdout.parse().ok();
+            status.gateway = if status.gateway_pid.is_some() {
+                ComponentStatus::Running
+            } else {
+                ComponentStatus::Stopped
+            };
+            Ok(status)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl DeviceTransport for FakeTransport {
+        fn kind(&self) -> crate::transport::TransportKind {
+            crate::transport::TransportKind::TermuxSsh
+        }
+
+        async fn execute(
+            &self,
+            command: &str,
+            timeout: Duration,
+        ) -> Result<CommandResult, AppError> {
+            self.commands
+                .lock()
+                .unwrap()
+                .push((command.into(), timeout));
+            self.results
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or_else(|| AppError::Config("Unexpected extra transport call".into()))
+        }
+
+        async fn stream(
+            &self,
+            _command: &str,
+            _cancel: tokio_util::sync::CancellationToken,
+        ) -> Result<tokio::sync::mpsc::Receiver<crate::transport::StreamEvent>, AppError> {
+            Err(AppError::Config("Unexpected stream call".into()))
+        }
+    }
+
+    fn output(stdout: &str, stderr: &str, exit_code: i32) -> CommandResult {
+        CommandResult {
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            exit_code: Some(exit_code),
+            duration_ms: 12,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn actions_execute_then_poll_until_confirmed() {
+        for (action, initial, final_pid) in [
+            (HermesAction::Start, "", "11"),
+            (HermesAction::Stop, "10", ""),
+            (HermesAction::Restart, "10", "11"),
+            (HermesAction::RestartNow, "10", "11"),
+        ] {
+            let cfg = HermesConfig::default();
+            let transport = FakeTransport::new(vec![
+                output("action output", "", 0),
+                output(initial, "", 0),
+                output(final_pid, "", 0),
+            ]);
+            let result = execute_action_and_confirm(&transport, &cfg, action, Some(10), || {
+                transport.probe()
+            })
+            .await
+            .unwrap();
+            assert!(result.confirmed, "{action:?}");
+            assert_eq!(result.output.stdout, "action output");
+            assert_eq!(result.status.gateway_pid, final_pid.parse().ok());
+            assert_eq!(
+                *transport.commands.lock().unwrap(),
+                vec![
+                    (action_command(&cfg, action), ACTION_TIMEOUT),
+                    ("status".into(), STATUS_TIMEOUT),
+                    ("status".into(), STATUS_TIMEOUT),
+                ]
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn restarts_with_unchanged_pid_exhaust_the_bounded_poll_budget() {
+        for (action, polls, seconds) in [
+            (HermesAction::Restart, 8, 36),
+            (HermesAction::RestartNow, 5, 11),
+        ] {
+            let mut results = vec![output("", "", 0)];
+            results.extend((0..polls).map(|_| output("10", "", 0)));
+            let transport = FakeTransport::new(results);
+            let started = tokio::time::Instant::now();
+            let result = execute_action_and_confirm(
+                &transport,
+                &HermesConfig::default(),
+                action,
+                Some(10),
+                || transport.probe(),
+            )
+            .await
+            .unwrap();
+            assert!(!result.confirmed);
+            assert_eq!(result.status.gateway_pid, Some(10));
+            assert_eq!(started.elapsed(), Duration::from_secs(seconds));
+            assert_eq!(transport.commands.lock().unwrap().len(), polls + 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn action_failure_preserves_output_and_skips_confirmation() {
+        let transport = FakeTransport::new(vec![output("start refused", "details", 7)]);
+        let error = execute_action_and_confirm(
+            &transport,
+            &HermesConfig::default(),
+            HermesAction::Start,
+            None,
+            || transport.probe(),
+        )
+        .await
+        .unwrap_err();
+        match error {
+            AppError::CommandFailed {
+                exit_code, stderr, ..
+            } => {
+                assert_eq!(exit_code, Some(7));
+                assert_eq!(stderr, "start refused\ndetails");
+            }
+            other => panic!("Unexpected error: {other:?}"),
+        }
+        assert_eq!(transport.commands.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn status_probe_failure_is_not_reported_as_confirmation() {
+        let transport = FakeTransport::new(vec![output("", "", 0)]);
+        let error = execute_action_and_confirm(
+            &transport,
+            &HermesConfig::default(),
+            HermesAction::Start,
+            None,
+            || async { Err(AppError::Config("status unavailable".into())) },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, AppError::Config(message) if message == "status unavailable"));
+        assert_eq!(transport.commands.lock().unwrap().len(), 1);
+    }
 
     #[test]
     fn custom_commands_override_and_are_wrapped() {

@@ -52,7 +52,7 @@ Hermes expects a service manager: `hermes gateway restart`, chat `/restart`, `he
 - Stop = touch stop flag, `kill -TERM` the gateway, wait for supervisor exit (timeout → report, never `kill -9` silently).
 - Restart (graceful) = `kill -USR1` the gateway (Hermes drains in-flight turns, then exits) → supervisor relaunches. "Restart now" = `kill -TERM` → supervisor relaunches.
 - Status exposes both supervisor PID and gateway PID; crash-loop (≥ 5 restarts in 10 min) surfaces as a warning.
-- **Tests:** script rendering, idempotent start and stop/restart command generation are covered. FakeTransport end-to-end action sequences and shellcheck in CI remain.
+- **Tests:** script rendering, idempotent start and stop/restart command generation are covered. FakeTransport execution/confirmation sequences are covered under M5-T3; full supervisor lifecycle sequences and shellcheck in CI remain.
 - Implementation complete; real gateway supervisor lifecycle/reboot behavior remains unverified on device.
 
 ### [x] M5-T2 `HermesStatus` model + parsing (`hermes/status.rs`)
@@ -81,7 +81,7 @@ pub struct HermesStatus {
 - Per-device Tauri handlers use `TermuxSshTransport`; `ActionLocks` serializes actions by serial. M9 moves the key to stable `device_id` profiles.
 - After actions, poll status using bounded backoff; a restart confirms only after gateway PID changes. Each command result includes an explicit `confirmed` flag.
 - Actions are serialized per serial with `ActionLocks`; command failures retain stdout/stderr and exit status.
-- **Tests:** command generation, detached restart behavior, PID transition; FakeTransport action-sequence tests remain.
+- **Tests:** command generation, detached restart behavior, PID transition, and FakeTransport command/confirmation sequences. Start/Stop/graceful Restart/Restart now execute before polling; unchanged-PID restarts exhaust the bounded budget without confirmation; failed commands preserve output and skip polling; status errors propagate instead of confirming success.
 - Implementation complete; device action verification is in the exit check below.
 
 ### [x] M5-T4 Commands
@@ -115,3 +115,9 @@ pub struct HermesStatus {
 ## Exit check
 - [ ] Verify on a connected phone: detect Hermes version/environment, Start/Stop/graceful Restart/Restart now/Doctor/Update, including status refresh and supervisor recovery.
 - [ ] Confirm Hermes remains supervised after closing the app and restarts after a gateway exit/watchdog event.
+
+## Verification record (2026-10-08)
+- Extracted the existing SSH action execution/confirmation loop into an injectable helper without changing command generation, initial status capture, polling delays, or confirmation rules. Added four paused-clock/fake-transport regression tests to the existing command tests.
+- Local gates pass: **245 Rust tests**, including seven Hermes command tests; formatting; strict Clippy; six Hermes UI tests; no editor diagnostics in the touched Rust file.
+- Live QA attempted with the isolated `HACC QA` macOS app and CPH2239. The old IP transport became offline; the mDNS transport returned a protocol error. Subsequent reconnect attempts were refused and discovery was empty. The phone's pairing-code flow also failed; final `adb devices -l` listed no devices.
+- **Blocked:** restore a usable ADB connection and verify the Termux SSH bridge before continuing detection, Doctor, gateway actions, or supervisor recovery. No Start/Stop/Restart/Doctor/Update action was executed on the phone in this attempt. Update remains subject to explicit approval because it changes the installed Hermes software. No live M5 exit check is marked complete, and no pairing credentials are retained in this record.

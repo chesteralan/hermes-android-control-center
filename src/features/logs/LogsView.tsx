@@ -310,13 +310,13 @@ export function LogsView() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-44px-48px)] flex-col rounded-lg border border-border bg-surface">
-      <header className="flex items-center justify-between border-b border-border px-4 py-2">
+    <div className="flex h-[calc(100vh-44px-48px)] min-w-0 flex-col rounded-lg border border-border bg-surface">
+      <header className="flex shrink-0 flex-col gap-2 border-b border-border px-4 py-2">
         <span>
           <b>Logs</b>{" "}
           <span className="text-muted">{displayedSource?.label} · {lines.length.toLocaleString()} lines</span>
         </span>
-        <span className="flex gap-2">
+        <span className="flex min-w-0 flex-wrap items-center gap-2">
           <select
             aria-label="Log source"
             value={source}
@@ -395,7 +395,7 @@ export function LogsView() {
             />
             Case
           </label>
-          <span className="flex items-center gap-1" role="group" aria-label="Filter log levels">
+          <span className="flex max-w-full flex-wrap items-center gap-1" role="group" aria-label="Filter log levels">
             <Button
               variant="ghost"
               aria-pressed={selectedLevels.size === LEVEL_FILTERS.length}
@@ -489,7 +489,7 @@ export function LogsView() {
         ref={scroller}
         onScroll={onScroll}
         onKeyDown={onLogKeyDown}
-        className="relative flex-1 overflow-auto"
+        className="relative min-h-0 flex-1 overflow-auto"
         role="log"
         aria-label="Log output"
         aria-live={paused ? "off" : "polite"}

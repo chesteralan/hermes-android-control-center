@@ -66,6 +66,7 @@ export const ipc = {
   lockSecretStorage: () => call<void>("lock_secret_storage"),
   supportsInAppUpdates: () => call<boolean>("supports_in_app_updates"),
   detectAdb: () => call<AdbInfo>("detect_adb"),
+  restartAdbServer: () => call<void>("restart_adb_server"),
   getSettings: () => call<AppConfig>("get_settings"),
   updateSettings: (config: AppConfig) => call<AppConfig>("update_settings", { config }),
   previewControlApiInstall: (serial: string) =>

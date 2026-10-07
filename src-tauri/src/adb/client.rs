@@ -66,6 +66,24 @@ impl AdbClient {
         Ok(parse::parse_devices(&out.stdout))
     }
 
+    pub async fn restart_server(&self) -> AppResult<()> {
+        for argv in [
+            args::disconnect_all(),
+            args::kill_server(),
+            args::start_server(),
+        ] {
+            let out = self.exec(argv.clone(), QUICK).await?;
+            if !out.success() {
+                return Err(AppError::AdbFailed {
+                    message: format!("could not run adb {}", argv[0]),
+                    stderr: out.combined(),
+                    exit_code: out.exit_code,
+                });
+            }
+        }
+        Ok(())
+    }
+
     pub async fn connect(&self, address: &str) -> AppResult<ConnectOutcome> {
         validate_address(address)?;
         let out = self.exec(args::connect(address), CONNECT).await?;
@@ -191,6 +209,93 @@ mod tests {
 
     fn client(f: &FakeRunner) -> AdbClient {
         AdbClient::new("/fake/adb", Arc::new(f.clone()))
+    }
+
+    #[tokio::test]
+    async fn restart_server_disconnects_then_kills_then_starts() {
+        let runner = FakeRunner::new();
+        runner.on("disconnect", Ok(RawOutput::ok("disconnected everything")));
+        runner.on("kill-server", Ok(RawOutput::ok("")));
+        runner.on("start-server", Ok(RawOutput::ok("")));
+        client(&runner).restart_server().await.unwrap();
+        assert_eq!(
+            runner.calls(),
+            vec![
+                args::disconnect_all(),
+                args::kill_server(),
+                args::start_server()
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn restart_server_stops_on_disconnect_failure() {
+        let runner = FakeRunner::new();
+        runner.on(
+            "disconnect",
+            Ok(RawOutput {
+                stdout: String::new(),
+                stderr: "disconnect failed".into(),
+                exit_code: Some(1),
+                duration_ms: 1,
+            }),
+        );
+        let error = client(&runner).restart_server().await.unwrap_err();
+        assert!(
+            matches!(error, AppError::AdbFailed { exit_code: Some(1), stderr, .. } if stderr == "disconnect failed")
+        );
+        assert_eq!(runner.calls(), vec![args::disconnect_all()]);
+    }
+
+    #[tokio::test]
+    async fn restart_server_stops_on_kill_failure() {
+        let runner = FakeRunner::new();
+        runner.on("disconnect", Ok(RawOutput::ok("disconnected everything")));
+        runner.on(
+            "kill-server",
+            Ok(RawOutput {
+                stdout: String::new(),
+                stderr: "cannot reach server".into(),
+                exit_code: Some(1),
+                duration_ms: 1,
+            }),
+        );
+        let error = client(&runner).restart_server().await.unwrap_err();
+        assert!(
+            matches!(error, AppError::AdbFailed { exit_code: Some(1), stderr, .. } if stderr == "cannot reach server")
+        );
+        assert_eq!(
+            runner.calls(),
+            vec![args::disconnect_all(), args::kill_server()]
+        );
+    }
+
+    #[tokio::test]
+    async fn restart_server_reports_start_failure() {
+        let runner = FakeRunner::new();
+        runner.on("disconnect", Ok(RawOutput::ok("disconnected everything")));
+        runner.on("kill-server", Ok(RawOutput::ok("")));
+        runner.on(
+            "start-server",
+            Ok(RawOutput {
+                stdout: String::new(),
+                stderr: "cannot bind port".into(),
+                exit_code: Some(1),
+                duration_ms: 1,
+            }),
+        );
+        let error = client(&runner).restart_server().await.unwrap_err();
+        assert!(
+            matches!(error, AppError::AdbFailed { exit_code: Some(1), stderr, .. } if stderr == "cannot bind port")
+        );
+        assert_eq!(
+            runner.calls(),
+            vec![
+                args::disconnect_all(),
+                args::kill_server(),
+                args::start_server()
+            ]
+        );
     }
 
     #[tokio::test]

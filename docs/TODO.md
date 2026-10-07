@@ -6,6 +6,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ## Recently Completed
 
+- [x] [M3-T10 — macOS live terminal and logcat QA](tasks/M3-basic-terminal-logs.md): stdout/stderr, exit status, streamed output, Cancel, and Logs Start/Stop/Clear verified on CPH2239.
 - [x] M0-S3 verified the sanitized `track_frames.bin` header (`0074` = 116 payload bytes) and added an exact-length parser assertion. The broader capture ticket remains in progress.
 - [x] [M13-T5 — Device-scoped restoration and documentation](tasks/M13-chat-sessions.md): persistence, unavailable-device behavior, environment separation, privacy, and profile limitations are tested/documented.
 - [x] [M13-T2 — Typed Rust session access](tasks/M13-chat-sessions.md): scoped commands, bounded pagination/responses, token-verified loopback access, and malformed/truncated JSON errors are implemented and tested; one Hermes v0.21.4 live check is recorded.
@@ -28,7 +29,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [~] [M0-S3 — ADB output fixtures](tasks/M0-foundations.md)
 - [~] [M0-S4 — Provisioning feasibility](tasks/M0-foundations.md)
 - [~] [M10-T1 — Error audit](tasks/M10-production.md)
-- [~] [M10-T2 — Security review and CI dependency gates](tasks/M10-production.md)
+- [~] [M10-T2 — Isolated GLib backport passes optimized library tests and 241 Linux app tests/Clippy; strict dependency gate still blocked by six license rejections and one unmaintained advisory](tasks/M10-production.md)
 - [~] [M10-T4 — Keyboard command palette and shortcut guide](tasks/M10-production.md)
 - [~] [M10-T6 — Consent-gated diagnostics ZIP](tasks/M10-production.md)
 - [~] [M10-T7 — Existing setup path; automatic wizard awaits M11](tasks/M10-production.md)
@@ -45,10 +46,6 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [!] M9 has no task breakdown: [the roadmap references `tasks/M9-multi-device.md`](MILESTONES.md), but that file is missing.
 
 ## Open Tickets
-
-### M3 — Basic Terminal + Live Logs
-
-- [ ] [M3-T10 — Manual QA](tasks/M3-basic-terminal-logs.md)
 
 ### M10 — Hardening & Production
 
@@ -120,8 +117,8 @@ GitHub Releases is the recommended primary host; the existing tag workflow assem
 
 ### M5 — Hermes Management
 
-- [ ] [Verify Hermes detection and actions on a connected phone](tasks/M5-hermes.md)
-- [ ] [Verify supervisor recovery after app close and gateway exit](tasks/M5-hermes.md)
+- [~] [Action-sequence regressions covered; live Hermes detection/actions blocked until ADB and SSH are restored](tasks/M5-hermes.md)
+- [!] [Verify supervisor recovery after app close and gateway exit; usable phone connection required](tasks/M5-hermes.md)
 
 ### M7 — Logs Complete
 

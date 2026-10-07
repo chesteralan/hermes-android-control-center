@@ -85,6 +85,7 @@ pub fn run() {
             commands::sessions::list_hermes_sessions,
             commands::sessions::get_hermes_session_messages,
             commands::adb::detect_adb,
+            commands::adb::restart_adb_server,
             commands::settings::get_settings,
             commands::settings::get_secret_storage_state,
             commands::settings::unlock_secret_storage,

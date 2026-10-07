@@ -10,3 +10,8 @@ pub async fn detect_adb(state: State<'_, AppState>) -> Result<AdbInfo, AppError>
     state.invalidate_adb().await;
     state.detect_adb().await
 }
+
+#[tauri::command]
+pub async fn restart_adb_server(state: State<'_, AppState>) -> Result<(), AppError> {
+    state.adb_client().await?.restart_server().await
+}

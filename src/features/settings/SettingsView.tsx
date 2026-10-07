@@ -3,13 +3,14 @@ import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ErrorPanel } from "../../components/ErrorPanel";
-import { ipc } from "../../lib/ipc";
+import { ipc, toErrorPayload } from "../../lib/ipc";
 import { useDevices } from "../../stores/devices";
 import { isDirty, useSettings } from "../../stores/settings";
 import { useToasts } from "../../stores/toast";
 import type {
   AppConfig,
   ControlApiInstallPreview,
+  ErrorPayload,
   HermesConfig,
   HermesInstallReport,
   HermesTransportKind,
@@ -73,6 +74,8 @@ export function SettingsView() {
   const { load } = s;
   const [detection, setDetection] = useState<HermesInstallReport | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const [restartingAdb, setRestartingAdb] = useState(false);
+  const [adbRestartError, setAdbRestartError] = useState<ErrorPayload | null>(null);
   const [controlApiPreview, setControlApiPreview] = useState<ControlApiInstallPreview | null>(null);
   const [previewingControlApi, setPreviewingControlApi] = useState(false);
   const [installingControlApi, setInstallingControlApi] = useState(false);
@@ -111,6 +114,22 @@ export function SettingsView() {
   if (!d) return s.error ? <ErrorPanel error={s.error} onRetry={load} /> : null;
   const edit = (fn: (c: AppConfig) => AppConfig) => s.edit(fn);
   const dirty = isDirty(s);
+
+  async function restartAdbServer() {
+    if (restartingAdb) return;
+    setRestartingAdb(true);
+    setAdbRestartError(null);
+    try {
+      await ipc.restartAdbServer();
+      await detect();
+      await useDevices.getState().refresh();
+      toast("ADB server restarted", "success");
+    } catch (error) {
+      setAdbRestartError(toErrorPayload(error));
+    } finally {
+      setRestartingAdb(false);
+    }
+  }
 
   async function detectHermes() {
     const device = useDevices.getState().activeKey
@@ -237,6 +256,17 @@ export function SettingsView() {
             {adb.error && <ErrorPanel error={adb.error} />}
           </div>
         </Row>
+        {adbRestartError && <ErrorPanel error={adbRestartError} />}
+        <div className="flex justify-end border-t border-border pt-3">
+          <Button
+            aria-label="Restart ADB server"
+            title="Runs adb disconnect, adb kill-server, then adb start-server. Disconnects all devices."
+            loading={restartingAdb}
+            onClick={() => void restartAdbServer()}
+          >
+            Refresh
+          </Button>
+        </div>
       </Card>
 
       <Card title="Connection">

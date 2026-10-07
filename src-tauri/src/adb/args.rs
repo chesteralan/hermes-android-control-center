@@ -20,6 +20,10 @@ pub fn start_server() -> Vec<String> {
     v(&["start-server"])
 }
 
+pub fn kill_server() -> Vec<String> {
+    v(&["kill-server"])
+}
+
 pub fn devices_l() -> Vec<String> {
     v(&["devices", "-l"])
 }
@@ -34,6 +38,10 @@ pub fn connect(address: &str) -> Vec<String> {
 
 pub fn disconnect(target: &str) -> Vec<String> {
     v(&["disconnect", target])
+}
+
+pub fn disconnect_all() -> Vec<String> {
+    v(&["disconnect"])
 }
 
 pub fn install(serial: &str, apk_path: &Path) -> Vec<String> {
@@ -91,6 +99,7 @@ mod tests {
         assert_eq!(track_devices(), ["track-devices", "-l"]);
         assert_eq!(connect("1.2.3.4:5555"), ["connect", "1.2.3.4:5555"]);
         assert_eq!(disconnect("1.2.3.4:5555"), ["disconnect", "1.2.3.4:5555"]);
+        assert_eq!(disconnect_all(), ["disconnect"]);
         assert_eq!(
             pair("1.2.3.4:40000", "123456"),
             ["pair", "1.2.3.4:40000", "123456"]
@@ -99,6 +108,7 @@ mod tests {
         assert_eq!(mdns_check(), ["mdns", "check"]);
         assert_eq!(version(), ["version"]);
         assert_eq!(start_server(), ["start-server"]);
+        assert_eq!(kill_server(), ["kill-server"]);
     }
 
     #[test]
