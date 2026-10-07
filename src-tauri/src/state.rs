@@ -152,7 +152,12 @@ impl AppState {
             return Ok(k);
         }
         // Serialize first use: concurrent callers must not each generate a different key.
-        let _guard = self.ssh_key_init.lock().unwrap();
+        let _guard = self.ssh_key_init.lock().map_err(|_| {
+            AppError::Io(
+                "SSH key initialization is unavailable. Restart the application before retrying."
+                    .into(),
+            )
+        })?;
         if let Some(k) = self.ssh_key.get() {
             return Ok(k);
         }
@@ -277,5 +282,38 @@ impl AppState {
         if let Some(t) = self.reconnects.lock().unwrap().remove(serial) {
             t.cancel();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::process::FakeRunner;
+
+    #[test]
+    fn poisoned_ssh_initialization_returns_error_without_creating_a_key() {
+        let directory = std::env::temp_dir().join(format!(
+            "hacc-ssh-init-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let state = Arc::new(AppState::new(
+            Arc::new(FakeRunner::new()),
+            AppConfig::default(),
+            Box::new(|_| {}),
+            directory.clone(),
+        ));
+        let shared = state.clone();
+        let worker = std::thread::spawn(move || {
+            let _guard = shared.ssh_key_init.lock().unwrap();
+            panic!("synthetic initialization failure");
+        });
+        assert!(worker.join().is_err());
+        assert!(matches!(state.ssh_key(), Err(AppError::Io(message))
+            if message.contains("Restart the application")));
+        assert!(!keys::key_path(&directory).exists());
     }
 }

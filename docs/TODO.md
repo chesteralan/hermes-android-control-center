@@ -1,11 +1,18 @@
 # Open Work
 
-Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-07. The linked milestone task files remain the source of truth; update this index when their status changes.
+Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-08. The linked milestone task files remain the source of truth; update this index when their status changes.
 
 Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need new evidence or a supported environment before implementation can proceed.
 
 ## Recently Completed
 
+- [x] [M10-T1 — Recoverable SSH-key initialization failure](tasks/M10-production.md): poisoned initialization returns an error without creating a key; key reload/permissions behavior remains tested.
+- [x] [M10-T1 — Observable logging setup and reload failures](tasks/M10-production.md): file/subscriber/reload errors are reported instead of silently ignored; console fallback is retained and broader startup QA remains open.
+- [x] [M10-T1 — Consistent shell-exit and device-error classification](tasks/M10-production.md): command-not-found exits stay ordinary command results; missing-device streams report device errors.
+- [x] [M10-T1 — Final streamed ADB stderr classification and details](tasks/M10-production.md): split-chunk errors without a final newline retain device-error classification and output; ordinary command exits remain unchanged.
+- [x] [M10-T1 — Terminal input errors precede connection setup](tasks/M10-production.md): blank execute/stream requests are rejected before ADB/SSH/API setup; broader error audit remains open.
+- [x] [M10-T1 — Shared export destination validation and write-error coverage](tasks/M10-production.md): log, terminal, and diagnostics exports reject relative/empty/root paths; broader error audit and native-dialog QA remain open.
+- [x] [M10-T6 — Quoted diagnostics secret redaction and synthetic ZIP regression coverage](tasks/M10-production.md): JSON/log secrets, escaped quoted values, Bearer headers, and both IP-consent settings verified; packaged-app archive QA remains open.
 - [x] [M3-T10 — macOS live terminal and logcat QA](tasks/M3-basic-terminal-logs.md): stdout/stderr, exit status, streamed output, Cancel, and Logs Start/Stop/Clear verified on CPH2239.
 - [x] M0-S3 verified the sanitized `track_frames.bin` header (`0074` = 116 payload bytes) and added an exact-length parser assertion. The broader capture ticket remains in progress.
 - [x] [M13-T5 — Device-scoped restoration and documentation](tasks/M13-chat-sessions.md): persistence, unavailable-device behavior, environment separation, privacy, and profile limitations are tested/documented.

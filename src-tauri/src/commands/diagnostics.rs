@@ -39,8 +39,8 @@ fn secret_patterns() -> &'static Result<Vec<Regex>, regex::Error> {
     static PATTERNS: OnceLock<Result<Vec<Regex>, regex::Error>> = OnceLock::new();
     PATTERNS.get_or_init(|| {
         [
-            r"(?i)(authorization\s*:\s*bearer\s+)[^\s,;]+",
-            r#"(?i)((?:access[_ -]?token|api[_ -]?key|token|password|secret)\s*[:=]\s*)[\"']?[^\"'\s,;]+"#,
+            r#"(?i)(authorization["']?\s*:\s*["']?bearer\s+)[^"'\s,;}\]]+"#,
+            r#"(?i)((?:access[_ -]?token|api[_ -]?key|token|password|secret)["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)"#,
             r"\b\d{6,12}:[A-Za-z0-9_-]{25,}\b",
             r"\bAIza[0-9A-Za-z_-]{30,}\b",
             r"\bsk-[A-Za-z0-9_-]{20,}\b",
@@ -59,10 +59,22 @@ fn redact_text(text: &str, redact_ips: bool) -> Result<String, regex::Error> {
         .iter()
         .enumerate()
     {
-        redacted = if index < 2 {
-            pattern.replace_all(&redacted, "$1[REDACTED]").into_owned()
-        } else {
-            pattern.replace_all(&redacted, "[REDACTED]").into_owned()
+        redacted = match index {
+            0 => pattern.replace_all(&redacted, "$1[REDACTED]").into_owned(),
+            1 => pattern
+                .replace_all(&redacted, |captures: &regex::Captures<'_>| {
+                    let value = &captures[2];
+                    let replacement = if value.starts_with('"') {
+                        "\"[REDACTED]\""
+                    } else if value.starts_with('\'') {
+                        "'[REDACTED]'"
+                    } else {
+                        "[REDACTED]"
+                    };
+                    format!("{}{replacement}", &captures[1])
+                })
+                .into_owned(),
+            _ => pattern.replace_all(&redacted, "[REDACTED]").into_owned(),
         };
     }
     if redact_ips {
@@ -376,13 +388,13 @@ pub async fn export_diagnostics(
         .finish()
         .map_err(|error| AppError::Io(error.to_string()))?
         .into_inner();
-    std::fs::write(&path, bytes).map_err(|error| AppError::Io(error.to_string()))?;
-    Ok(Some(path.to_string_lossy().into_owned()))
+    Ok(Some(super::write_export_file(&path, &bytes)?))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
 
     #[test]
     fn redacts_common_tokens_and_optional_ipv4_addresses() {
@@ -395,6 +407,76 @@ mod tests {
         let unmasked_ip = redact_text(source, false).unwrap();
         assert!(unmasked_ip.contains("192.0.2.12:5555"));
         assert!(!unmasked_ip.contains("topsecret"));
+    }
+
+    #[test]
+    fn redacts_quoted_json_secrets_without_corrupting_the_payload() {
+        let source = serde_json::json!({
+            "api_key": "json-secret-value",
+            "password": "secret with spaces and \"quotes\"",
+            "token": "escaped\\secret",
+            "Authorization": "Bearer header-secret-value",
+            "message": "ordinary log text"
+        })
+        .to_string();
+        let redacted = redact_text(&source, false).unwrap();
+        let payload: Value = serde_json::from_str(&redacted).unwrap();
+        assert_eq!(payload["api_key"], "[REDACTED]");
+        assert_eq!(payload["password"], "[REDACTED]");
+        assert_eq!(payload["token"], "[REDACTED]");
+        assert_eq!(payload["Authorization"], "Bearer [REDACTED]");
+        assert_eq!(payload["message"], "ordinary log text");
+    }
+
+    #[test]
+    fn redacts_complete_quoted_values_in_prefixed_log_lines() {
+        let source = r#"DEBUG payload={"api_key":"json-secret"} password='secret with spaces' token="escaped \"quote\" secret" message=visible"#;
+        let redacted = redact_text(source, false).unwrap();
+        assert_eq!(
+            redacted,
+            r#"DEBUG payload={"api_key":"[REDACTED]"} password='[REDACTED]' token="[REDACTED]" message=visible"#,
+        );
+    }
+
+    #[test]
+    fn exported_zip_entries_remove_synthetic_secrets_and_respect_ip_consent() {
+        for redact_ips in [false, true] {
+            let source = r#"{"api_key":"archive-secret", "password":"archive password", "address":"192.0.2.12:5555", "message":"ordinary text"}"#;
+            let log = redact_text(source, redact_ips).unwrap();
+            let settings = scrub_json(
+                serde_json::json!({
+                    "apiToken": "settings-secret",
+                    "adbPath": "/Users/example/custom-adb",
+                    "knownAddresses": [{ "address": "192.0.2.12:5555" }]
+                }),
+                redact_ips,
+            )
+            .unwrap();
+            let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+            write_zip_file(&mut writer, "app-last-1000-lines.log", log.as_bytes()).unwrap();
+            write_zip_file(
+                &mut writer,
+                "settings-redacted.json",
+                &serde_json::to_vec(&settings).unwrap(),
+            )
+            .unwrap();
+            let bytes = writer.finish().unwrap().into_inner();
+            let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+            for name in ["app-last-1000-lines.log", "settings-redacted.json"] {
+                let mut contents = String::new();
+                archive
+                    .by_name(name)
+                    .unwrap()
+                    .read_to_string(&mut contents)
+                    .unwrap();
+                assert!(!contents.contains("archive-secret"));
+                assert!(!contents.contains("archive password"));
+                assert!(!contents.contains("settings-secret"));
+                assert!(!contents.contains("/Users/example/custom-adb"));
+                assert_eq!(contents.contains("192.0.2.12:5555"), !redact_ips);
+                let _: Value = serde_json::from_str(&contents).unwrap();
+            }
+        }
     }
 
     #[test]

@@ -20,6 +20,7 @@ export interface HermesEntry {
   tool: HermesTool | null;
   toolOutput: CommandResult | null;
   error: ErrorPayload | null;
+  statusError: ErrorPayload | null;
 }
 
 export const EMPTY_HERMES: HermesEntry = {
@@ -32,6 +33,7 @@ export const EMPTY_HERMES: HermesEntry = {
   tool: null,
   toolOutput: null,
   error: null,
+  statusError: null,
 };
 
 interface HermesStore {
@@ -50,12 +52,12 @@ export const useHermes = create<HermesStore>((set) => {
   return {
     byDevice: {},
     refresh: async (key, serial) => {
-      patch(key, { loadingStatus: true, error: null });
+      patch(key, { loadingStatus: true, statusError: null });
       try {
         const status = await ipc.getHermesStatus(serial);
         patch(key, { status, loadingStatus: false });
       } catch (e) {
-        patch(key, { loadingStatus: false, error: e as ErrorPayload });
+        patch(key, { loadingStatus: false, statusError: e as ErrorPayload });
       }
     },
     detect: async (key, serial) => {
@@ -71,7 +73,7 @@ export const useHermes = create<HermesStore>((set) => {
       patch(key, { action, result: null, tool: null, toolOutput: null, error: null });
       try {
         const result = await ipc.hermesAction(serial, action);
-        patch(key, { result, status: result.status, action: null });
+        patch(key, { result, status: result.status, statusError: null, action: null });
       } catch (e) {
         patch(key, { action: null, error: e as ErrorPayload });
       }
@@ -82,11 +84,11 @@ export const useHermes = create<HermesStore>((set) => {
         const toolOutput = await ipc.runHermesTool(serial, tool);
         patch(key, { tool: null, toolOutput });
         const status = await ipc.getHermesStatus(serial);
-        patch(key, { status });
+        patch(key, { status, statusError: null });
       } catch (e) {
         patch(key, { tool: null, error: e as ErrorPayload });
       }
     },
-    clearError: (key) => patch(key, { error: null }),
+    clearError: (key) => patch(key, { error: null, statusError: null }),
   };
 });

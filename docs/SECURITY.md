@@ -20,7 +20,7 @@
 | Secret leakage via logs | tracing output, diagnostics bundle | Commands at Debug only, output never logged, pairing code/tokens never logged, redaction in diagnostics |
 | XSS in webview | Device output rendered as HTML | Render as text nodes only; no `dangerouslySetInnerHTML`; strict CSP |
 | Over-privileged webview | Tauri plugins | Minimal capabilities; no `shell` plugin; fs scoped to user-selected paths |
-| Path traversal on export | `export_logs` path | Path only from native save dialog; Rust validates absolute path |
+| Path traversal on export | Log, terminal, and diagnostics destinations | Path only from native save dialog; shared Rust writer rejects relative, empty, and root paths before writing |
 | Tampered APK during provisioning | Download of Termux / Termux:Boot | HTTPS from official source only, SHA-256 verified against source metadata, abort on mismatch; consent dialog shows source + version |
 | Leaks via shared storage | Bootstrap handoff in `/sdcard/Download/hacc/` | Only script + **public** key placed there; deleted after success |
 | Unwanted system changes | Battery / phantom-process settings | Per-item consent listing exact commands; optional items never block |

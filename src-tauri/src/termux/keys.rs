@@ -32,7 +32,7 @@ pub fn load_or_create(data_dir: &Path) -> AppResult<PrivateKey> {
     let mut key = PrivateKey::from(Ed25519Keypair::from_seed(&seed));
     key.set_comment(COMMENT);
     let pem = key.to_openssh(LineEnding::LF).map_err(io)?;
-    std::fs::create_dir_all(path.parent().expect("key path has parent")).map_err(io)?;
+    std::fs::create_dir_all(data_dir.join("ssh")).map_err(io)?;
     // create_new: if another process won the race, use its key instead of overwriting it.
     let mut file = match std::fs::OpenOptions::new()
         .write(true)

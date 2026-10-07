@@ -61,6 +61,7 @@ function HermesCardForDevice({
   onSettings: () => void;
 }) {
   const entry = useHermes((s) => s.byDevice[key] ?? EMPTY_HERMES);
+  const error = entry.error ?? entry.statusError;
   const refresh = useHermes((s) => s.refresh);
   const detect = useHermes((s) => s.detect);
   const runAction = useHermes((s) => s.runAction);
@@ -257,7 +258,7 @@ function HermesCardForDevice({
           </div>
         )}
 
-        {entry.error && <ErrorPanel error={entry.error} />}
+        {error && <ErrorPanel error={error} />}
         {entry.result && (
           <div className="rounded-md border border-border bg-bg p-2 text-[12px]">
             <div className="mb-1 flex justify-between">

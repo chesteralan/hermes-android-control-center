@@ -168,14 +168,10 @@ impl AdbClient {
         timeout: Duration,
     ) -> AppResult<RawOutput> {
         let out = self.exec(args::shell(serial, command), timeout).await?;
-        let stderr = out.stderr.to_lowercase();
-        if out.exit_code != Some(0)
-            && (stderr.contains("device offline")
-                || stderr.contains("unauthorized")
-                || stderr.contains("not found")
-                || stderr.contains("no devices"))
-        {
-            return Err(parse::map_device_error(serial, &out.stderr, out.exit_code));
+        if out.exit_code != Some(0) {
+            if let Some(error) = parse::classify_device_error(serial, &out.stderr) {
+                return Err(error);
+            }
         }
         Ok(out)
     }
@@ -209,6 +205,26 @@ mod tests {
 
     fn client(f: &FakeRunner) -> AdbClient {
         AdbClient::new("/fake/adb", Arc::new(f.clone()))
+    }
+
+    #[tokio::test]
+    async fn command_not_found_is_an_ordinary_shell_exit() {
+        let runner = FakeRunner::new();
+        runner.on(
+            "-s S shell missing-command",
+            Ok(RawOutput {
+                stdout: String::new(),
+                stderr: "sh: missing-command: not found".into(),
+                exit_code: Some(127),
+                duration_ms: 1,
+            }),
+        );
+        let result = client(&runner)
+            .shell("S", "missing-command", QUICK)
+            .await
+            .unwrap();
+        assert_eq!(result.exit_code, Some(127));
+        assert_eq!(result.stderr, "sh: missing-command: not found");
     }
 
     #[tokio::test]

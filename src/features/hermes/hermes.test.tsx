@@ -5,7 +5,7 @@ import { useDevices } from "../../stores/devices";
 import { useHermes } from "../../stores/hermes";
 import { device } from "../../test/fixtures";
 import { mockIpc, resetStores } from "../../test/ipcMock";
-import type { HermesActionResult, HermesStatus } from "../../types";
+import type { ErrorPayload, HermesActionResult, HermesStatus } from "../../types";
 import { HermesStatusCard } from "./HermesStatusCard";
 
 const status: HermesStatus = {
@@ -40,6 +40,83 @@ describe("HermesStatusCard", () => {
     resetStores();
     useHermes.setState({ byDevice: {} });
     useDevices.getState().setDevices([device()]);
+  });
+
+  it("preserves detection errors across successful and failed status polls", async () => {
+    const detectionError = { kind: "termuxUnavailable", message: "SSH key rejected", details: null };
+    const pollError = { kind: "io", message: "Status temporarily unavailable", details: null };
+    let pollFails = false;
+    mockIpc({
+      get_hermes_status: () => {
+        if (pollFails) throw pollError;
+        return status;
+      },
+      detect_hermes: () => { throw detectionError; },
+    });
+    const store = useHermes.getState();
+    await store.detect("phone", device().serial);
+    await store.refresh("phone", device().serial);
+    expect(useHermes.getState().byDevice.phone?.error).toEqual(detectionError);
+    pollFails = true;
+    await store.refresh("phone", device().serial);
+    expect(useHermes.getState().byDevice.phone?.error).toEqual(detectionError);
+    expect(useHermes.getState().byDevice.phone?.statusError).toEqual(pollError);
+    pollFails = false;
+    await store.refresh("phone", device().serial);
+    expect(useHermes.getState().byDevice.phone?.statusError).toBeNull();
+    expect(useHermes.getState().byDevice.phone?.error).toEqual(detectionError);
+    store.clearError("phone");
+    expect(useHermes.getState().byDevice.phone?.error).toBeNull();
+  });
+
+  it("shows status polling errors and clears them when polling recovers", async () => {
+    let pollFails = true;
+    mockIpc({
+      get_hermes_status: () => {
+        if (pollFails) throw { kind: "io", message: "Status unavailable", details: null };
+        return status;
+      },
+    });
+    render(<HermesStatusCard />);
+    expect(await screen.findByText("Status unavailable")).toBeInTheDocument();
+    pollFails = false;
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("running")).toBeInTheDocument();
+    expect(screen.queryByText("Status unavailable")).not.toBeInTheDocument();
+  });
+
+  it("preserves action and tool failures during polling and clears stale poll errors after success", async () => {
+    const failure: ErrorPayload = { kind: "io", message: "Command failed", details: null };
+    let failOperation = true;
+    mockIpc({
+      get_hermes_status: () => status,
+      hermes_action: () => {
+        if (failOperation) throw failure;
+        return actionResult;
+      },
+      run_hermes_tool: () => {
+        if (failOperation) throw failure;
+        return { stdout: "doctor passed", stderr: "", exitCode: 0, durationMs: 1 };
+      },
+    });
+    const store = useHermes.getState();
+    for (const operation of [
+      () => store.runAction("phone", device().serial, "start"),
+      () => store.runTool("phone", device().serial, "doctor"),
+    ]) {
+      failOperation = true;
+      await operation();
+      await store.refresh("phone", device().serial);
+      expect(useHermes.getState().byDevice.phone?.error).toEqual(failure);
+      useHermes.setState((state) => ({ byDevice: {
+        ...state.byDevice,
+        phone: { ...state.byDevice.phone!, statusError: failure },
+      } }));
+      failOperation = false;
+      await operation();
+      expect(useHermes.getState().byDevice.phone?.error).toBeNull();
+      expect(useHermes.getState().byDevice.phone?.statusError).toBeNull();
+    }
   });
 
   it("renders real status, process and platform data and can detect installation", async () => {

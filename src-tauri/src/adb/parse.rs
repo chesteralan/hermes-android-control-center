@@ -245,29 +245,33 @@ pub fn parse_version(output: &str) -> Option<VersionInfo> {
 }
 
 /// Classify a failed device-scoped adb call.
-pub fn map_device_error(serial: &str, stderr: &str, exit_code: Option<i32>) -> AppError {
+pub fn classify_device_error(serial: &str, stderr: &str) -> Option<AppError> {
     let lower = stderr.to_lowercase();
     if lower.contains("device offline") {
-        AppError::DeviceOffline {
+        Some(AppError::DeviceOffline {
             serial: serial.to_string(),
-        }
+        })
     } else if lower.contains("unauthorized") {
-        AppError::DeviceUnauthorized {
+        Some(AppError::DeviceUnauthorized {
             serial: serial.to_string(),
-        }
+        })
     } else if lower.contains("not found") && lower.contains("device")
         || lower.contains("no devices/emulators found")
     {
-        AppError::DeviceNotFound {
+        Some(AppError::DeviceNotFound {
             serial: serial.to_string(),
-        }
+        })
     } else {
-        AppError::AdbFailed {
-            message: "adb command failed".into(),
-            stderr: strip_daemon_noise(stderr),
-            exit_code,
-        }
+        None
     }
+}
+
+pub fn map_device_error(serial: &str, stderr: &str, exit_code: Option<i32>) -> AppError {
+    classify_device_error(serial, stderr).unwrap_or_else(|| AppError::AdbFailed {
+        message: "adb command failed".into(),
+        stderr: strip_daemon_noise(stderr),
+        exit_code,
+    })
 }
 
 /// Drop "* daemon not running; starting now" chatter adb prints on stderr.

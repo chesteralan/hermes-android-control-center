@@ -10,7 +10,14 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
-use crate::error::{AppResult, ErrorPayload};
+use crate::error::{AppError, AppResult, ErrorPayload};
+
+pub(crate) fn validate_command(command: &str) -> AppResult<()> {
+    if command.trim().is_empty() {
+        return Err(AppError::Config("Enter a command to run.".into()));
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -72,4 +79,28 @@ pub trait DeviceTransport: Send + Sync {
         command: &str,
         cancel: CancellationToken,
     ) -> AppResult<mpsc::Receiver<StreamEvent>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_validation_rejects_empty_and_whitespace() {
+        for command in ["", " ", "\t\r\n", "\u{2003}"] {
+            assert!(matches!(
+                validate_command(command),
+                Err(AppError::Config(message)) if message == "Enter a command to run.",
+            ));
+        }
+    }
+
+    #[test]
+    fn command_validation_preserves_nonempty_shell_commands() {
+        for command in ["echo hello", "  printf ' '; echo done\n", "false || true"] {
+            let original = command.to_string();
+            validate_command(command).unwrap();
+            assert_eq!(command, original);
+        }
+    }
 }

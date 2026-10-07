@@ -134,8 +134,7 @@ pub async fn export_logs(
     let path = file_path
         .into_path()
         .map_err(|error| AppError::Io(error.to_string()))?;
-    std::fs::write(&path, content).map_err(|error| AppError::Io(error.to_string()))?;
-    Ok(Some(path.to_string_lossy().into_owned()))
+    Ok(Some(super::write_export_file(&path, content.as_bytes())?))
 }
 
 /// Starts a persistent log stream; lines arrive in batches (≤50 ms / ≤500 lines).
