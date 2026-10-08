@@ -2,6 +2,7 @@ id = "termux-native-apt"
 name = "Hermes Agent (native Termux, experimental)"
 termux_source = "github"
 distro = ""
+minimum_free_gib = 2
 termux_packages = ["openssh", "termux-services", "util-linux"]
 distro_packages = []
 autostart = true

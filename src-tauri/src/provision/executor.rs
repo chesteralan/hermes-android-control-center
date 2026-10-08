@@ -18,7 +18,6 @@ use crate::provision::apk::{
 use crate::provision::plan::{ProvisionCheck, ProvisionStepExecutor, ProvisionStepRunOutcome};
 use crate::provision::recipe::{ProvisionRecipe, ProvisionTermuxSource};
 use crate::provision::types::{ProvisionEvent, ProvisionStepId};
-use crate::provision::MIN_FREE_BYTES;
 use crate::state::AppState;
 use crate::termux::{keys, shell_escape};
 use crate::transport::{DeviceTransport, StreamEvent};
@@ -378,11 +377,12 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     ));
                 }
                 match info.storage {
-                    Some(storage) if storage.free_bytes >= MIN_FREE_BYTES => {}
+                    Some(storage) if storage.free_bytes >= self.recipe.minimum_free_bytes() => {}
                     Some(_) => {
-                        return Ok(ProvisionCheck::Blocked(
-                            "Free at least 2 GB on the phone before provisioning.".into(),
-                        ));
+                        return Ok(ProvisionCheck::Blocked(format!(
+                            "Free at least {} GiB on the phone before provisioning.",
+                            self.recipe.minimum_free_gib
+                        )));
                     }
                     None => {
                         return Ok(ProvisionCheck::Blocked(

@@ -637,6 +637,18 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                     draft.minimumTermuxVersion,
                   )}
                   <label className="flex flex-col gap-1">
+                    <span className="text-muted">Minimum free storage (GiB)</span>
+                    <input
+                      aria-label="Minimum free storage (GiB)"
+                      className="rounded-md border border-border bg-bg px-2 py-1.5"
+                      min={1}
+                      step={1}
+                      type="number"
+                      value={Number(draft.minimumFreeGib ?? 2)}
+                      onChange={(event) => setField(["minimumFreeGib"], Number(event.target.value))}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
                     <span className="text-muted">Termux source</span>
                     <select
                       aria-label="Recipe Termux source"

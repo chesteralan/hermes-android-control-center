@@ -11,7 +11,7 @@ use crate::adb::{
 use crate::error::{AppError, AppResult};
 use crate::provision::{
     build_plan, bundled_recipes, run_plan, AndroidProvisionExecutor, ProvisionEvent, ProvisionPlan,
-    ProvisionProgressStore, ProvisionRecipe, ProvisionStepId, ProvisionStepState, MIN_FREE_BYTES,
+    ProvisionProgressStore, ProvisionRecipe, ProvisionStepId, ProvisionStepState,
 };
 use crate::state::AppState;
 
@@ -81,8 +81,11 @@ fn preflight_failure(
         return Some("The phone's CPU ABI could not be detected.".into());
     }
     match &info.storage {
-        Some(storage) if storage.free_bytes < MIN_FREE_BYTES => {
-            return Some("Free at least 2 GB on the phone before provisioning.".into());
+        Some(storage) if storage.free_bytes < recipe.minimum_free_bytes() => {
+            return Some(format!(
+                "Free at least {} GiB on the phone before provisioning.",
+                recipe.minimum_free_gib
+            ));
         }
         None => {
             return Some(
@@ -500,11 +503,11 @@ mod tests {
         );
 
         let mut low_storage = info();
-        low_storage.storage.as_mut().unwrap().free_bytes = MIN_FREE_BYTES - 1;
+        low_storage.storage.as_mut().unwrap().free_bytes = recipe.minimum_free_bytes() - 1;
         assert!(
             preflight_failure(&device(ConnectionType::WirelessIp), &low_storage, &recipe)
                 .unwrap()
-                .contains("2 GB")
+                .contains("2 GiB")
         );
 
         let mut unknown_storage = info();
@@ -559,6 +562,22 @@ mod tests {
         });
         assert_eq!(
             preflight_failure(&device(ConnectionType::WirelessIp), &ready, &recipe),
+            None
+        );
+    }
+
+    #[test]
+    fn preflight_uses_recipe_storage_threshold() {
+        let mut recipe = bundled("debian-official");
+        recipe.minimum_free_gib = 64;
+        assert_eq!(
+            preflight_failure(&device(ConnectionType::WirelessIp), &info(), &recipe),
+            Some("Free at least 64 GiB on the phone before provisioning.".into())
+        );
+
+        recipe.minimum_free_gib = 32;
+        assert_eq!(
+            preflight_failure(&device(ConnectionType::WirelessIp), &info(), &recipe),
             None
         );
     }

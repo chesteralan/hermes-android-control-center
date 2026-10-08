@@ -4,7 +4,9 @@ pub mod plan;
 pub mod recipe;
 pub mod types;
 
-pub const MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+pub const DEFAULT_MINIMUM_FREE_GIB: u32 = 2;
+pub const GIB_BYTES: u64 = 1024 * 1024 * 1024;
+pub const MIN_FREE_BYTES: u64 = DEFAULT_MINIMUM_FREE_GIB as u64 * GIB_BYTES;
 
 pub use executor::AndroidProvisionExecutor;
 pub use plan::{

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::config::StartMode;
+use crate::provision::{DEFAULT_MINIMUM_FREE_GIB, GIB_BYTES};
 
 const DEBIAN_RECIPE: &str = include_str!("../../recipes/debian-official.toml");
 const TERMUX_NATIVE_RECIPE: &str = include_str!("../../recipes/termux-native-apt.toml");
@@ -63,6 +64,8 @@ pub struct ProvisionRecipe {
     pub name: String,
     pub termux_source: ProvisionTermuxSource,
     pub distro: String,
+    #[serde(default = "default_minimum_free_gib")]
+    pub minimum_free_gib: u32,
     #[serde(default)]
     pub minimum_termux_version: Option<String>,
     pub termux_packages: Vec<String>,
@@ -77,6 +80,10 @@ pub struct ProvisionRecipe {
 }
 
 impl ProvisionRecipe {
+    pub fn minimum_free_bytes(&self) -> u64 {
+        u64::from(self.minimum_free_gib) * GIB_BYTES
+    }
+
     pub fn parse(source: &str) -> Result<Self, String> {
         let value: toml::Value = toml::from_str(source).map_err(|error| error.to_string())?;
         let json = serde_json::to_value(camelize_toml(value)).map_err(|error| error.to_string())?;
@@ -97,6 +104,9 @@ impl ProvisionRecipe {
         }
         if self.name.trim().is_empty() {
             return Err("Recipe name is required.".into());
+        }
+        if self.minimum_free_gib == 0 {
+            return Err("Minimum free storage must be at least 1 GiB.".into());
         }
         if !self.distro.is_empty()
             && !self.distro.chars().all(|character| {
@@ -172,6 +182,10 @@ impl ProvisionRecipe {
     }
 }
 
+fn default_minimum_free_gib() -> u32 {
+    DEFAULT_MINIMUM_FREE_GIB
+}
+
 fn snake_to_camel(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     let mut uppercase_next = false;
@@ -234,6 +248,23 @@ mod tests {
         let recipe = bundled_recipes().unwrap().remove(0);
         let encoded = toml::to_string(&recipe).unwrap();
         assert_eq!(ProvisionRecipe::parse(&encoded).unwrap(), recipe);
+    }
+
+    #[test]
+    fn legacy_recipe_defaults_minimum_free_storage_to_two_gib() {
+        let source = DEBIAN_RECIPE.replace("minimum_free_gib = 2\n", "");
+        let recipe = ProvisionRecipe::parse(&source).unwrap();
+
+        assert_eq!(recipe.minimum_free_gib, DEFAULT_MINIMUM_FREE_GIB);
+        assert_eq!(recipe.minimum_free_bytes(), 2 * GIB_BYTES);
+    }
+
+    #[test]
+    fn rejects_zero_minimum_free_storage() {
+        let mut recipe = bundled_recipes().unwrap().remove(0);
+        recipe.minimum_free_gib = 0;
+
+        assert!(recipe.validate().unwrap_err().contains("at least 1 GiB"));
     }
 
     #[test]

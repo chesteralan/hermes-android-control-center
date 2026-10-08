@@ -11,6 +11,7 @@ const recipe: ProvisionRecipe = {
   name: "Debian + Hermes",
   termuxSource: "fdroid",
   distro: "debian",
+  minimumFreeGib: 2,
   minimumTermuxVersion: "0.118.0",
   termuxPackages: ["openssh", "termux-services"],
   distroPackages: ["curl", "ca-certificates"],
@@ -70,6 +71,7 @@ const recipeSource = `id = "debian-official"
 name = "Debian + Hermes"
 termux_source = "fdroid"
 distro = "debian"
+minimum_free_gib = 2
 termux_packages = ["openssh", "termux-services"]
 distro_packages = ["curl", "ca-certificates"]
 autostart = true
@@ -184,6 +186,11 @@ describe("ProvisioningWizard", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Duplicate" }));
     const rawToml = await screen.findByRole("textbox", { name: "Raw recipe TOML" });
     expect((rawToml as HTMLTextAreaElement).value).toContain('id = "debian-official-copy"');
+    const storageThreshold = screen.getByRole("spinbutton", {
+      name: "Minimum free storage (GiB)",
+    });
+    await userEvent.clear(storageThreshold);
+    await userEvent.type(storageThreshold, "4");
     await userEvent.clear(screen.getByRole("textbox", { name: "Termux packages" }));
     await userEvent.type(screen.getByRole("textbox", { name: "Termux packages" }), "openssh, git");
     await userEvent.click(screen.getByRole("button", { name: "Save recipe" }));
@@ -200,6 +207,9 @@ describe("ProvisioningWizard", () => {
     const saveCall = invoke.mock.calls.find(([command]) => command === "save_provision_recipe");
     const savedSource = (saveCall?.[1] as { source: string } | undefined)?.source;
     expect(savedSource).toBeDefined();
-    expect(parseToml(savedSource ?? "")).toMatchObject({ termuxPackages: ["openssh", "git"] });
+    expect(parseToml(savedSource ?? "")).toMatchObject({
+      minimumFreeGib: 4,
+      termuxPackages: ["openssh", "git"],
+    });
   });
 });
