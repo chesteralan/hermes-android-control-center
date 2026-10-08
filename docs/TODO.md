@@ -42,7 +42,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [~] [M10-T6 — Consent-gated diagnostics ZIP](tasks/M10-production.md)
 - [~] [M10-T7 — Existing setup path; automatic wizard awaits M11](tasks/M10-production.md)
 - [~] [M10-T8 — About, version, and native app menu](tasks/M10-production.md)
-- [~] [M10-T9 — Tray status, named stop alerts, and in-session gateway timeline; native delivery and persistent history remain](tasks/M10-production.md)
+- [~] [M10-T9 — Tray status, named stop alerts, and persistent gateway timeline; hidden-window notification and runtime QA remain](tasks/M10-production.md)
 - [~] [M10-T10–T13 — Signing, universal build, updater, and release workflow](tasks/M10-production.md)
 - [~] [M10-T15 — Root README](tasks/M10-production.md)
 - [~] [M13-T1 — Hermes session interface spike](tasks/M13-chat-sessions.md)

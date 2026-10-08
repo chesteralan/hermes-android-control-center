@@ -97,7 +97,7 @@
 ### [~] M10-T9 Stretch: tray status icon (aggregate status of all phones), crash notifications naming the phone, health timeline.
 - **Progress:** The tray icon and tooltip now reflect whether no phones are connected, all listed phones are connected, or at least one needs attention. Crash notifications and a persistent health timeline remain open.
 - **Progress:** Unexpected transitions from a running/degraded gateway to stopped now show an in-app error notification naming the phone; an active Stop action is excluded. Native notification delivery while the window is hidden and a persistent health timeline remain open.
-- **Progress:** The Hermes card now shows the five newest gateway transitions from a per-device, 20-event in-session history; status refreshes, action results, and tool probes feed it. Persistence across app restarts remains open.
+- **Progress:** The Hermes card now shows the five newest gateway transitions from a validated, per-device 20-event localStorage history; status refreshes, action results, and tool probes feed it, and history restores after app restart. Native notification delivery while the window is hidden and packaged-app/runtime QA remain open.
 
 ## Release engineering
 

@@ -39,6 +39,7 @@ const actionResult: HermesActionResult = {
 describe("HermesStatusCard", () => {
   beforeEach(() => {
     resetStores();
+    localStorage.clear();
     useHermes.setState({ byDevice: {} });
     useToasts.setState({ toasts: [] });
     useDevices.getState().setDevices([device()]);
@@ -116,6 +117,25 @@ describe("HermesStatusCard", () => {
     expect(await screen.findByRole("region", { name: "Recent gateway history" })).toBeVisible();
     expect(screen.getByText("Gateway running")).toBeInTheDocument();
     expect(screen.getByText("Gateway stopped")).toBeInTheDocument();
+  });
+
+  it("persists gateway history per device and restores it after store reset", async () => {
+    let polledStatus = status;
+    mockIpc({ get_hermes_status: () => polledStatus });
+    const key = deviceKey(device());
+    const store = useHermes.getState();
+
+    await store.refresh(key, device().serial);
+    polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+    await store.refresh(key, device().serial);
+
+    const storageKey = `hacc:hermes:health-history:${encodeURIComponent(key)}`;
+    const persisted = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+    expect(persisted).toHaveLength(2);
+
+    useHermes.setState({ byDevice: {} });
+    await store.refresh(key, device().serial);
+    expect(useHermes.getState().byDevice[key]?.healthHistory).toEqual(persisted);
   });
 
   it("preserves detection errors across successful and failed status polls", async () => {
