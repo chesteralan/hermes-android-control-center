@@ -28,6 +28,24 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 const TERMUX_FOCUS_CHECK: &str =
     "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | grep -q 'com.termux/'";
 
+fn android_settings_commands(sdk: Option<u32>) -> Vec<String> {
+    let mut commands = vec![
+        "pm grant com.termux android.permission.READ_EXTERNAL_STORAGE".into(),
+        "pm grant com.termux android.permission.WRITE_EXTERNAL_STORAGE".into(),
+    ];
+    if sdk.is_some_and(|sdk| sdk >= 33) {
+        commands.push("pm grant com.termux android.permission.POST_NOTIFICATIONS".into());
+    }
+    commands.push("dumpsys deviceidle whitelist +com.termux".into());
+    if sdk.is_some_and(|sdk| (31..=33).contains(&sdk)) {
+        commands.push("device_config set_sync_disabled_for_tests persistent".into());
+        commands.push("device_config put activity_manager max_phantom_processes 2147483647".into());
+    } else if sdk.is_some_and(|sdk| sdk >= 34) {
+        commands.push("settings put global settings_enable_monitor_phantom_procs false".into());
+    }
+    commands
+}
+
 pub struct AndroidProvisionExecutor<R: Runtime> {
     app: AppHandle<R>,
     serial: String,
@@ -667,18 +685,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
             }
             ProvisionStepId::AndroidSettings => {
                 let info = state.adb_client().await?.device_info(&self.serial).await?;
-                let mut commands = Vec::new();
-                if info.sdk.is_some_and(|sdk| sdk >= 33) {
-                    commands.push("pm grant com.termux android.permission.POST_NOTIFICATIONS".to_string());
-                }
-                commands.push("dumpsys deviceidle whitelist +com.termux".into());
-                if info.sdk.is_some_and(|sdk| (31..=33).contains(&sdk)) {
-                    commands.push("device_config set_sync_disabled_for_tests persistent".into());
-                    commands.push("device_config put activity_manager max_phantom_processes 2147483647".into());
-                } else if info.sdk.is_some_and(|sdk| sdk >= 34) {
-                    commands.push("settings put global settings_enable_monitor_phantom_procs false".into());
-                }
-                for command in commands {
+                for command in android_settings_commands(info.sdk) {
                     let result = state.adb_client().await?.shell(&self.serial, &command, COMMAND_TIMEOUT).await?;
                     let _ = events.send(ProvisionEvent::Output {
                         step,
@@ -847,5 +854,52 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::android_settings_commands;
+
+    #[test]
+    fn android_settings_commands_cover_storage_notifications_and_phantom_api_ranges() {
+        let android_11 = android_settings_commands(Some(30));
+        assert!(android_11
+            .contains(&"pm grant com.termux android.permission.READ_EXTERNAL_STORAGE".into()));
+        assert!(android_11
+            .contains(&"pm grant com.termux android.permission.WRITE_EXTERNAL_STORAGE".into()));
+        assert!(!android_11
+            .iter()
+            .any(|command| command.contains("POST_NOTIFICATIONS")));
+
+        let android_12 = android_settings_commands(Some(31));
+        assert!(android_12
+            .iter()
+            .any(|command| command.contains("max_phantom_processes")));
+        assert!(!android_12
+            .iter()
+            .any(|command| command.contains("POST_NOTIFICATIONS")));
+
+        let android_13 = android_settings_commands(Some(33));
+        assert!(android_13
+            .iter()
+            .any(|command| command.contains("POST_NOTIFICATIONS")));
+        assert!(android_13
+            .iter()
+            .any(|command| command.contains("max_phantom_processes")));
+
+        let android_14 = android_settings_commands(Some(34));
+        assert!(android_14
+            .iter()
+            .any(|command| command.contains("POST_NOTIFICATIONS")));
+        assert!(android_14
+            .iter()
+            .any(|command| command.contains("settings_enable_monitor_phantom_procs")));
+
+        let unknown_sdk = android_settings_commands(None);
+        assert_eq!(unknown_sdk.len(), 3);
+        assert!(!unknown_sdk
+            .iter()
+            .any(|command| command.contains("POST_NOTIFICATIONS")));
     }
 }

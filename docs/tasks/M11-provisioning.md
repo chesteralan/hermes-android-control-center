@@ -35,7 +35,9 @@ Remaining implementation and acceptance work:
   report bounded progress through the provisioning output stream; common Android package install
   errors include actionable guidance while preserving OEM output in Details. Unrecognized OEM
   errors, source/plugin compatibility QA, and phone acceptance remain.
-- T5/T6: storage permission handling, explicit keyguard/wake checks, and Android-version command tests.
+- T5: optional storage/notification grants and battery/phantom-process commands are selected by
+  Android SDK and covered by command tests; runtime permission outcomes remain phone QA. T6:
+  explicit keyguard/wake checks and device verification remain.
 - T7: foreground checks, stale-status clearing, marker polling, and no-marker retry exist; test
   escaping/marker/retry behavior and interruption cleanup on real phones. Success removes the handoff
   directory; cancellation/failure may leave public-key/bootstrap files there. No private key is copied.
