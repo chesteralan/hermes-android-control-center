@@ -49,8 +49,13 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [!] [M4-T5 — Optional bootstrap via RUN_COMMAND](tasks/M4-termux-bridge.md): Android denied the intent because the ADB-shell sender lacks `com.termux.permission.RUN_COMMAND`; manual SSH setup remains supported.
 - [!] M9 has no task breakdown: [the roadmap references `tasks/M9-multi-device.md`](MILESTONES.md), but that file is missing.
 - [!] M0-S3/S4 remaining fixture and provisioning acceptance: `adb devices -l` is empty; USB, unauthorized/offline, pairing failures, reset-phone install, and reboot captures require a connected Android phone.
+- [!] M11 phone acceptance: factory setup, rerun/idempotency, interruption recovery, Termux:Boot, permission prompts, and on-phone cleanup require a connected Android phone.
+- [!] M11 T2/T14 per-phone HermesConfig persistence: M9's device-profile boundary is not implemented; changing the global Hermes config would affect other phones.
+- [!] M11 T2/T11 native APT setup: no verified repository URL is configured, so repository installation/fingerprint validation cannot be safely completed.
 - [!] M13-T1/T6 live compatibility checks: only Hermes v0.21.4 has been tested on-device; upstream lists v0.21.6, but setting a supported range and verifying gateway-created sessions requires a phone. Windows/Linux session and performance QA also requires those platforms.
 - [!] M14-T3/T4 Windows/Linux/Wayland tray and release QA: this workspace is on macOS; native runtime behavior cannot be certified without those desktop environments.
+- [!] M12 native runtime/installer QA: Windows/Linux desktop hosts are unavailable; M12-T6/T7 additionally require Authenticode/GPG signing credentials.
+- [!] M16-T1–T4 public release/download acceptance: requires signing credentials, dependency-policy remediation, and a published release; optional R2 evaluation remains discretionary.
 
 ## Open Tickets
 
