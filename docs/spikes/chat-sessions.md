@@ -1,7 +1,7 @@
 # Chat Session Access Spike
 
 **Status:** Hermes REST API selected for the M13 read path; session-list and transcript-page reads verified on one connected device running Hermes Agent v0.21.4. Gateway-session resume and the supported version range remain unverified.
-**Checked:** 2026-10-05 against the Hermes Agent CLI reference and Web Dashboard documentation, plus one live device.
+**Checked:** 2026-10-09 against the Hermes Agent CLI reference, Web Dashboard REST API documentation, upstream [releases](https://github.com/NousResearch/hermes-agent/releases), plus one live device.
 
 ## Findings
 
@@ -28,7 +28,7 @@ Live verification on Hermes Agent v0.21.4 confirmed the session-list `id` field,
 
 ## Compatibility checks still required
 
-- No minimum Hermes version is claimed yet. The live check covers v0.21.4 only; the minimum/current supported version matrix remains open.
+- The upstream release page lists v0.21.6 as the latest release as of 2026-10-09. This establishes the current published version only, not REST API compatibility across releases. No minimum Hermes version is claimed; the live check covers v0.21.4 only, so the minimum/current supported version matrix remains open.
 - Verify documented JSON fields and error envelopes against the minimum supported Hermes version before treating DTOs as stable across versions.
 - `hermes serve --skip-build`, loopback readiness, owner-token validation, and a bounded transcript page were verified on v0.21.4. Port-conflict behavior still needs live verification against an unrelated listener.
 - The connected phone exposed CLI, cron, and oneshot sessions, but no gateway-created session; verify gateway-session browsing and resume without changing source/platform identity.
