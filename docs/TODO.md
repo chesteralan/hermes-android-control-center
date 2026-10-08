@@ -72,7 +72,7 @@ this milestone is not complete.
 - [~] [M11-T3 — Configurable threshold and typed Termux uninstall implemented; factory-phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T4 — Version checks, APK progress and common install-error guidance implemented; OEM/source and phone QA remain](tasks/M11-provisioning.md)
 - [~] [M11-T5 — SDK-scoped settings commands implemented; phone permission and keyguard QA remain](tasks/M11-provisioning.md)
-- [~] [M11-T6 — Foreground launch; wake/keyguard checks remain](tasks/M11-provisioning.md)
+- [~] [M11-T6 — Wake/keyguard detection and bounded Termux focus wait implemented; phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T7 — Bootstrap SSH handoff; retry and interruption cleanup QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T9 — Termux packages/wake lock; live streaming remains](tasks/M11-provisioning.md)
 - [~] [M11-T10 — Distro installation; partial-install/idempotency QA remains](tasks/M11-provisioning.md)

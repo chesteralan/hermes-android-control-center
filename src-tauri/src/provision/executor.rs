@@ -28,6 +28,27 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 const TERMUX_FOCUS_CHECK: &str =
     "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | grep -q 'com.termux/'";
 
+fn device_awake_and_unlocked(power: &str, window: &str) -> bool {
+    let asleep = power.contains("mWakefulness=Asleep") || power.contains("mWakefulness=Dozing");
+    let awake =
+        !asleep && (power.contains("mWakefulness=Awake") || power.contains("mInteractive=true"));
+    let locked = [
+        "mShowingLockscreen=true",
+        "mDreamingLockscreen=true",
+        "mKeyguardShowing=true",
+    ]
+    .iter()
+    .any(|marker| window.contains(marker));
+    let unlocked = [
+        "mShowingLockscreen=false",
+        "mDreamingLockscreen=false",
+        "mKeyguardShowing=false",
+    ]
+    .iter()
+    .any(|marker| window.contains(marker));
+    awake && unlocked && !locked
+}
+
 fn android_settings_commands(sdk: Option<u32>) -> Vec<String> {
     let mut commands = vec![
         "pm grant com.termux android.permission.READ_EXTERNAL_STORAGE".into(),
@@ -68,6 +89,12 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
             .await?
             .shell(&self.serial, command, COMMAND_TIMEOUT)
             .await
+    }
+
+    async fn phone_awake_and_unlocked(&self) -> AppResult<bool> {
+        let power = self.adb_shell("dumpsys power").await?;
+        let window = self.adb_shell("dumpsys window").await?;
+        Ok(device_awake_and_unlocked(&power.stdout, &window.stdout))
     }
 
     async fn remote(&self) -> AppResult<crate::termux::ssh::TermuxSshTransport> {
@@ -470,6 +497,9 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 }
             }
             ProvisionStepId::LaunchTermux => {
+                if !self.phone_awake_and_unlocked().await? {
+                    return Ok(ProvisionCheck::Todo);
+                }
                 let result = self.adb_shell(TERMUX_FOCUS_CHECK).await;
                 Ok(if result.is_ok_and(|output| output.success()) {
                     ProvisionCheck::Done
@@ -699,15 +729,40 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::LaunchTermux => {
+                let _ = self.adb_shell("input keyevent KEYCODE_WAKEUP").await;
+                if !self.phone_awake_and_unlocked().await? {
+                    return Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
+                        "Unlock the phone, then resume this step.".into(),
+                    ));
+                }
                 let result = state.adb_client().await?.shell(
                     &self.serial,
                     "am start -n com.termux/.app.TermuxActivity",
                     COMMAND_TIMEOUT,
                 ).await?;
                 ensure_success("Launch Termux", result)?;
-                Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
-                    "Unlock the phone and keep Termux in the foreground.".into(),
-                ))
+                let started = Instant::now();
+                loop {
+                    if cancel.is_cancelled() {
+                        return Err(AppError::Cancelled);
+                    }
+                    if self
+                        .adb_shell(TERMUX_FOCUS_CHECK)
+                        .await
+                        .is_ok_and(|output| output.success())
+                    {
+                        return Ok(ProvisionStepRunOutcome::Done);
+                    }
+                    if started.elapsed() >= Duration::from_secs(20) {
+                        return Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
+                            "Keep Termux open in the foreground, then resume this step.".into(),
+                        ));
+                    }
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Err(AppError::Cancelled),
+                        _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                    }
+                }
             }
             ProvisionStepId::BootstrapSsh => {
                 self.bootstrap_ssh(cancel, &events).await?;
@@ -859,7 +914,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
 
 #[cfg(test)]
 mod tests {
-    use super::android_settings_commands;
+    use super::{android_settings_commands, device_awake_and_unlocked};
 
     #[test]
     fn android_settings_commands_cover_storage_notifications_and_phantom_api_ranges() {
@@ -901,5 +956,29 @@ mod tests {
         assert!(!unknown_sdk
             .iter()
             .any(|command| command.contains("POST_NOTIFICATIONS")));
+    }
+
+    #[test]
+    fn device_readiness_requires_awake_and_explicitly_unlocked_state() {
+        assert!(device_awake_and_unlocked(
+            "mWakefulness=Awake",
+            "mShowingLockscreen=false"
+        ));
+        assert!(!device_awake_and_unlocked(
+            "mWakefulness=Asleep",
+            "mShowingLockscreen=false"
+        ));
+        assert!(!device_awake_and_unlocked(
+            "mWakefulness=Asleep\nmInteractive=true",
+            "mShowingLockscreen=false"
+        ));
+        assert!(!device_awake_and_unlocked(
+            "mWakefulness=Awake",
+            "mShowingLockscreen=true"
+        ));
+        assert!(!device_awake_and_unlocked(
+            "mWakefulness=Awake",
+            "window state unknown"
+        ));
     }
 }
