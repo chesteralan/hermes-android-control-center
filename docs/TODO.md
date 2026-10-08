@@ -66,7 +66,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ### M11 — New Phone Provisioning
 
-Local foundations are implemented and tested (291 Rust, 134 frontend, 21 Python tests).
+Local foundations are implemented and tested (295 Rust, 134 frontend, 21 Python tests).
 The task file lists remaining implementation details separately from phone-only QA;
 this milestone is not complete.
 
