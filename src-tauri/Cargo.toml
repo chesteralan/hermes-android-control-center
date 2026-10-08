@@ -32,6 +32,7 @@ schemars = "0.8.22"
 sha2 = "0.11.0"
 tauri = { version = "2.11.6", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "=2.2.2"
+tauri-plugin-notification = "=2.4.0"
 tauri-plugin-process = "=2.4.0"
 tauri-plugin-updater = { version = "=2.13.1", default-features = false, features = ["native-tls", "system-proxy", "zip"] }
 tauri-plugin-store = "2.4.5"

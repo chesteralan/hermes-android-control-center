@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { deviceKey, useDevices } from "../../stores/devices";
 import { EMPTY_HERMES, useHermes } from "../../stores/hermes";
 import { useToasts } from "../../stores/toast";
@@ -8,6 +8,12 @@ import { device } from "../../test/fixtures";
 import { mockIpc, resetStores } from "../../test/ipcMock";
 import type { ErrorPayload, HermesActionResult, HermesStatus } from "../../types";
 import { HermesStatusCard } from "./HermesStatusCard";
+
+const notificationMocks = vi.hoisted(() => ({
+  notifyWhenWindowHidden: vi.fn<(title: string, body: string) => Promise<boolean>>(),
+}));
+
+vi.mock("../../lib/nativeNotifications", () => notificationMocks);
 
 const status: HermesStatus = {
   gateway: "running",
@@ -42,6 +48,7 @@ describe("HermesStatusCard", () => {
     localStorage.clear();
     useHermes.setState({ byDevice: {} });
     useToasts.setState({ toasts: [] });
+    notificationMocks.notifyWhenWindowHidden.mockResolvedValue(false);
     useDevices.getState().setDevices([device()]);
   });
 
@@ -56,12 +63,37 @@ describe("HermesStatusCard", () => {
 
     polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
     await store.refresh(key, device().serial);
+    await waitFor(() => expect(useToasts.getState().toasts).toHaveLength(1));
     expect(useToasts.getState().toasts.map((toast) => toast.text)).toEqual([
       "Hermes gateway stopped unexpectedly on CPH2239",
     ]);
+    expect(notificationMocks.notifyWhenWindowHidden).toHaveBeenCalledWith(
+      "Hermes gateway stopped",
+      "Hermes gateway stopped unexpectedly on CPH2239",
+    );
 
     await store.refresh(key, device().serial);
     expect(useToasts.getState().toasts).toHaveLength(1);
+  });
+
+  it("does not enqueue an in-app duplicate when the native notification is sent", async () => {
+    let polledStatus = status;
+    mockIpc({ get_hermes_status: () => polledStatus });
+    notificationMocks.notifyWhenWindowHidden.mockResolvedValue(true);
+    const key = deviceKey(device());
+    const store = useHermes.getState();
+
+    await store.refresh(key, device().serial);
+    polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+    await store.refresh(key, device().serial);
+    await waitFor(() =>
+      expect(notificationMocks.notifyWhenWindowHidden).toHaveBeenCalledWith(
+        "Hermes gateway stopped",
+        "Hermes gateway stopped unexpectedly on CPH2239",
+      ),
+    );
+
+    expect(useToasts.getState().toasts).toHaveLength(0);
   });
 
   it.each(["stop", "restart", "restartNow"] as const)(

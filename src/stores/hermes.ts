@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
+import { notifyWhenWindowHidden } from "../lib/nativeNotifications";
 import { useDevices } from "./devices";
 import { useToasts } from "./toast";
 import type {
@@ -152,9 +153,10 @@ export const useHermes = create<HermesStore>((set, get) => {
         ) {
           const device = useDevices.getState().devices[key];
           const deviceName = device?.model?.replace(/_/g, " ") || device?.deviceId || serial;
-          useToasts
-            .getState()
-            .push(`Hermes gateway stopped unexpectedly on ${deviceName}`, "error");
+          const message = `Hermes gateway stopped unexpectedly on ${deviceName}`;
+          void notifyWhenWindowHidden("Hermes gateway stopped", message).then((sentNative) => {
+            if (!sentNative) useToasts.getState().push(message, "error");
+          });
         }
       } catch (e) {
         patch(key, { loadingStatus: false, statusError: e as ErrorPayload });
