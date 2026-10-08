@@ -520,6 +520,22 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                     {phoneAction.message}
                   </span>
                 )}
+                {phoneAction?.step === "configureHermes" && step.id === "configureHermes" && (
+                  <aside
+                    role="note"
+                    aria-label="Hermes setup guidance"
+                    className="w-full rounded-md border border-warning/30 bg-warning/5 p-3 text-[12px]"
+                  >
+                    <p>
+                      In proot-distro there is no systemd. If setup asks to install or start a
+                      gateway service, choose No; this app supervises the gateway.
+                    </p>
+                    <p className="mt-2 text-muted">
+                      Keep the gateway restricted to users you trust; direct messages should remain
+                      allow-listed or pairing-protected.
+                    </p>
+                  </aside>
+                )}
                 <span className="ml-auto flex gap-2">
                   {phoneAction?.step === step.id ? (
                     <>

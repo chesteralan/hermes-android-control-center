@@ -50,8 +50,9 @@ Remaining implementation and acceptance work:
 - T11: the wizard can review installer size, SHA-256, and contents, then separately approve and
   run the script in the selected environment's interactive PTY. Binary PATH discovery and
   phone/install acceptance remain.
-- T12: interactive configuration avoids persistent terminal history; portal option, setup hint panel,
-  masked atomic config-file fallback editor, and doctor-warning handling remain.
+- T12: interactive configuration avoids persistent terminal history, and the wizard now warns
+  against systemd service setup inside proot while reminding users to restrict gateway access.
+  Portal guidance, masked atomic config-file fallback editor, and doctor-warning handling remain.
 - T13/T14: same-source Termux:Boot resolver/installation, activation and boot hook exist; verify
   signatures, detached supervisor behavior, reboot recovery, readiness/log output, and per-phone save.
 - T15: Device-page wizard supports consent/run-step/cancel/resume/output; Overview/onboarding entry

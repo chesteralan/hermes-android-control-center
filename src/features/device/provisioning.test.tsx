@@ -287,6 +287,49 @@ describe("ProvisioningWizard", () => {
     expect(installCommand).toContain("bash /tmp/hacc-hermes-install.sh");
   });
 
+  it("shows proot service and gateway safety hints during interactive Hermes setup", async () => {
+    const configurePlan: ProvisionPlan = {
+      ...plan,
+      steps: [
+        plan.steps[0]!,
+        {
+          id: "configureHermes",
+          title: "Configure Hermes",
+          state: "todo",
+          detail: null,
+          phoneAction: null,
+          consent: null,
+        },
+      ],
+    };
+    mockIpc({
+      list_provision_recipes: () => [recipe],
+      get_provision_plan: () => configurePlan,
+      run_provision: (args) => {
+        const channel = args?.onEvent as { onmessage: (event: ProvisionEvent) => void };
+        window.setTimeout(() =>
+          channel.onmessage({
+            type: "phoneActionNeeded",
+            step: "configureHermes",
+            message: "Complete Hermes setup in the interactive terminal.",
+          }),
+        );
+        return "provision-configure-hermes";
+      },
+    });
+    render(<ProvisioningWizard serial={plan.serial} />);
+
+    const configureLabel = await screen.findByText("Configure Hermes: To do");
+    const configureRow = configureLabel.closest("li");
+    if (!configureRow) throw new Error("Configure Hermes step was not rendered.");
+    await userEvent.click(within(configureRow).getByRole("button", { name: "Run step" }));
+
+    expect(await screen.findByRole("note", { name: "Hermes setup guidance" })).toBeVisible();
+    expect(screen.getByText(/there is no systemd/)).toBeInTheDocument();
+    expect(screen.getByText(/choose No/)).toBeInTheDocument();
+    expect(screen.getByText(/allow-listed or pairing-protected/)).toBeInTheDocument();
+  });
+
   it("duplicates a bundled recipe and saves the edited TOML as a user recipe", async () => {
     const invoke = mockIpc({
       list_provision_recipes: () => [recipe],
