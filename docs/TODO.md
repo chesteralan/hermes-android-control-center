@@ -11,6 +11,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [x] [M10-T1 — Consistent shell-exit and device-error classification](tasks/M10-production.md): command-not-found exits stay ordinary command results; missing-device streams report device errors.
 - [x] [M10-T1 — Final streamed ADB stderr classification and details](tasks/M10-production.md): split-chunk errors without a final newline retain device-error classification and output; ordinary command exits remain unchanged.
 - [x] [M10-T1 — Terminal input errors precede connection setup](tasks/M10-production.md): blank execute/stream requests are rejected before ADB/SSH/API setup; broader error audit remains open.
+- [x] [M10-T1 — Provisioning-run lock poisoning returns an error](tasks/M10-production.md): IPC reports poisoned state and cleanup failures are logged; the wider error audit remains open.
 - [x] [M10-T1 — Shared export destination validation and write-error coverage](tasks/M10-production.md): log, terminal, and diagnostics exports reject relative/empty/root paths; broader error audit and native-dialog QA remain open.
 - [x] [M10-T6 — Quoted diagnostics secret redaction and synthetic ZIP regression coverage](tasks/M10-production.md): JSON/log secrets, escaped quoted values, Bearer headers, and both IP-consent settings verified; packaged-app archive QA remains open.
 - [x] [M3-T10 — macOS live terminal and logcat QA](tasks/M3-basic-terminal-logs.md): stdout/stderr, exit status, streamed output, Cancel, and Logs Start/Stop/Clear verified on CPH2239.

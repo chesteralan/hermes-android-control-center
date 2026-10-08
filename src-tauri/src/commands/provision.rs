@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
@@ -21,6 +22,22 @@ pub fn list_provision_recipes(state: State<'_, AppState>) -> AppResult<Vec<Provi
 
 fn recipe_directory(data_dir: &Path) -> PathBuf {
     data_dir.join("provision-recipes")
+}
+
+fn lock_provisioning_runs(
+    runs: &Mutex<std::collections::HashSet<String>>,
+) -> AppResult<MutexGuard<'_, std::collections::HashSet<String>>> {
+    runs.lock().map_err(|_| {
+        AppError::Config("Provisioning state is unavailable after a previous failure.".into())
+    })
+}
+
+fn remove_active_provisioning_run(
+    runs: &Mutex<std::collections::HashSet<String>>,
+    device_id: &str,
+) -> AppResult<()> {
+    lock_provisioning_runs(runs)?.remove(device_id);
+    Ok(())
 }
 
 fn save_user_recipe(data_dir: &Path, source: &str) -> AppResult<ProvisionRecipe> {
@@ -287,7 +304,7 @@ pub async fn run_provision<R: Runtime>(
     let recipe = recipe_by_id(&state.data_dir, &recipe_id)?;
     let device_id = state.device_id_for(&serial);
     {
-        let mut active = state.provisioning_runs.lock().unwrap();
+        let mut active = lock_provisioning_runs(&state.provisioning_runs)?;
         if !active.insert(device_id.clone()) {
             return Err(AppError::Config(
                 "Provisioning is already running for this phone.".into(),
@@ -302,7 +319,11 @@ pub async fn run_provision<R: Runtime>(
         Ok(progress) => progress,
         Err(error) => {
             state.streams.finish(&run_id);
-            state.provisioning_runs.lock().unwrap().remove(&device_id);
+            if let Err(lock_error) =
+                remove_active_provisioning_run(&state.provisioning_runs, &device_id)
+            {
+                tracing::error!(error = %lock_error, "failed to release provisioning run after progress load failure");
+            }
             return Err(error);
         }
     };
@@ -338,11 +359,12 @@ pub async fn run_provision<R: Runtime>(
         }
         forwarder.await.ok();
         app.state::<AppState>().streams.finish(&stream_id);
-        app.state::<AppState>()
-            .provisioning_runs
-            .lock()
-            .unwrap()
-            .remove(&active_device_id);
+        if let Err(error) = remove_active_provisioning_run(
+            &app.state::<AppState>().provisioning_runs,
+            &active_device_id,
+        ) {
+            tracing::error!(device_id = %active_device_id, error = %error, "failed to release completed provisioning run");
+        }
     });
     Ok(run_id)
 }
@@ -356,6 +378,22 @@ pub fn cancel_provision(state: State<'_, AppState>, run_id: String) -> bool {
 mod tests {
     use super::*;
     use crate::adb::{BatteryInfo, CpuInfo, MemoryInfo, StorageInfo};
+
+    #[test]
+    fn poisoned_provisioning_run_lock_returns_error() {
+        let runs = std::sync::Arc::new(Mutex::new(std::collections::HashSet::new()));
+        let poison = runs.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison.lock().unwrap();
+            panic!("poison provisioning runs");
+        })
+        .join();
+
+        let error = lock_provisioning_runs(&runs).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Provisioning state is unavailable"));
+    }
 
     fn bundled(id: &str) -> ProvisionRecipe {
         bundled_recipes()
