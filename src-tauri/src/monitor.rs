@@ -14,6 +14,7 @@ pub const EVT_RECONNECT: &str = "device://reconnect";
 
 pub fn emit_devices<R: Runtime>(app: &AppHandle<R>) {
     let list = app.state::<AppState>().devices.list();
+    crate::lifecycle::update_tray_status(app, &list);
     if let Err(e) = app.emit(EVT_DEVICES, list) {
         tracing::warn!(error = %e, "emit devices failed");
     }

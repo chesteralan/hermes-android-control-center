@@ -94,7 +94,8 @@
 - **Progress:** Existing app icons are bundled. About and the visible app version are implemented; native menu items provide About, Check for Updates, Settings (`CmdOrCtrl+,`), and Quit. The displayed version comes from `package.json`.
 - **Remaining:** Verify native menu behavior in packaged builds on each supported platform.
 
-### [ ] M10-T9 Stretch: tray status icon (aggregate status of all phones), crash notifications naming the phone, health timeline.
+### [~] M10-T9 Stretch: tray status icon (aggregate status of all phones), crash notifications naming the phone, health timeline.
+- **Progress:** The tray icon and tooltip now reflect whether no phones are connected, all listed phones are connected, or at least one needs attention. Crash notifications and a persistent health timeline remain open.
 
 ## Release engineering
 
