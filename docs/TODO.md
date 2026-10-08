@@ -70,7 +70,7 @@ this milestone is not complete.
 - [~] [M11-T1 — Provisioning engine; in-operation interruption QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T2 — Recipes; native repository and per-phone configuration remain](tasks/M11-provisioning.md)
 - [~] [M11-T3 — Configurable threshold and typed Termux uninstall implemented; factory-phone QA remains](tasks/M11-provisioning.md)
-- [~] [M11-T4 — Minimum Termux version enforced; download progress, OEM mapping, compatibility and phone QA remain](tasks/M11-provisioning.md)
+- [~] [M11-T4 — Version enforcement and APK download progress implemented; OEM/source and phone QA remain](tasks/M11-provisioning.md)
 - [~] [M11-T5 — Optional Android settings; storage permissions and command tests remain](tasks/M11-provisioning.md)
 - [~] [M11-T6 — Foreground launch; wake/keyguard checks remain](tasks/M11-provisioning.md)
 - [~] [M11-T7 — Bootstrap SSH handoff; retry and interruption cleanup QA remains](tasks/M11-provisioning.md)

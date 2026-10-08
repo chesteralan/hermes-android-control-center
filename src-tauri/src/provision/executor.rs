@@ -349,6 +349,30 @@ async fn emit_output(
         .await;
 }
 
+fn emit_apk_download_progress(
+    step: ProvisionStepId,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+    events: &mpsc::Sender<ProvisionEvent>,
+) {
+    let mib = 1024.0 * 1024.0;
+    let downloaded_mib = downloaded_bytes as f64 / mib;
+    let progress = match total_bytes.filter(|total| *total > 0) {
+        Some(total) => {
+            let total_mib = total as f64 / mib;
+            let percent = downloaded_bytes as f64 * 100.0 / total as f64;
+            format!("{downloaded_mib:.1} / {total_mib:.1} MiB ({percent:.0}%)")
+        }
+        None => format!("{downloaded_mib:.1} MiB downloaded"),
+    };
+    let _ = events.try_send(ProvisionEvent::Output {
+        step,
+        event: StreamEvent::Stdout {
+            line: format!("APK download: {progress}"),
+        },
+    });
+}
+
 #[async_trait]
 impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
     async fn check(&self, step: ProvisionStepId) -> AppResult<ProvisionCheck> {
@@ -586,7 +610,16 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 })?;
                 let cache = self.app.path().app_cache_dir()
                     .map_err(|error| AppError::Io(error.to_string()))?;
-                let downloaded = download_termux_apk(self.recipe.termux_source, &abi, &cache).await?;
+                let progress_events = events.clone();
+                let downloaded = download_termux_apk(
+                    self.recipe.termux_source,
+                    &abi,
+                    &cache,
+                    move |downloaded_bytes, total_bytes| {
+                        emit_apk_download_progress(step, downloaded_bytes, total_bytes, &progress_events);
+                    },
+                )
+                .await?;
                 if !self
                     .recipe
                     .termux_version_meets_minimum(Some(&downloaded.version_name))
@@ -741,10 +774,19 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     })?;
                     let cache = self.app.path().app_cache_dir()
                         .map_err(|error| AppError::Io(error.to_string()))?;
+                    let progress_events = events.clone();
                     let downloaded = download_termux_boot_apk(
                         self.recipe.termux_source,
                         &abi,
                         &cache,
+                        move |downloaded_bytes, total_bytes| {
+                            emit_apk_download_progress(
+                                step,
+                                downloaded_bytes,
+                                total_bytes,
+                                &progress_events,
+                            );
+                        },
                     ).await?;
                     let output = match state
                         .adb_client()

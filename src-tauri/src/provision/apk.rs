@@ -13,6 +13,7 @@ use super::recipe::ProvisionTermuxSource;
 const FDROID_INDEX_URL: &str = "https://f-droid.org/repo/index-v1.jar";
 const USER_AGENT: &str = "HermesControlCenter/0.1 (Termux provisioning)";
 const MAX_APK_BYTES: usize = 100 * 1024 * 1024;
+const DOWNLOAD_PROGRESS_INTERVAL_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApkAsset {
@@ -30,6 +31,14 @@ pub struct DownloadedApk {
     pub version_name: String,
     pub version_code: u64,
     pub sha256: String,
+}
+
+struct AppApkRequest<'a> {
+    package_name: &'a str,
+    github_repository: &'a str,
+    github_asset_prefix: &'a str,
+    abi: &'a str,
+    cache_file_name: &'a str,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -265,15 +274,19 @@ pub async fn download_termux_apk(
     source: ProvisionTermuxSource,
     abi: &str,
     cache_dir: &Path,
+    on_progress: impl FnMut(u64, Option<u64>),
 ) -> AppResult<DownloadedApk> {
     download_app_apk(
         source,
-        "com.termux",
-        "termux/termux-app",
-        "termux-app_",
-        abi,
+        AppApkRequest {
+            package_name: "com.termux",
+            github_repository: "termux/termux-app",
+            github_asset_prefix: "termux-app_",
+            abi,
+            cache_file_name: "termux.apk",
+        },
         cache_dir,
-        "termux.apk",
+        on_progress,
     )
     .await
 }
@@ -282,27 +295,28 @@ pub async fn download_termux_boot_apk(
     source: ProvisionTermuxSource,
     abi: &str,
     cache_dir: &Path,
+    on_progress: impl FnMut(u64, Option<u64>),
 ) -> AppResult<DownloadedApk> {
     download_app_apk(
         source,
-        "com.termux.boot",
-        "termux/termux-boot",
-        "termux-boot_",
-        abi,
+        AppApkRequest {
+            package_name: "com.termux.boot",
+            github_repository: "termux/termux-boot",
+            github_asset_prefix: "termux-boot_",
+            abi,
+            cache_file_name: "termux-boot.apk",
+        },
         cache_dir,
-        "termux-boot.apk",
+        on_progress,
     )
     .await
 }
 
 async fn download_app_apk(
     source: ProvisionTermuxSource,
-    package_name: &str,
-    github_repository: &str,
-    github_asset_prefix: &str,
-    abi: &str,
+    request: AppApkRequest<'_>,
     cache_dir: &Path,
-    cache_file_name: &str,
+    mut on_progress: impl FnMut(u64, Option<u64>),
 ) -> AppResult<DownloadedApk> {
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
@@ -335,12 +349,13 @@ async fn download_app_apk(
                 .map_err(|error| {
                     AppError::Io(format!("Could not read F-Droid index JSON: {error}"))
                 })?;
-            select_fdroid_app_asset(&index_json, package_name, abi)?
+            select_fdroid_app_asset(&index_json, request.package_name, request.abi)?
         }
         ProvisionTermuxSource::Github => {
             let release_json = client
                 .get(format!(
-                    "https://api.github.com/repos/{github_repository}/releases/latest"
+                    "https://api.github.com/repos/{}/releases/latest",
+                    request.github_repository
                 ))
                 .send()
                 .await
@@ -352,7 +367,7 @@ async fn download_app_apk(
                 .map_err(|error| {
                     AppError::Io(format!("Could not read Termux release metadata: {error}"))
                 })?;
-            select_github_asset_for_prefix(&release_json, github_asset_prefix, abi)?
+            select_github_asset_for_prefix(&release_json, request.github_asset_prefix, request.abi)?
         }
     };
     let mut response = client
@@ -370,7 +385,10 @@ async fn download_app_apk(
             "Downloaded APK exceeds the 100 MiB safety limit.".into(),
         ));
     }
+    let total_bytes = response.content_length();
     let mut bytes = Vec::new();
+    let mut last_reported_bytes = 0_u64;
+    on_progress(0, total_bytes);
     while let Some(chunk) = response
         .chunk()
         .await
@@ -382,10 +400,19 @@ async fn download_app_apk(
             ));
         }
         bytes.extend_from_slice(&chunk);
+        let downloaded_bytes = bytes.len() as u64;
+        if should_report_download_progress(downloaded_bytes, last_reported_bytes, total_bytes) {
+            on_progress(downloaded_bytes, total_bytes);
+            last_reported_bytes = downloaded_bytes;
+        }
+    }
+    let downloaded_bytes = bytes.len() as u64;
+    if downloaded_bytes > last_reported_bytes {
+        on_progress(downloaded_bytes, total_bytes);
     }
     verify_sha256(&bytes, &asset.sha256)?;
     std::fs::create_dir_all(cache_dir)?;
-    let path = cache_dir.join(format!("{}-{cache_file_name}", asset.sha256));
+    let path = cache_dir.join(format!("{}-{}", asset.sha256, request.cache_file_name));
     std::fs::write(&path, &bytes)?;
     Ok(DownloadedApk {
         path,
@@ -394,6 +421,15 @@ async fn download_app_apk(
         version_code: asset.version_code,
         sha256: asset.sha256,
     })
+}
+
+fn should_report_download_progress(
+    downloaded_bytes: u64,
+    last_reported_bytes: u64,
+    total_bytes: Option<u64>,
+) -> bool {
+    downloaded_bytes.saturating_sub(last_reported_bytes) >= DOWNLOAD_PROGRESS_INTERVAL_BYTES
+        || total_bytes.is_some_and(|total| downloaded_bytes == total)
 }
 
 fn normalize_abi(abi: &str) -> AppResult<String> {
@@ -441,6 +477,21 @@ mod tests {
     use super::*;
 
     const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    #[test]
+    fn download_progress_is_throttled_but_reports_completion() {
+        assert!(!should_report_download_progress(
+            512 * 1024,
+            0,
+            Some(2 * 1024 * 1024)
+        ));
+        assert!(should_report_download_progress(
+            1024 * 1024,
+            0,
+            Some(2 * 1024 * 1024)
+        ));
+        assert!(should_report_download_progress(1500, 1000, Some(1500)));
+    }
 
     #[tokio::test]
     async fn receipt_identifies_only_matching_device_and_installed_apk() {
