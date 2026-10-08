@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use tokio_util::sync::CancellationToken;
 
@@ -28,10 +28,23 @@ impl StreamRegistry {
         }
     }
 
+    fn lock_entries(&self) -> MutexGuard<'_, HashMap<StreamId, Entry>> {
+        self.entries.lock().unwrap_or_else(|poisoned| {
+            tracing::error!("stream registry lock was poisoned; cancelling active streams");
+            let mut entries = poisoned.into_inner();
+            for entry in entries.values() {
+                entry.token.cancel();
+            }
+            entries.clear();
+            self.entries.clear_poison();
+            entries
+        })
+    }
+
     pub fn register(&self, serial: &str, prefix: &str) -> (StreamId, CancellationToken) {
         let id = format!("{prefix}-{}", self.next.fetch_add(1, Ordering::Relaxed));
         let token = self.root.child_token();
-        self.entries.lock().unwrap().insert(
+        self.lock_entries().insert(
             id.clone(),
             Entry {
                 serial: serial.to_string(),
@@ -43,11 +56,11 @@ impl StreamRegistry {
 
     /// Call when a stream ends on its own.
     pub fn finish(&self, id: &str) {
-        self.entries.lock().unwrap().remove(id);
+        self.lock_entries().remove(id);
     }
 
     pub fn cancel(&self, id: &str) -> bool {
-        match self.entries.lock().unwrap().remove(id) {
+        match self.lock_entries().remove(id) {
             Some(e) => {
                 e.token.cancel();
                 true
@@ -57,7 +70,7 @@ impl StreamRegistry {
     }
 
     pub fn cancel_device(&self, serial: &str) -> usize {
-        let mut g = self.entries.lock().unwrap();
+        let mut g = self.lock_entries();
         let ids: Vec<StreamId> = g
             .iter()
             .filter(|(_, e)| e.serial == serial)
@@ -72,7 +85,7 @@ impl StreamRegistry {
     }
 
     pub fn len(&self) -> usize {
-        self.entries.lock().unwrap().len()
+        self.lock_entries().len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -106,5 +119,22 @@ mod tests {
         let (_, t) = r.register("d", "x");
         root.cancel();
         assert!(t.is_cancelled());
+    }
+
+    #[test]
+    fn poisoned_registry_cancels_active_streams_and_recovers() {
+        let registry = std::sync::Arc::new(StreamRegistry::new(CancellationToken::new()));
+        let (_, token) = registry.register("device", "terminal");
+        let poison = registry.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison.entries.lock().unwrap();
+            panic!("poison stream registry");
+        })
+        .join();
+
+        assert_eq!(registry.len(), 0);
+        assert!(token.is_cancelled());
+        let (_, next) = registry.register("device", "terminal");
+        assert!(!next.is_cancelled());
     }
 }

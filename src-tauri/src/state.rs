@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use russh::keys::PrivateKey;
 use tokio::sync::RwLock;
@@ -118,6 +118,31 @@ pub struct AppState {
 }
 
 impl AppState {
+    fn lock_reconnects(&self) -> MutexGuard<'_, HashMap<String, CancellationToken>> {
+        self.reconnects.lock().unwrap_or_else(|poisoned| {
+            tracing::error!("reconnect registry lock was poisoned; cancelling active retries");
+            let mut reconnects = poisoned.into_inner();
+            for token in reconnects.values() {
+                token.cancel();
+            }
+            reconnects.clear();
+            self.reconnects.clear_poison();
+            reconnects
+        })
+    }
+
+    pub fn track_reconnect(
+        &self,
+        serial: String,
+        token: CancellationToken,
+    ) -> Option<CancellationToken> {
+        self.lock_reconnects().insert(serial, token)
+    }
+
+    pub fn remove_reconnect(&self, serial: &str) -> Option<CancellationToken> {
+        self.lock_reconnects().remove(serial)
+    }
+
     pub fn new(
         runner: Arc<dyn ProcessRunner>,
         config: AppConfig,
@@ -279,7 +304,7 @@ impl AppState {
     }
 
     pub fn cancel_reconnect(&self, serial: &str) {
-        if let Some(t) = self.reconnects.lock().unwrap().remove(serial) {
+        if let Some(t) = self.remove_reconnect(serial) {
             t.cancel();
         }
     }
@@ -315,5 +340,31 @@ mod tests {
         assert!(matches!(state.ssh_key(), Err(AppError::Io(message))
             if message.contains("Restart the application")));
         assert!(!keys::key_path(&directory).exists());
+    }
+
+    #[test]
+    fn poisoned_reconnect_registry_cancels_retries_and_recovers() {
+        let directory =
+            std::env::temp_dir().join(format!("hacc-reconnect-lock-{}", std::process::id()));
+        let state = Arc::new(AppState::new(
+            Arc::new(FakeRunner::new()),
+            AppConfig::default(),
+            Box::new(|_| {}),
+            directory,
+        ));
+        let token = CancellationToken::new();
+        state.track_reconnect("serial".into(), token.clone());
+        let poison = state.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison.reconnects.lock().unwrap();
+            panic!("poison reconnect registry");
+        })
+        .join();
+
+        state.cancel_reconnect("serial");
+        assert!(token.is_cancelled());
+        assert!(state
+            .track_reconnect("serial".into(), CancellationToken::new())
+            .is_none());
     }
 }

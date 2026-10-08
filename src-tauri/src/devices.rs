@@ -1,7 +1,7 @@
 //! In-memory view of all devices, keyed by serial. Multi-device by design.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use serde::Serialize;
 use ts_rs::TS;
@@ -60,8 +60,16 @@ impl DeviceRegistry {
         Self::default()
     }
 
+    fn lock_inner(&self) -> MutexGuard<'_, Inner> {
+        self.inner.lock().unwrap_or_else(|poisoned| {
+            tracing::error!("device registry lock was poisoned; recovering in-memory state");
+            self.inner.clear_poison();
+            poisoned.into_inner()
+        })
+    }
+
     pub fn apply_snapshot(&self, mut list: Vec<AndroidDevice>) -> SnapshotDiff {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.lock_inner();
         for d in &mut list {
             if d.device_id.is_none() {
                 d.device_id = g.ids.get(&d.serial).cloned();
@@ -108,7 +116,7 @@ impl DeviceRegistry {
 
     /// Devices for the UI, including lost wireless devices that are reconnecting or gave up.
     pub fn list(&self) -> Vec<AndroidDevice> {
-        let g = self.inner.lock().unwrap();
+        let g = self.lock_inner();
         let mut out: Vec<AndroidDevice> = g.devices.values().cloned().collect();
         for (serial, status) in &g.reconnect {
             if g.devices.contains_key(serial) {
@@ -127,11 +135,11 @@ impl DeviceRegistry {
     }
 
     pub fn get(&self, serial: &str) -> Option<AndroidDevice> {
-        self.inner.lock().unwrap().devices.get(serial).cloned()
+        self.lock_inner().devices.get(serial).cloned()
     }
 
     pub fn set_device_id(&self, serial: &str, id: &str) -> bool {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.lock_inner();
         g.ids.insert(serial.to_string(), id.to_string());
         if g.manual_disconnect.remove(serial) {
             g.manual_disconnect.insert(id.to_string());
@@ -158,7 +166,7 @@ impl DeviceRegistry {
     }
 
     pub fn mark_manual_disconnect(&self, serial: &str) {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.lock_inner();
         let id = g
             .devices
             .get(serial)
@@ -175,7 +183,7 @@ impl DeviceRegistry {
     }
 
     pub fn clear_manual_disconnect(&self, serial: &str) {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.lock_inner();
         g.manual_disconnect.remove(serial);
         if let Some(id) = g
             .devices
@@ -193,7 +201,7 @@ impl DeviceRegistry {
     }
 
     pub fn is_manual_disconnect(&self, serial: &str) -> bool {
-        let g = self.inner.lock().unwrap();
+        let g = self.lock_inner();
         g.manual_disconnect.contains(serial)
             || g.devices
                 .get(serial)
@@ -203,33 +211,25 @@ impl DeviceRegistry {
     }
 
     pub fn set_reconnect(&self, status: ReconnectStatus) {
-        self.inner
-            .lock()
-            .unwrap()
+        self.lock_inner()
             .reconnect
             .insert(status.serial.clone(), status);
     }
 
     pub fn clear_reconnect(&self, serial: &str) {
-        self.inner.lock().unwrap().reconnect.remove(serial);
+        self.lock_inner().reconnect.remove(serial);
     }
 
     pub fn reconnect_status(&self, serial: &str) -> Option<ReconnectStatus> {
-        self.inner.lock().unwrap().reconnect.get(serial).cloned()
+        self.lock_inner().reconnect.get(serial).cloned()
     }
 
     pub fn reconnect_statuses(&self) -> Vec<ReconnectStatus> {
-        self.inner
-            .lock()
-            .unwrap()
-            .reconnect
-            .values()
-            .cloned()
-            .collect()
+        self.lock_inner().reconnect.values().cloned().collect()
     }
 
     pub fn last_seen(&self, serial: &str) -> Option<AndroidDevice> {
-        self.inner.lock().unwrap().last_seen.get(serial).cloned()
+        self.lock_inner().last_seen.get(serial).cloned()
     }
 }
 
@@ -240,6 +240,20 @@ mod tests {
 
     fn snap(text: &str) -> Vec<AndroidDevice> {
         parse_devices(text)
+    }
+
+    #[test]
+    fn poisoned_registry_lock_recovers_without_panicking() {
+        let registry = std::sync::Arc::new(DeviceRegistry::new());
+        let poison = registry.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison.inner.lock().unwrap();
+            panic!("poison device registry");
+        })
+        .join();
+
+        assert!(registry.list().is_empty());
+        assert!(!registry.apply_snapshot(Vec::new()).changed);
     }
 
     #[test]

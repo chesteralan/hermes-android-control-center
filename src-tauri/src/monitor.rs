@@ -120,8 +120,7 @@ pub fn spawn_reconnect<R: Runtime>(app: AppHandle<R>, device: AndroidDevice) {
     let state = app.state::<AppState>();
     let token = state.shutdown.child_token();
     {
-        let mut map = state.reconnects.lock().unwrap();
-        if let Some(old) = map.insert(device.serial.clone(), token.clone()) {
+        if let Some(old) = state.track_reconnect(device.serial.clone(), token.clone()) {
             old.cancel();
         }
     }
@@ -154,7 +153,7 @@ pub fn spawn_reconnect<R: Runtime>(app: AppHandle<R>, device: AndroidDevice) {
             state.devices.clear_reconnect(&device.serial);
         }
         if !mine.is_cancelled() {
-            state.reconnects.lock().unwrap().remove(&device.serial);
+            state.remove_reconnect(&device.serial);
         }
         emit_devices(&app);
     });
