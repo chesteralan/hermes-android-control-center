@@ -1,8 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import { useDevices } from "../../stores/devices";
-import { useHermes } from "../../stores/hermes";
+import { deviceKey, useDevices } from "../../stores/devices";
+import { EMPTY_HERMES, useHermes } from "../../stores/hermes";
+import { useToasts } from "../../stores/toast";
 import { device } from "../../test/fixtures";
 import { mockIpc, resetStores } from "../../test/ipcMock";
 import type { ErrorPayload, HermesActionResult, HermesStatus } from "../../types";
@@ -39,11 +40,90 @@ describe("HermesStatusCard", () => {
   beforeEach(() => {
     resetStores();
     useHermes.setState({ byDevice: {} });
+    useToasts.setState({ toasts: [] });
     useDevices.getState().setDevices([device()]);
   });
 
+  it("notifies by phone name when a running gateway stops unexpectedly", async () => {
+    let polledStatus = status;
+    mockIpc({ get_hermes_status: () => polledStatus });
+    const key = deviceKey(device());
+    const store = useHermes.getState();
+
+    await store.refresh(key, device().serial);
+    expect(useToasts.getState().toasts).toHaveLength(0);
+
+    polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+    await store.refresh(key, device().serial);
+    expect(useToasts.getState().toasts.map((toast) => toast.text)).toEqual([
+      "Hermes gateway stopped unexpectedly on CPH2239",
+    ]);
+
+    await store.refresh(key, device().serial);
+    expect(useToasts.getState().toasts).toHaveLength(1);
+  });
+
+  it.each(["stop", "restart", "restartNow"] as const)(
+    "does not notify during an active %s action",
+    async (action) => {
+      let polledStatus = status;
+      mockIpc({ get_hermes_status: () => polledStatus });
+      const key = deviceKey(device());
+      const store = useHermes.getState();
+
+      await store.refresh(key, device().serial);
+      useHermes.setState((state) => ({
+        byDevice: {
+          ...state.byDevice,
+          [key]: { ...EMPTY_HERMES, ...state.byDevice[key], action },
+        },
+      }));
+      polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+
+      await store.refresh(key, device().serial);
+      expect(useToasts.getState().toasts).toHaveLength(0);
+    },
+  );
+
+  it("does not notify during an active Hermes tool", async () => {
+    let polledStatus = status;
+    mockIpc({ get_hermes_status: () => polledStatus });
+    const key = deviceKey(device());
+    const store = useHermes.getState();
+
+    await store.refresh(key, device().serial);
+    useHermes.setState((state) => ({
+      byDevice: {
+        ...state.byDevice,
+        [key]: { ...EMPTY_HERMES, ...state.byDevice[key], tool: "update" },
+      },
+    }));
+    polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+
+    await store.refresh(key, device().serial);
+    expect(useToasts.getState().toasts).toHaveLength(0);
+  });
+
+  it("shows recent gateway transitions in the status card", async () => {
+    let polledStatus = status;
+    mockIpc({ get_hermes_status: () => polledStatus });
+    render(<HermesStatusCard />);
+    expect(await screen.findByText("running")).toBeInTheDocument();
+
+    polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByRole("region", { name: "Recent gateway history" })).toBeVisible();
+    expect(screen.getByText("Gateway running")).toBeInTheDocument();
+    expect(screen.getByText("Gateway stopped")).toBeInTheDocument();
+  });
+
   it("preserves detection errors across successful and failed status polls", async () => {
-    const detectionError = { kind: "termuxUnavailable", message: "SSH key rejected", details: null };
+    const detectionError = {
+      kind: "termuxUnavailable",
+      message: "SSH key rejected",
+      details: null,
+    };
     const pollError = { kind: "io", message: "Status temporarily unavailable", details: null };
     let pollFails = false;
     mockIpc({
@@ -51,7 +131,9 @@ describe("HermesStatusCard", () => {
         if (pollFails) throw pollError;
         return status;
       },
-      detect_hermes: () => { throw detectionError; },
+      detect_hermes: () => {
+        throw detectionError;
+      },
     });
     const store = useHermes.getState();
     await store.detect("phone", device().serial);
@@ -108,10 +190,12 @@ describe("HermesStatusCard", () => {
       await operation();
       await store.refresh("phone", device().serial);
       expect(useHermes.getState().byDevice.phone?.error).toEqual(failure);
-      useHermes.setState((state) => ({ byDevice: {
-        ...state.byDevice,
-        phone: { ...state.byDevice.phone!, statusError: failure },
-      } }));
+      useHermes.setState((state) => ({
+        byDevice: {
+          ...state.byDevice,
+          phone: { ...state.byDevice.phone!, statusError: failure },
+        },
+      }));
       failOperation = false;
       await operation();
       expect(useHermes.getState().byDevice.phone?.error).toBeNull();
@@ -200,7 +284,10 @@ describe("HermesStatusCard", () => {
 
   it("shows configured status output in expandable details", async () => {
     mockIpc({
-      get_hermes_status: () => ({ ...status, rawStatusOutput: "Hermes: running\\nGateway: healthy" }),
+      get_hermes_status: () => ({
+        ...status,
+        rawStatusOutput: "Hermes: running\\nGateway: healthy",
+      }),
     });
     render(<HermesStatusCard />);
     await screen.findByText("running");

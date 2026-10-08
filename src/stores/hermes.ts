@@ -1,7 +1,10 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
+import { useDevices } from "./devices";
+import { useToasts } from "./toast";
 import type {
   CommandResult,
+  ComponentStatus,
   ErrorPayload,
   HermesAction,
   HermesActionResult,
@@ -12,6 +15,7 @@ import type {
 
 export interface HermesEntry {
   status: HermesStatus | null;
+  healthHistory: HermesHealthEvent[];
   detection: HermesInstallReport | null;
   loadingStatus: boolean;
   detecting: boolean;
@@ -23,8 +27,26 @@ export interface HermesEntry {
   statusError: ErrorPayload | null;
 }
 
+export interface HermesHealthEvent {
+  id: number;
+  checkedAt: number;
+  gateway: ComponentStatus;
+}
+
+const MAX_HEALTH_EVENTS = 20;
+let nextHealthEventId = 1;
+
+function recordGatewayStatus(entry: HermesEntry, status: HermesStatus): HermesHealthEvent[] {
+  if (entry.status?.gateway === status.gateway) return entry.healthHistory;
+  return [
+    ...entry.healthHistory,
+    { id: nextHealthEventId++, checkedAt: status.checkedAt, gateway: status.gateway },
+  ].slice(-MAX_HEALTH_EVENTS);
+}
+
 export const EMPTY_HERMES: HermesEntry = {
   status: null,
+  healthHistory: [],
   detection: null,
   loadingStatus: false,
   detecting: false,
@@ -45,9 +67,11 @@ interface HermesStore {
   clearError: (key: string) => void;
 }
 
-export const useHermes = create<HermesStore>((set) => {
+export const useHermes = create<HermesStore>((set, get) => {
   const patch = (key: string, value: Partial<HermesEntry>) =>
-    set((s) => ({ byDevice: { ...s.byDevice, [key]: { ...(s.byDevice[key] ?? EMPTY_HERMES), ...value } } }));
+    set((s) => ({
+      byDevice: { ...s.byDevice, [key]: { ...(s.byDevice[key] ?? EMPTY_HERMES), ...value } },
+    }));
 
   return {
     byDevice: {},
@@ -55,7 +79,26 @@ export const useHermes = create<HermesStore>((set) => {
       patch(key, { loadingStatus: true, statusError: null });
       try {
         const status = await ipc.getHermesStatus(serial);
-        patch(key, { status, loadingStatus: false });
+        const previous = get().byDevice[key] ?? EMPTY_HERMES;
+        const wasRunning =
+          previous.status?.gateway === "running" || previous.status?.gateway === "degraded";
+        patch(key, {
+          status,
+          loadingStatus: false,
+          healthHistory: recordGatewayStatus(previous, status),
+        });
+        if (
+          wasRunning &&
+          status.gateway === "stopped" &&
+          previous.action === null &&
+          previous.tool === null
+        ) {
+          const device = useDevices.getState().devices[key];
+          const deviceName = device?.model?.replace(/_/g, " ") || device?.deviceId || serial;
+          useToasts
+            .getState()
+            .push(`Hermes gateway stopped unexpectedly on ${deviceName}`, "error");
+        }
       } catch (e) {
         patch(key, { loadingStatus: false, statusError: e as ErrorPayload });
       }
@@ -73,7 +116,14 @@ export const useHermes = create<HermesStore>((set) => {
       patch(key, { action, result: null, tool: null, toolOutput: null, error: null });
       try {
         const result = await ipc.hermesAction(serial, action);
-        patch(key, { result, status: result.status, statusError: null, action: null });
+        const previous = get().byDevice[key] ?? EMPTY_HERMES;
+        patch(key, {
+          result,
+          status: result.status,
+          statusError: null,
+          action: null,
+          healthHistory: recordGatewayStatus(previous, result.status),
+        });
       } catch (e) {
         patch(key, { action: null, error: e as ErrorPayload });
       }
@@ -84,7 +134,12 @@ export const useHermes = create<HermesStore>((set) => {
         const toolOutput = await ipc.runHermesTool(serial, tool);
         patch(key, { tool: null, toolOutput });
         const status = await ipc.getHermesStatus(serial);
-        patch(key, { status, statusError: null });
+        const previous = get().byDevice[key] ?? EMPTY_HERMES;
+        patch(key, {
+          status,
+          statusError: null,
+          healthHistory: recordGatewayStatus(previous, status),
+        });
       } catch (e) {
         patch(key, { tool: null, error: e as ErrorPayload });
       }

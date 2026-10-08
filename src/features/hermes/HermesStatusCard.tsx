@@ -85,6 +85,7 @@ function HermesCardForDevice({
   const runningAction = entry.action !== null;
   const runningTool = entry.tool !== null;
   const title = deviceTitle(device);
+  const recentHealth = [...entry.healthHistory].reverse().slice(0, 5);
 
   const onAction = (action: HermesAction) => {
     setConfirm(null);
@@ -192,6 +193,29 @@ function HermesCardForDevice({
                   <li key={warning}>{warning}</li>
                 ))}
               </ul>
+            )}
+            {recentHealth.length > 0 && (
+              <section className="border-t border-border pt-3" aria-label="Recent gateway history">
+                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-muted">
+                  Recent gateway history
+                </h3>
+                <ol className="flex flex-col gap-1">
+                  {recentHealth.map((event) => (
+                    <li key={event.id} className="flex items-center gap-3 text-[12px]">
+                      <time
+                        className="font-mono text-muted"
+                        dateTime={new Date(event.checkedAt * 1000).toISOString()}
+                      >
+                        {new Date(event.checkedAt * 1000).toLocaleTimeString()}
+                      </time>
+                      <StatusDot
+                        tone={STATUS_TONE[event.gateway]}
+                        label={`Gateway ${event.gateway}`}
+                      />
+                    </li>
+                  ))}
+                </ol>
+              </section>
             )}
             {status.rawStatusOutput && (
               <details className="rounded-md border border-border bg-bg p-2 text-[12px]">
