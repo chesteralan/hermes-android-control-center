@@ -47,8 +47,9 @@ Remaining implementation and acceptance work:
   and exit status. Connected-phone streaming verification remains.
 - T10: reruns now skip distro installation when the selected distro is listed and reapply its
   package set idempotently. Partial-rootfs repair and connected-phone verification remain open.
-- T11: interactive handoff downloads/displays installer text and SHA-256 but does not execute it;
-  user execution after review, a dedicated script viewer/approval path, and binary PATH discovery remain.
+- T11: the wizard can review installer size, SHA-256, and contents, then separately approve and
+  run the script in the selected environment's interactive PTY. Binary PATH discovery and
+  phone/install acceptance remain.
 - T12: interactive configuration avoids persistent terminal history; portal option, setup hint panel,
   masked atomic config-file fallback editor, and doctor-warning handling remain.
 - T13/T14: same-source Termux:Boot resolver/installation, activation and boot hook exist; verify

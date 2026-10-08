@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { parse as parseToml } from "smol-toml";
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetStores, mockIpc } from "../../test/ipcMock";
+import { useTerminal } from "../../stores/terminal";
+import { useRoute } from "../../stores/route";
 import type { ProvisionEvent, ProvisionPlan, ProvisionRecipe } from "../../types";
 import { ProvisioningWizard } from "./ProvisioningWizard";
 
@@ -97,7 +99,10 @@ path_prepend = ["/root/.local/bin"]
 `;
 
 describe("ProvisioningWizard", () => {
-  beforeEach(() => resetStores());
+  beforeEach(() => {
+    resetStores();
+    useTerminal.setState({ pendingInteractiveLaunch: null });
+  });
 
   it("shows step consent before running and resumes only the approved step", async () => {
     let runCount = 0;
@@ -217,6 +222,69 @@ describe("ProvisioningWizard", () => {
       confirmation: "UNINSTALL TERMUX",
     });
     expect(await screen.findByText("Preflight: Done")).toBeInTheDocument();
+  });
+
+  it("reviews the installer before requiring explicit approval to run it", async () => {
+    const installPlan: ProvisionPlan = {
+      ...plan,
+      steps: [
+        plan.steps[0]!,
+        {
+          id: "installHermes",
+          title: "Install Hermes Agent",
+          state: "todo",
+          detail: null,
+          phoneAction: null,
+          consent: null,
+        },
+      ],
+    };
+    mockIpc({
+      list_provision_recipes: () => [recipe],
+      get_provision_plan: () => installPlan,
+      run_provision: (args) => {
+        const channel = args?.onEvent as { onmessage: (event: ProvisionEvent) => void };
+        window.setTimeout(() =>
+          channel.onmessage({
+            type: "phoneActionNeeded",
+            step: "installHermes",
+            message: "Review the downloaded installer before running it.",
+          }),
+        );
+        return "provision-install-hermes";
+      },
+    });
+    render(<ProvisioningWizard serial={plan.serial} />);
+
+    const installLabel = await screen.findByText("Install Hermes Agent: To do");
+    const installRow = installLabel.closest("li");
+    if (!installRow) throw new Error("Install Hermes step was not rendered.");
+    await userEvent.click(within(installRow).getByRole("button", { name: "Run step" }));
+    await waitFor(() =>
+      expect(
+        screen.getAllByText("Review the downloaded installer before running it."),
+      ).toHaveLength(2),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "View installer script" }));
+    const reviewCommand = useTerminal.getState().pendingInteractiveLaunch?.command ?? "";
+    expect(reviewCommand).toContain("wc -c /tmp/hacc-hermes-install.sh");
+    expect(reviewCommand).toContain("sha256sum /tmp/hacc-hermes-install.sh");
+    expect(reviewCommand).toContain("cat /tmp/hacc-hermes-install.sh");
+    expect(reviewCommand).not.toContain("bash /tmp/hacc-hermes-install.sh");
+    expect(useRoute.getState().route).toBe("terminal");
+
+    await userEvent.click(screen.getByRole("button", { name: "Run reviewed installer" }));
+    expect(
+      screen.getByRole("dialog", { name: `Run the reviewed Hermes installer on ${plan.serial}?` }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Run installer" })).toBeVisible();
+    expect(useTerminal.getState().pendingInteractiveLaunch?.command).toBe(reviewCommand);
+
+    await userEvent.click(screen.getByRole("button", { name: "Run installer" }));
+    const installCommand = useTerminal.getState().pendingInteractiveLaunch?.command ?? "";
+    expect(installCommand).toContain("proot-distro login 'debian'");
+    expect(installCommand).toContain("bash /tmp/hacc-hermes-install.sh");
   });
 
   it("duplicates a bundled recipe and saves the edited TOML as a user recipe", async () => {
