@@ -46,8 +46,18 @@ impl EncryptedSecrets {
         }
     }
 
+    fn lock_unlocked(&self) -> std::sync::MutexGuard<'_, Option<UnlockedVault>> {
+        self.unlocked.lock().unwrap_or_else(|poisoned| {
+            let mut unlocked = poisoned.into_inner();
+            tracing::error!("encrypted secret lock was poisoned; discarding unlocked vault");
+            *unlocked = None;
+            self.unlocked.clear_poison();
+            unlocked
+        })
+    }
+
     pub fn status(&self) -> &'static str {
-        if self.unlocked.lock().unwrap().is_some() {
+        if self.lock_unlocked().is_some() {
             "encryptedUnlocked"
         } else if self.path.exists() {
             "encryptedLocked"
@@ -67,7 +77,7 @@ impl EncryptedSecrets {
                 "Use a passphrase of at least 12 characters.".into(),
             ));
         }
-        let mut unlocked = self.unlocked.lock().unwrap();
+        let mut unlocked = self.lock_unlocked();
         let existing = match std::fs::metadata(&self.path) {
             Ok(metadata) => {
                 if metadata.len() > 1024 * 1024 {
@@ -122,17 +132,17 @@ impl EncryptedSecrets {
     }
 
     pub fn lock(&self) {
-        *self.unlocked.lock().unwrap() = None;
+        *self.lock_unlocked() = None;
     }
 
     pub fn get(&self, device_id: &str) -> AppResult<Option<String>> {
-        let unlocked = self.unlocked.lock().unwrap();
+        let unlocked = self.lock_unlocked();
         let vault = unlocked.as_ref().ok_or_else(locked_error)?;
         Ok(vault.tokens.get(device_id).cloned())
     }
 
     pub fn set(&self, device_id: &str, token: &str) -> AppResult<()> {
-        let mut unlocked = self.unlocked.lock().unwrap();
+        let mut unlocked = self.lock_unlocked();
         let vault = unlocked.as_mut().ok_or_else(locked_error)?;
         let mut previous = vault.tokens.insert(device_id.into(), token.into());
         let result = self.save(vault);
@@ -237,6 +247,28 @@ mod tests {
         std::fs::write(&store.path, serde_json::to_vec(&file).unwrap()).unwrap();
         reloaded.lock();
         assert!(reloaded.unlock("a long test passphrase", true).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn poisoned_unlocked_vault_is_discarded_and_requires_unlock() {
+        let root =
+            std::env::temp_dir().join(format!("hacc-poisoned-secrets-{}", std::process::id()));
+        let store = std::sync::Arc::new(EncryptedSecrets::new(&root));
+        store.unlock("a long test passphrase", true).unwrap();
+        store.set("phone", "secret-token").unwrap();
+
+        let poison = store.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison.unlocked.lock().unwrap();
+            panic!("poison encrypted vault lock");
+        })
+        .join();
+
+        assert_eq!(store.status(), "encryptedLocked");
+        assert!(store.get("phone").is_err());
+        assert!(store.unlock("a long test passphrase", true).is_ok());
+        assert_eq!(store.get("phone").unwrap().as_deref(), Some("secret-token"));
         std::fs::remove_dir_all(root).unwrap();
     }
 }
