@@ -67,7 +67,7 @@ Local foundations are implemented and tested (233 Rust, 101 frontend, 21 Python 
 The task file lists remaining implementation details separately from phone-only QA;
 this milestone is not complete.
 
-- [~] [M11-T1 — Provisioning engine; in-operation interruption QA remains](tasks/M11-provisioning.md)
+- [~] [M11-T1 — APK transfer/install cancellation added; disconnect recovery and phone QA remain](tasks/M11-provisioning.md)
 - [~] [M11-T2 — Recipes; native repository and per-phone configuration remain](tasks/M11-provisioning.md)
 - [~] [M11-T3 — Configurable threshold and typed Termux uninstall implemented; factory-phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T4 — Version checks, APK progress and common install-error guidance implemented; OEM/source and phone QA remain](tasks/M11-provisioning.md)
@@ -77,10 +77,10 @@ this milestone is not complete.
 - [~] [M11-T9 — Package/wake-lock output streams implemented; connected-phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T10 — Existing-distro reruns are idempotent; partial-rootfs repair and phone QA remain](tasks/M11-provisioning.md)
 - [~] [M11-T11 — Reviewed installer can be explicitly run; PATH discovery and phone QA remain](tasks/M11-provisioning.md)
-- [~] [M11-T12 — Portal, safety hints and nonfatal doctor warnings added; config fallback/phone QA remain](tasks/M11-provisioning.md)
+- [~] [M11-T12 — Masked atomic YAML config fallback added; phone/install QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T13 — Autostart hook; phone activation/reboot QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T14 — Start/status verification; M9 profile persistence remains](tasks/M11-provisioning.md)
-- [~] [M11-T15 — Device-page wizard; entry points/state coverage/runtime QA remain](tasks/M11-provisioning.md)
+- [~] [M11-T15 — Device wizard and Overview/new-phone entry points added; exhaustive state coverage/runtime QA remain](tasks/M11-provisioning.md)
 
 ### M12 — Cross-Platform
 

@@ -13,7 +13,7 @@ use crate::config::{HermesConfig, HermesEnvironment, HermesTransportKind};
 use crate::error::{AppError, AppResult};
 use crate::process::RawOutput;
 use crate::provision::apk::{
-    apply_termux_install_receipt, download_termux_apk, download_termux_boot_apk,
+    apply_termux_install_receipt, cancellable, download_termux_apk, download_termux_boot_apk,
     record_termux_install,
 };
 use crate::provision::plan::{ProvisionCheck, ProvisionStepExecutor, ProvisionStepRunOutcome};
@@ -822,6 +822,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     self.recipe.termux_source,
                     &abi,
                     &cache,
+                    cancel.clone(),
                     move |downloaded_bytes, total_bytes| {
                         emit_apk_download_progress(step, downloaded_bytes, total_bytes, &progress_events);
                     },
@@ -847,11 +848,12 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         line: format!("Verified {} ({}, SHA-256 {}).", downloaded.file_name, downloaded.version_name, downloaded.sha256),
                     },
                 }).await;
-                let output = match state
-                    .adb_client()
-                    .await?
-                    .install_apk(&self.serial, &downloaded.path)
-                    .await
+                let client = state.adb_client().await?;
+                let output = match cancellable(
+                    &cancel,
+                    client.install_apk(&self.serial, &downloaded.path),
+                )
+                .await
                 {
                     Ok(output) => output,
                     Err(AppError::CommandFailed { stderr, .. })
@@ -1012,6 +1014,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         self.recipe.termux_source,
                         &abi,
                         &cache,
+                        cancel.clone(),
                         move |downloaded_bytes, total_bytes| {
                             emit_apk_download_progress(
                                 step,
@@ -1021,11 +1024,12 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                             );
                         },
                     ).await?;
-                    let output = match state
-                        .adb_client()
-                        .await?
-                        .install_apk(&self.serial, &downloaded.path)
-                        .await
+                    let client = state.adb_client().await?;
+                    let output = match cancellable(
+                        &cancel,
+                        client.install_apk(&self.serial, &downloaded.path),
+                    )
+                    .await
                     {
                         Ok(output) => output,
                         Err(AppError::CommandFailed { stderr, .. })

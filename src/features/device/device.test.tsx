@@ -12,6 +12,8 @@ import { DeviceList } from "./DeviceList";
 import { deviceStatus } from "./deviceStatus";
 import { NoDeviceState } from "./NoDeviceState";
 import { QrTab } from "./PairDialog";
+import { DashboardView } from "../dashboard/DashboardView";
+import { useRoute } from "../../stores/route";
 
 beforeEach(() => resetStores());
 
@@ -159,11 +161,31 @@ describe("DeviceInfoCard", () => {
 describe("NoDeviceState", () => {
   it("offers pairing and connection actions", async () => {
     render(<NoDeviceState />);
-    for (const name of ["Pair with QR code", "Pair with code", "Connect by IP", "Discover"]) {
+    for (const name of [
+      "Pair a phone to set it up",
+      "Pair with code",
+      "Connect by IP",
+      "Discover",
+    ]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument();
     }
+    await userEvent.click(screen.getByRole("button", { name: "Pair a phone to set it up" }));
+    expect(useUi.getState().pairTab).toBe("qr");
     await userEvent.click(screen.getByRole("button", { name: "Pair with code" }));
     expect(useUi.getState().pairTab).toBe("code");
+  });
+
+  it("offers a Dashboard setup entry when connected-device info confirms Termux is absent", async () => {
+    mockIpc({
+      get_device_info: () => info({ termux: { ...info().termux!, installed: false } }),
+      get_hermes_status: () => null,
+    });
+    useDevices.getState().setDevices([device()]);
+    render(<DashboardView />);
+
+    expect(await screen.findByText("Termux is not installed on this phone.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Open setup wizard" }));
+    expect(useRoute.getState().route).toBe("device");
   });
 });
 

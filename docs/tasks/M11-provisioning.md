@@ -23,8 +23,9 @@ when the installed APK digest matches the verified download. Replacement APKs do
 that provenance. APK downloads enforce a 100 MiB limit while reading response chunks.
 
 Remaining implementation and acceptance work:
-- T1: exercise cancellation during long downloads/SSH commands and recover from disconnect/app exit;
-  cancellation is currently checked between operations, not guaranteed to interrupt every operation immediately.
+- T1: Termux and Termux:Boot HTTP downloads and ADB APK installs now race against the provisioning
+  cancellation token; SSH commands already stream with cancellation. Other ADB commands,
+  disconnect/app-exit recovery, and connected-phone interruption QA remain.
 - T2/T14: persist and consume recipe-derived HermesConfig per phone after success. M9's profile
   boundary is not implemented; changing the global config would incorrectly affect other phones.
 - T2/T11: native APT installation safely pauses for manual repository setup because no verified
@@ -52,12 +53,14 @@ Remaining implementation and acceptance work:
   phone/install acceptance remain.
 - T12: interactive configuration avoids persistent terminal history; the wizard offers
   `hermes setup --portal`, explains proot/systemd and gateway access, and surfaces successful
-  `hermes doctor` warnings without failing setup. Masked atomic config-file fallback and
-  phone/install acceptance remain.
+  `hermes doctor` warnings without failing setup. The fallback editor parses YAML structurally,
+  masks secret-looking string values, restores unchanged secrets by path, and writes through SSH
+  using a same-directory atomic rename with mode 600. Phone/install acceptance remains.
 - T13/T14: same-source Termux:Boot resolver/installation, activation and boot hook exist; verify
   signatures, detached supervisor behavior, reboot recovery, readiness/log output, and per-phone save.
-- T15: Device-page wizard supports consent/run-step/cancel/resume/output; Overview/onboarding entry
-  points, exhaustive step-state/resume tests, and responsive runtime QA remain.
+- T15: Device-page wizard supports consent/run-step/cancel/resume/output. The Overview now offers
+  the wizard when device info confirms Termux is absent, and the no-device screen offers QR pairing
+  as the setup entry point. Exhaustive step-state/resume tests and responsive runtime QA remain.
 - T16: form/raw TOML, backend validation, duplication, import and export are implemented. Native
   file-picker import/export interaction still needs runtime QA.
 

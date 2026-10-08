@@ -335,6 +335,50 @@ describe("ProvisioningWizard", () => {
     expect(useRoute.getState().route).toBe("terminal");
   });
 
+  it("edits Hermes YAML while preserving unchanged masked secrets", async () => {
+    const configurePlan: ProvisionPlan = {
+      ...plan,
+      steps: [
+        plan.steps[0]!,
+        {
+          id: "configureHermes",
+          title: "Configure Hermes",
+          state: "todo",
+          detail: null,
+          phoneAction: null,
+          consent: null,
+        },
+      ],
+    };
+    const invoke = mockIpc({
+      list_provision_recipes: () => [recipe],
+      get_provision_plan: () => configurePlan,
+      get_hermes_config: () => 'api_key: "original-secret"\nmodel: initial\n',
+      save_hermes_config: () => undefined,
+    });
+    render(<ProvisioningWizard serial={plan.serial} />);
+
+    const configureRow = (await screen.findByText("Configure Hermes: To do")).closest("li");
+    if (!configureRow) throw new Error("Configure Hermes step was not rendered.");
+    await userEvent.click(
+      within(configureRow).getByRole("button", { name: "Edit Hermes config" }),
+    );
+    const yaml = await screen.findByRole("textbox", { name: "Hermes config YAML" });
+    expect((yaml as HTMLTextAreaElement).value).toContain('api_key: "********"');
+
+    await userEvent.clear(yaml);
+    await userEvent.type(yaml, 'api_key: "********"\nmodel: selected\n');
+    await userEvent.click(screen.getByRole("button", { name: "Save config" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_hermes_config", expect.anything()));
+
+    const saveCall = invoke.mock.calls.find(([command]) => command === "save_hermes_config");
+    const savedSource = (saveCall?.[1] as { source: string } | undefined)?.source ?? "";
+    expect(savedSource).toContain("original-secret");
+    expect(savedSource).toContain("selected");
+    expect(savedSource).not.toContain("********");
+    expect(screen.queryByRole("dialog", { name: /Hermes config.yaml/ })).toBeNull();
+  });
+
   it("duplicates a bundled recipe and saves the edited TOML as a user recipe", async () => {
     const invoke = mockIpc({
       list_provision_recipes: () => [recipe],

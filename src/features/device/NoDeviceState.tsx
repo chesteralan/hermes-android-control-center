@@ -11,7 +11,7 @@ export function NoDeviceState() {
       <p className="mb-4">Pair a phone once, then connect over Wi-Fi with Wireless debugging.</p>
       <div className="flex flex-wrap justify-center gap-2">
         <Button variant="primary" onClick={() => openPair("qr")}>
-          Pair with QR code
+          Pair a phone to set it up
         </Button>
         <Button onClick={() => openPair("code")}>Pair with code</Button>
         <Button onClick={() => go("device")}>Connect by IP</Button>

@@ -78,6 +78,10 @@ export const ipc = {
     call<string>("get_provision_recipe_source", { recipeId }),
   saveProvisionRecipe: (source: string) =>
     call<ProvisionRecipe>("save_provision_recipe", { source }),
+  getHermesConfig: (serial: string, recipeId: string) =>
+    call<string>("get_hermes_config", { serial, recipeId }),
+  saveHermesConfig: (serial: string, recipeId: string, source: string) =>
+    call<void>("save_hermes_config", { serial, recipeId, source }),
   importProvisionRecipe: () => call<ProvisionRecipe | null>("import_provision_recipe"),
   exportProvisionRecipe: (recipeId: string) =>
     call<string | null>("export_provision_recipe", { recipeId }),

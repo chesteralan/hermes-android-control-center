@@ -100,6 +100,8 @@ pub fn run() {
             commands::provision::list_provision_recipes,
             commands::provision::get_provision_recipe_source,
             commands::provision::save_provision_recipe,
+            commands::provision::get_hermes_config,
+            commands::provision::save_hermes_config,
             commands::provision::import_provision_recipe,
             commands::provision::export_provision_recipe,
             commands::provision::get_provision_plan,

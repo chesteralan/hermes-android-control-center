@@ -6,6 +6,8 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Dialog } from "../../components/Dialog";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { StatusDot } from "../../components/StatusDot";
+import { maskHermesConfig, restoreHermesConfigSecrets } from "./hermesConfigDraft";
+import type { MaskedHermesSecrets } from "./hermesConfigDraft";
 import { ipc, toErrorPayload } from "../../lib/ipc";
 import { useRoute } from "../../stores/route";
 import { useTerminal } from "../../stores/terminal";
@@ -156,12 +158,17 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
   const [recipeEditorOpen, setRecipeEditorOpen] = useState(false);
   const [recipeEditorSource, setRecipeEditorSource] = useState("");
   const [recipeEditorBusy, setRecipeEditorBusy] = useState(false);
+  const [hermesConfigEditorOpen, setHermesConfigEditorOpen] = useState(false);
+  const [hermesConfigSource, setHermesConfigSource] = useState("");
+  const [hermesConfigSecrets, setHermesConfigSecrets] = useState<MaskedHermesSecrets>({});
+  const [hermesConfigBusy, setHermesConfigBusy] = useState(false);
+  const [hermesConfigError, setHermesConfigError] = useState<ErrorPayload | null>(null);
   const [error, setError] = useState<ErrorPayload | null>(null);
   const [output, setOutput] = useState<string[]>([]);
   const loading = Boolean(
     recipeId && (!plan || plan.recipeId !== recipeId || plan.serial !== serial) && !error,
   );
-  const busy = loading || starting || runId !== null || uninstallingTermux;
+  const busy = loading || starting || runId !== null || uninstallingTermux || hermesConfigBusy;
 
   useEffect(() => {
     let active = true;
@@ -390,6 +397,47 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
     }
   }
 
+  async function openHermesConfigEditor(): Promise<void> {
+    if (!recipeId) return;
+    setHermesConfigBusy(true);
+    setHermesConfigError(null);
+    setError(null);
+    try {
+      const masked = maskHermesConfig(await ipc.getHermesConfig(serial, recipeId));
+      setHermesConfigSource(masked.source);
+      setHermesConfigSecrets(masked.secrets);
+      setHermesConfigEditorOpen(true);
+    } catch (cause) {
+      setError(toErrorPayload(cause));
+    } finally {
+      setHermesConfigBusy(false);
+    }
+  }
+
+  async function saveHermesConfigEditor(): Promise<void> {
+    setHermesConfigBusy(true);
+    setHermesConfigError(null);
+    try {
+      const source = restoreHermesConfigSecrets(hermesConfigSource, hermesConfigSecrets);
+      await ipc.saveHermesConfig(serial, recipeId, source);
+      setHermesConfigEditorOpen(false);
+      setHermesConfigSource("");
+      setHermesConfigSecrets({});
+    } catch (cause) {
+      setHermesConfigError(toErrorPayload(cause));
+    } finally {
+      setHermesConfigBusy(false);
+    }
+  }
+
+  function closeHermesConfigEditor(): void {
+    if (hermesConfigBusy) return;
+    setHermesConfigEditorOpen(false);
+    setHermesConfigSource("");
+    setHermesConfigSecrets({});
+    setHermesConfigError(null);
+  }
+
   async function importRecipe(): Promise<void> {
     setError(null);
     try {
@@ -592,9 +640,18 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                     </Button>
                   )}
                   {step.id === "configureHermes" && (
-                    <Button variant="ghost" onClick={() => go("terminal")}>
-                      Open terminal
-                    </Button>
+                    <>
+                      <Button
+                        variant="ghost"
+                        disabled={busy || !activeRecipe}
+                        onClick={() => void openHermesConfigEditor()}
+                      >
+                        Edit Hermes config
+                      </Button>
+                      <Button variant="ghost" disabled={busy} onClick={() => go("terminal")}>
+                        Open terminal
+                      </Button>
+                    </>
                   )}
                 </span>
               </li>
@@ -716,6 +773,46 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
             onChange={(event) => setTermuxUninstallConfirmation(event.target.value)}
           />
         </label>
+      </Dialog>
+
+      <Dialog
+        open={hermesConfigEditorOpen}
+        title={`Hermes config.yaml on ${serial}`}
+        onClose={closeHermesConfigEditor}
+        footer={
+          <>
+            <Button disabled={hermesConfigBusy} onClick={closeHermesConfigEditor}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              loading={hermesConfigBusy}
+              onClick={() => void saveHermesConfigEditor()}
+            >
+              Save config
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-2 text-muted">
+          Secret values are masked. Leave ******** unchanged to preserve the saved value, or replace
+          or remove it.
+        </p>
+        <label className="flex flex-col gap-1">
+          <span className="text-muted">YAML</span>
+          <textarea
+            aria-label="Hermes config YAML"
+            className="min-h-80 rounded-md border border-border bg-bg p-3 font-mono text-[12px]"
+            spellCheck={false}
+            value={hermesConfigSource}
+            onChange={(event) => setHermesConfigSource(event.target.value)}
+          />
+        </label>
+        {hermesConfigError && (
+          <p role="alert" className="mt-3 text-danger">
+            {hermesConfigError.message}
+          </p>
+        )}
       </Dialog>
 
       <Dialog

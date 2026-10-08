@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
@@ -14,6 +15,9 @@ use crate::provision::{
     ProvisionProgressStore, ProvisionRecipe, ProvisionStepId, ProvisionStepState,
 };
 use crate::state::AppState;
+use crate::transport::DeviceTransport;
+
+const MAX_HERMES_CONFIG_BYTES: usize = 1024 * 1024;
 
 #[tauri::command]
 pub fn list_provision_recipes(state: State<'_, AppState>) -> AppResult<Vec<ProvisionRecipe>> {
@@ -178,6 +182,118 @@ pub fn get_provision_recipe_source(
         return Ok(std::fs::read_to_string(user_path)?);
     }
     toml::to_string_pretty(&recipe).map_err(|error| AppError::Io(error.to_string()))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn hermes_config_command(recipe: &ProvisionRecipe, command: &str) -> String {
+    if recipe.distro.is_empty() {
+        command.to_string()
+    } else {
+        format!(
+            "proot-distro login {} -- bash -lc {}",
+            shell_quote(&recipe.distro),
+            shell_quote(command)
+        )
+    }
+}
+
+fn write_hermes_config_command(source: &str) -> String {
+    format!(
+        "set -eu; config_dir=\"$HOME/.hermes\"; mkdir -p \"$config_dir\"; \
+         tmp=\"$(mktemp \"$config_dir/.config.yaml.XXXXXX\")\"; \
+         trap 'rm -f \"$tmp\"' EXIT; chmod 600 \"$tmp\"; \
+         printf %s {} > \"$tmp\"; mv -f \"$tmp\" \"$config_dir/config.yaml\"; trap - EXIT",
+        shell_quote(source)
+    )
+}
+
+async fn execute_hermes_config_command(
+    state: &AppState,
+    serial: &str,
+    recipe_id: &str,
+    command: &str,
+) -> AppResult<crate::transport::CommandResult> {
+    let recipe = recipe_by_id(&state.data_dir, recipe_id)?;
+    let transport = state.termux_transport(serial).await?;
+    transport
+        .execute(
+            &hermes_config_command(&recipe, command),
+            Duration::from_secs(20),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn get_hermes_config(
+    state: State<'_, AppState>,
+    serial: String,
+    recipe_id: String,
+) -> AppResult<String> {
+    let result = execute_hermes_config_command(
+        &state,
+        &serial,
+        &recipe_id,
+        "config=\"$HOME/.hermes/config.yaml\"; \
+                 if [ -f \"$config\" ]; then \
+                     size=$(wc -c < \"$config\"); \
+                     [ \"$size\" -le 1048576 ] || exit 45; \
+                     cat \"$config\"; \
+                 else exit 44; fi",
+    )
+    .await?;
+    match result.exit_code {
+        Some(0) if result.stdout.len() <= MAX_HERMES_CONFIG_BYTES => Ok(result.stdout),
+        Some(0) => Err(AppError::Config(
+            "Hermes config.yaml exceeds the 1 MiB editor limit.".into(),
+        )),
+        Some(44) => Err(AppError::Config(
+            "Hermes config.yaml was not found. Run Hermes setup first.".into(),
+        )),
+        Some(45) => Err(AppError::Config(
+            "Hermes config.yaml exceeds the 1 MiB editor limit.".into(),
+        )),
+        _ => Err(AppError::Config(
+            "Hermes config.yaml could not be read. Check the phone connection and try again."
+                .into(),
+        )),
+    }
+}
+
+#[tauri::command]
+pub async fn save_hermes_config(
+    state: State<'_, AppState>,
+    serial: String,
+    recipe_id: String,
+    source: String,
+) -> AppResult<()> {
+    if source.trim().is_empty() {
+        return Err(AppError::Config(
+            "Hermes config.yaml cannot be empty.".into(),
+        ));
+    }
+    if source.len() > MAX_HERMES_CONFIG_BYTES {
+        return Err(AppError::Config(
+            "Hermes config.yaml exceeds the 1 MiB editor limit.".into(),
+        ));
+    }
+    let result = execute_hermes_config_command(
+        &state,
+        &serial,
+        &recipe_id,
+        &write_hermes_config_command(&source),
+    )
+    .await?;
+    if result.exit_code == Some(0) {
+        Ok(())
+    } else {
+        Err(AppError::Config(
+            "Hermes config.yaml could not be saved atomically. Check the phone connection and try again."
+                .into(),
+        ))
+    }
 }
 
 #[tauri::command]
@@ -481,6 +597,24 @@ mod tests {
         assert!(validate_termux_uninstall_confirmation("UNINSTALL TERMUX").is_ok());
         assert!(validate_termux_uninstall_confirmation("uninstall termux").is_err());
         assert!(validate_termux_uninstall_confirmation("UNINSTALL TERMUX ").is_err());
+    }
+
+    #[test]
+    fn hermes_config_write_is_quoted_atomic_and_private() {
+        let source = "api_key: \"a'b\"\n";
+        let command = write_hermes_config_command(source);
+        assert!(command.contains("mktemp"));
+        assert!(command.contains("chmod 600"));
+        assert!(command.contains("mv -f"));
+        assert!(command.contains("'api_key: \"a'\\''b\"\n'"));
+    }
+
+    #[test]
+    fn hermes_config_command_runs_inside_selected_distro() {
+        let recipe = bundled("debian-official");
+        let command = hermes_config_command(&recipe, "cat ~/.hermes/config.yaml");
+        assert!(command.starts_with("proot-distro login 'debian' -- bash -lc "));
+        assert!(command.contains("cat ~/.hermes/config.yaml"));
     }
 
     fn temp_data_dir() -> PathBuf {

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
@@ -7,6 +8,7 @@ use sha2::{Digest, Sha256};
 use zip::ZipArchive;
 
 use crate::error::{AppError, AppResult};
+use tokio_util::sync::CancellationToken;
 
 use super::recipe::ProvisionTermuxSource;
 
@@ -274,6 +276,7 @@ pub async fn download_termux_apk(
     source: ProvisionTermuxSource,
     abi: &str,
     cache_dir: &Path,
+    cancel: CancellationToken,
     on_progress: impl FnMut(u64, Option<u64>),
 ) -> AppResult<DownloadedApk> {
     download_app_apk(
@@ -286,6 +289,7 @@ pub async fn download_termux_apk(
             cache_file_name: "termux.apk",
         },
         cache_dir,
+        cancel,
         on_progress,
     )
     .await
@@ -295,6 +299,7 @@ pub async fn download_termux_boot_apk(
     source: ProvisionTermuxSource,
     abi: &str,
     cache_dir: &Path,
+    cancel: CancellationToken,
     on_progress: impl FnMut(u64, Option<u64>),
 ) -> AppResult<DownloadedApk> {
     download_app_apk(
@@ -307,12 +312,37 @@ pub async fn download_termux_boot_apk(
             cache_file_name: "termux-boot.apk",
         },
         cache_dir,
+        cancel,
         on_progress,
     )
     .await
 }
 
 async fn download_app_apk(
+    source: ProvisionTermuxSource,
+    request: AppApkRequest<'_>,
+    cache_dir: &Path,
+    cancel: CancellationToken,
+    on_progress: impl FnMut(u64, Option<u64>),
+) -> AppResult<DownloadedApk> {
+    cancellable(
+        &cancel,
+        download_app_apk_inner(source, request, cache_dir, on_progress),
+    )
+    .await
+}
+
+pub(crate) async fn cancellable<T>(
+    cancel: &CancellationToken,
+    operation: impl Future<Output = AppResult<T>>,
+) -> AppResult<T> {
+    tokio::select! {
+        _ = cancel.cancelled() => Err(AppError::Cancelled),
+        result = operation => result,
+    }
+}
+
+async fn download_app_apk_inner(
     source: ProvisionTermuxSource,
     request: AppApkRequest<'_>,
     cache_dir: &Path,
@@ -475,6 +505,16 @@ fn digest_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn cancellation_interrupts_an_in_flight_download_operation() {
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let result = cancellable(&cancel, std::future::pending::<AppResult<()>>()).await;
+
+        assert_eq!(result, Err(AppError::Cancelled));
+    }
 
     const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
