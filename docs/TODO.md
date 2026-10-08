@@ -34,8 +34,6 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ## In Progress
 
-- [!] [M0-S3 — ADB output fixtures](tasks/M0-foundations.md)
-- [!] [M0-S4 — Provisioning feasibility](tasks/M0-foundations.md)
 - [~] [M10-T1 — Error audit](tasks/M10-production.md)
 - [~] [M10-T2 — Isolated GLib backport passes optimized library tests and 241 Linux app tests/Clippy; strict dependency gate still blocked by six license rejections and one unmaintained advisory](tasks/M10-production.md)
 - [~] [M10-T4 — Keyboard command palette and shortcut guide](tasks/M10-production.md)
