@@ -44,8 +44,9 @@ Remaining implementation and acceptance work:
   outcome; remote cleanup failures are logged without masking the original error. Test escaping,
   marker/retry behavior, and interruption cleanup on real phones. No private key is copied.
 - T9: Termux package and wake-lock commands now stream stdout/stderr and propagate cancellation
-  and exit status. Connected-phone streaming verification remains. T10: partial-distro repair and
-  idempotency checks remain.
+  and exit status. Connected-phone streaming verification remains.
+- T10: reruns now skip distro installation when the selected distro is listed and reapply its
+  package set idempotently. Partial-rootfs repair and connected-phone verification remain open.
 - T11: interactive handoff downloads/displays installer text and SHA-256 but does not execute it;
   user execution after review, a dedicated script viewer/approval path, and binary PATH discovery remain.
 - T12: interactive configuration avoids persistent terminal history; portal option, setup hint panel,

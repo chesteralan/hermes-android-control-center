@@ -50,6 +50,16 @@ fn device_awake_and_unlocked(power: &str, window: &str) -> bool {
     awake && unlocked && !locked
 }
 
+fn distro_is_listed_installed(output: &str, distro: &str) -> bool {
+    output.lines().any(|line| {
+        let line = line.trim();
+        line == distro
+            || line
+                .strip_prefix(distro)
+                .is_some_and(|suffix| suffix.starts_with(" ("))
+    })
+}
+
 fn android_settings_commands(sdk: Option<u32>) -> Vec<String> {
     let mut commands = vec![
         "pm grant com.termux android.permission.READ_EXTERNAL_STORAGE".into(),
@@ -187,6 +197,29 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
             .await?;
         }
         Ok(info.termux)
+    }
+
+    async fn distro_is_installed(&self) -> AppResult<bool> {
+        let result = self
+            .remote()
+            .await?
+            .execute("proot-distro list --installed", COMMAND_TIMEOUT)
+            .await?;
+        if result.exit_code != Some(0) {
+            return Err(AppError::CommandFailed {
+                command: "List installed proot distros".into(),
+                exit_code: result.exit_code,
+                stderr: if result.stderr.is_empty() {
+                    result.stdout
+                } else {
+                    result.stderr
+                },
+            });
+        }
+        Ok(distro_is_listed_installed(
+            &result.stdout,
+            &self.recipe.distro,
+        ))
     }
 
     async fn bootstrap_ssh(
@@ -658,15 +691,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 if self.recipe.distro.is_empty() {
                     return Ok(ProvisionCheck::Done);
                 }
-                let result = self
-                    .remote()
-                    .await?
-                    .execute("proot-distro list --installed", COMMAND_TIMEOUT)
-                    .await?;
-                if !result.stdout.lines().any(|line| {
-                    line.trim() == self.recipe.distro
-                        || line.contains(&format!("{} (", self.recipe.distro))
-                }) {
+                if !self.distro_is_installed().await? {
                     return Ok(ProvisionCheck::Todo);
                 }
                 let package_check = self.recipe.distro_packages.iter().map(|package| {
@@ -902,14 +927,16 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     return Ok(ProvisionStepRunOutcome::Done);
                 }
                 let distro = shell_escape(&self.recipe.distro);
-                self.run_remote(
-                    step,
-                    &format!("proot-distro install {distro}"),
-                    Duration::from_secs(1200),
-                    cancel.clone(),
-                    &events,
-                )
-                .await?;
+                if !self.distro_is_installed().await? {
+                    self.run_remote(
+                        step,
+                        &format!("proot-distro install {distro}"),
+                        Duration::from_secs(1200),
+                        cancel.clone(),
+                        &events,
+                    )
+                    .await?;
+                }
                 if !self.recipe.distro_packages.is_empty() {
                     let packages = self.recipe.distro_packages.iter()
                         .map(|package| shell_escape(package))
@@ -1045,8 +1072,8 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
 #[cfg(test)]
 mod tests {
     use super::{
-        android_settings_commands, device_awake_and_unlocked, forward_remote_stream,
-        BootstrapTempFiles,
+        android_settings_commands, device_awake_and_unlocked, distro_is_listed_installed,
+        forward_remote_stream, BootstrapTempFiles,
     };
     use crate::error::AppError;
     use crate::provision::types::{ProvisionEvent, ProvisionStepId};
@@ -1118,6 +1145,17 @@ mod tests {
         assert!(!device_awake_and_unlocked(
             "mWakefulness=Awake",
             "window state unknown"
+        ));
+    }
+
+    #[test]
+    fn distro_listing_matches_only_the_selected_distribution() {
+        assert!(distro_is_listed_installed("debian\n", "debian"));
+        assert!(distro_is_listed_installed("debian (installed)\n", "debian"));
+        assert!(!distro_is_listed_installed("debian-testing\n", "debian"));
+        assert!(!distro_is_listed_installed(
+            "ubuntu (installed)\n",
+            "debian"
         ));
     }
 
