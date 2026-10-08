@@ -80,7 +80,7 @@ this milestone is not complete.
 - [~] [M11-T12 — Masked atomic YAML config fallback added; phone/install QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T13 — Autostart hook; phone activation/reboot QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T14 — Start/status verification; M9 profile persistence remains](tasks/M11-provisioning.md)
-- [~] [M11-T15 — Device wizard and Overview/new-phone entry points added; exhaustive state coverage/runtime QA remain](tasks/M11-provisioning.md)
+- [~] [M11-T15 — Device wizard, setup entry points, all-state/resume coverage added; responsive/runtime QA remains](tasks/M11-provisioning.md)
 
 ### M12 — Cross-Platform
 

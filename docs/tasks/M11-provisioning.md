@@ -62,7 +62,8 @@ Remaining implementation and acceptance work:
   signatures, detached supervisor behavior, reboot recovery, readiness/log output, and per-phone save.
 - T15: Device-page wizard supports consent/run-step/cancel/resume/output. The Overview now offers
   the wizard when device info confirms Termux is absent, and the no-device screen offers QR pairing
-  as the setup entry point. Exhaustive step-state/resume tests and responsive runtime QA remain.
+  as the setup entry point. Tests cover every step state plus consent and phone-action resumption;
+  responsive runtime QA remains.
 - T16: form/raw TOML, backend validation, duplication, import and export are implemented. Native
   file-picker import/export interaction still needs runtime QA.
 

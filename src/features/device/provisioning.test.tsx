@@ -5,7 +5,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetStores, mockIpc } from "../../test/ipcMock";
 import { useTerminal } from "../../stores/terminal";
 import { useRoute } from "../../stores/route";
-import type { ProvisionEvent, ProvisionPlan, ProvisionRecipe } from "../../types";
+import type {
+  ProvisionEvent,
+  ProvisionPlan,
+  ProvisionRecipe,
+  ProvisionStepId,
+  ProvisionStepState,
+} from "../../types";
 import { ProvisioningWizard } from "./ProvisioningWizard";
 
 const recipe: ProvisionRecipe = {
@@ -174,6 +180,104 @@ describe("ProvisioningWizard", () => {
     expect(screen.getByRole("button", { name: "Run all" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run step" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Uninstall incompatible Termux" })).toBeNull();
+  });
+
+  it("renders every provisioning step state and disables completed or blocked steps", async () => {
+    const stepStates = [
+      ["preflight", "done"],
+      ["installTermux", "todo"],
+      ["androidSettings", "running"],
+      ["launchTermux", "phoneActionNeeded"],
+      ["bootstrapSsh", "failed"],
+      ["connectSsh", "blocked"],
+    ] as const satisfies ReadonlyArray<readonly [ProvisionStepId, ProvisionStepState]>;
+    const labels: Record<ProvisionStepState, string> = {
+      done: "Done",
+      todo: "To do",
+      running: "Running",
+      phoneActionNeeded: "Phone action",
+      failed: "Failed",
+      blocked: "Blocked",
+    };
+    const statePlan: ProvisionPlan = {
+      ...plan,
+      steps: stepStates.map(([id, state]) => ({
+        ...plan.steps[0]!,
+        id,
+        title: `Step ${state}`,
+        state,
+        detail: null,
+        phoneAction: null,
+        consent: null,
+      })),
+    };
+    mockIpc({
+      list_provision_recipes: () => [recipe],
+      get_provision_plan: () => statePlan,
+    });
+    render(<ProvisioningWizard serial={plan.serial} />);
+
+    for (const [, state] of stepStates) {
+      const status = await screen.findByText(`Step ${state}: ${labels[state]}`);
+      const row = status.closest("li");
+      if (!row) throw new Error(`Step ${state} row was not rendered.`);
+      const runButton = within(row).getByRole("button", { name: "Run step" });
+      if (state === "done" || state === "blocked") expect(runButton).toBeDisabled();
+      else expect(runButton).toBeEnabled();
+    }
+  });
+
+  it("resumes a step after a phone-action pause", async () => {
+    let runCount = 0;
+    const configurePlan: ProvisionPlan = {
+      ...plan,
+      steps: [
+        plan.steps[0]!,
+        {
+          id: "configureHermes",
+          title: "Configure Hermes",
+          state: "todo",
+          detail: null,
+          phoneAction: null,
+          consent: null,
+        },
+      ],
+    };
+    const invoke = mockIpc({
+      list_provision_recipes: () => [recipe],
+      get_provision_plan: () => configurePlan,
+      run_provision: (args) => {
+        runCount += 1;
+        const channel = args?.onEvent as { onmessage: (event: ProvisionEvent) => void };
+        const event: ProvisionEvent =
+          runCount === 1
+            ? {
+                type: "phoneActionNeeded",
+                step: "configureHermes",
+                message: "Finish setup in the interactive terminal, then resume.",
+              }
+            : { type: "stepDone", step: "configureHermes" };
+        window.setTimeout(() => channel.onmessage(event));
+        return `provision-${runCount}`;
+      },
+    });
+    render(<ProvisioningWizard serial={plan.serial} />);
+
+    const configureLabel = await screen.findByText("Configure Hermes: To do");
+    const configureRow = configureLabel.closest("li");
+    if (!configureRow) throw new Error("Configure Hermes step was not rendered.");
+    await userEvent.click(within(configureRow).getByRole("button", { name: "Run step" }));
+    expect(
+      await screen.findAllByText("Finish setup in the interactive terminal, then resume."),
+    ).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "Resume" }));
+
+    expect(await screen.findByText("Configure Hermes: Done")).toBeInTheDocument();
+    expect(runCount).toBe(2);
+    expect(invoke).toHaveBeenLastCalledWith(
+      "run_provision",
+      expect.objectContaining({ fromStep: "configureHermes", onlyStep: true }),
+    );
   });
 
   it("requires typed confirmation to uninstall incompatible Termux and refreshes preflight", async () => {
