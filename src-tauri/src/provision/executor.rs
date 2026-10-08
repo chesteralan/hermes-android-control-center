@@ -410,7 +410,16 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     )
                 );
                 if source_matches {
-                    Ok(ProvisionCheck::Done)
+                    Ok(
+                        if self
+                            .recipe
+                            .termux_version_meets_minimum(installed.version_name.as_deref())
+                        {
+                            ProvisionCheck::Done
+                        } else {
+                            ProvisionCheck::Todo
+                        },
+                    )
                 } else {
                     Ok(ProvisionCheck::Blocked(format!(
                         "Installed Termux source ({:?}) differs from recipe source ({:?}); replacing it deletes Termux data.",
@@ -578,6 +587,20 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 let cache = self.app.path().app_cache_dir()
                     .map_err(|error| AppError::Io(error.to_string()))?;
                 let downloaded = download_termux_apk(self.recipe.termux_source, &abi, &cache).await?;
+                if !self
+                    .recipe
+                    .termux_version_meets_minimum(Some(&downloaded.version_name))
+                {
+                    let minimum = self
+                        .recipe
+                        .minimum_termux_version
+                        .as_deref()
+                        .unwrap_or("a configured minimum");
+                    return Err(AppError::Config(format!(
+                        "Available Termux version {} is below recipe minimum {minimum}.",
+                        downloaded.version_name
+                    )));
+                }
                 let _ = events.send(ProvisionEvent::Output {
                     step,
                     event: StreamEvent::Stdout {
