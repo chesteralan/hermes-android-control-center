@@ -168,6 +168,55 @@ describe("ProvisioningWizard", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run all" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run step" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Uninstall incompatible Termux" })).toBeNull();
+  });
+
+  it("requires typed confirmation to uninstall incompatible Termux and refreshes preflight", async () => {
+    let planRequests = 0;
+    const blockedPlan: ProvisionPlan = {
+      ...plan,
+      steps: [
+        {
+          ...plan.steps[0]!,
+          state: "blocked",
+          detail:
+            "Installed Termux source (PlayStore) does not match recipe source (Fdroid); replacing Termux deletes its data.",
+        },
+        ...plan.steps.slice(1),
+      ],
+    };
+    const invoke = mockIpc({
+      list_provision_recipes: () => [recipe],
+      get_provision_plan: () => (++planRequests === 1 ? blockedPlan : plan),
+      uninstall_incompatible_termux: () => undefined,
+    });
+    render(<ProvisioningWizard serial={plan.serial} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Uninstall incompatible Termux" }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: `Uninstall Termux from ${plan.serial}?` }),
+    ).toBeVisible();
+    expect(screen.getByText(/deletes all of its data/)).toBeInTheDocument();
+    const uninstall = screen.getByRole("button", { name: "Uninstall Termux" });
+    expect(uninstall).toBeDisabled();
+    expect(invoke).not.toHaveBeenCalledWith("uninstall_incompatible_termux", expect.anything());
+
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Type UNINSTALL TERMUX to confirm" }),
+      "UNINSTALL TERMUX",
+    );
+    expect(uninstall).toBeEnabled();
+    await userEvent.click(uninstall);
+
+    await waitFor(() => expect(planRequests).toBe(2));
+    expect(invoke).toHaveBeenCalledWith("uninstall_incompatible_termux", {
+      serial: plan.serial,
+      recipeId: recipe.id,
+      confirmation: "UNINSTALL TERMUX",
+    });
+    expect(await screen.findByText("Preflight: Done")).toBeInTheDocument();
   });
 
   it("duplicates a bundled recipe and saves the edited TOML as a user recipe", async () => {

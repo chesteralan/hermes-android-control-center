@@ -69,7 +69,7 @@ this milestone is not complete.
 
 - [~] [M11-T1 — Provisioning engine; in-operation interruption QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T2 — Recipes; native repository and per-phone configuration remain](tasks/M11-provisioning.md)
-- [~] [M11-T3 — Recipe-configurable storage threshold added; typed uninstall consent remains](tasks/M11-provisioning.md)
+- [~] [M11-T3 — Configurable threshold and typed Termux uninstall implemented; factory-phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T4 — Verified Termux/Termux:Boot APK selection; progress/version/OEM coverage remains](tasks/M11-provisioning.md)
 - [~] [M11-T5 — Optional Android settings; storage permissions and command tests remain](tasks/M11-provisioning.md)
 - [~] [M11-T6 — Foreground launch; wake/keyguard checks remain](tasks/M11-provisioning.md)

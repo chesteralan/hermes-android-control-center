@@ -29,8 +29,8 @@ Remaining implementation and acceptance work:
   boundary is not implemented; changing the global config would incorrectly affect other phones.
 - T2/T11: native APT installation safely pauses for manual repository setup because no verified
   repository URL is bundled; fingerprint validation is not repository installation/verification.
-- T3: recipe-configurable storage threshold (GiB, default 2) is implemented; typed-confirmation
-  uninstall remains. T4: minimum installed Termux version enforcement, download progress,
+- T3: recipe-configurable storage threshold (GiB, default 2) and typed-confirmation uninstall
+  are implemented. Factory-phone uninstall/preflight verification remains. T4: minimum installed Termux version enforcement, download progress,
   complete OEM error mapping, and source/plugin compatibility QA remain.
 - T5/T6: storage permission handling, explicit keyguard/wake checks, and Android-version command tests.
 - T7: foreground checks, stale-status clearing, marker polling, and no-marker retry exist; test

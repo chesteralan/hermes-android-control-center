@@ -24,6 +24,18 @@ fn recipe_directory(data_dir: &Path) -> PathBuf {
     data_dir.join("provision-recipes")
 }
 
+const TERMUX_UNINSTALL_CONFIRMATION: &str = "UNINSTALL TERMUX";
+
+fn validate_termux_uninstall_confirmation(confirmation: &str) -> AppResult<()> {
+    if confirmation == TERMUX_UNINSTALL_CONFIRMATION {
+        Ok(())
+    } else {
+        Err(AppError::Config(
+            "Type UNINSTALL TERMUX exactly to confirm deleting Termux and its data.".into(),
+        ))
+    }
+}
+
 fn lock_provisioning_runs(
     runs: &Mutex<std::collections::HashSet<String>>,
 ) -> AppResult<MutexGuard<'_, std::collections::HashSet<String>>> {
@@ -94,25 +106,28 @@ fn preflight_failure(
         }
         _ => {}
     }
-    if let Some(termux) = &info.termux {
-        if termux.installed {
-            let compatible = match recipe.termux_source {
-                crate::provision::ProvisionTermuxSource::Fdroid => {
-                    termux.source == InstalledTermuxSource::FDroid
-                }
-                crate::provision::ProvisionTermuxSource::Github => {
-                    termux.source == InstalledTermuxSource::Sideloaded
-                }
-            };
-            if !compatible {
-                return Some(format!(
-                    "Installed Termux source ({:?}) does not match recipe source ({:?}); replacing Termux deletes its data.",
-                    termux.source, recipe.termux_source
-                ));
-            }
-        }
+    if let Some(reason) = termux_source_mismatch(info, recipe) {
+        return Some(reason);
     }
     None
+}
+
+fn termux_source_mismatch(info: &DeviceInfo, recipe: &ProvisionRecipe) -> Option<String> {
+    let termux = info.termux.as_ref().filter(|termux| termux.installed)?;
+    let compatible = match recipe.termux_source {
+        crate::provision::ProvisionTermuxSource::Fdroid => {
+            termux.source == InstalledTermuxSource::FDroid
+        }
+        crate::provision::ProvisionTermuxSource::Github => {
+            termux.source == InstalledTermuxSource::Sideloaded
+        }
+    };
+    (!compatible).then(|| {
+        format!(
+            "Installed Termux source ({:?}) does not match recipe source ({:?}); replacing Termux deletes its data.",
+            termux.source, recipe.termux_source
+        )
+    })
 }
 
 fn recipe_by_id(data_dir: &Path, recipe_id: &str) -> AppResult<ProvisionRecipe> {
@@ -282,6 +297,61 @@ pub async fn get_provision_plan(
 }
 
 #[tauri::command]
+pub async fn uninstall_incompatible_termux(
+    state: State<'_, AppState>,
+    serial: String,
+    recipe_id: String,
+    confirmation: String,
+) -> AppResult<()> {
+    validate_termux_uninstall_confirmation(&confirmation)?;
+    let recipe = recipe_by_id(&state.data_dir, &recipe_id)?;
+    let device = state
+        .devices
+        .get(&serial)
+        .ok_or_else(|| AppError::DeviceNotFound {
+            serial: serial.clone(),
+        })?;
+    if device.state != DeviceState::Device {
+        return Err(AppError::Config(
+            "Connect and authorize this phone before uninstalling Termux.".into(),
+        ));
+    }
+    if device.connection == ConnectionType::Usb {
+        return Err(AppError::Config(
+            "Termux replacement requires a Wireless ADB connection.".into(),
+        ));
+    }
+
+    let client = state.adb_client().await?;
+    let device_id = state.device_id_for(&serial);
+    let mut info = client.device_info(&serial).await?;
+    if let Some(installed) = info.termux.as_mut() {
+        crate::provision::apk::apply_termux_install_receipt(
+            &client,
+            &serial,
+            &state.data_dir,
+            &device_id,
+            installed,
+        )
+        .await?;
+    }
+
+    let mismatch = termux_source_mismatch(&info, &recipe).ok_or_else(|| {
+        AppError::Config(
+            "Termux can only be removed when its source conflicts with this recipe.".into(),
+        )
+    })?;
+    if let Some(blocker) = preflight_failure(&device, &info, &recipe) {
+        if blocker != mismatch {
+            return Err(AppError::Config(blocker));
+        }
+    }
+
+    client.uninstall_termux(&serial).await?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn reset_provision_progress(
     state: State<'_, AppState>,
     serial: String,
@@ -404,6 +474,13 @@ mod tests {
             .into_iter()
             .find(|recipe| recipe.id == id)
             .unwrap()
+    }
+
+    #[test]
+    fn termux_uninstall_requires_exact_confirmation_phrase() {
+        assert!(validate_termux_uninstall_confirmation("UNINSTALL TERMUX").is_ok());
+        assert!(validate_termux_uninstall_confirmation("uninstall termux").is_err());
+        assert!(validate_termux_uninstall_confirmation("UNINSTALL TERMUX ").is_err());
     }
 
     fn temp_data_dir() -> PathBuf {

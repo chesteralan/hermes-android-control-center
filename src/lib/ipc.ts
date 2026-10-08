@@ -83,6 +83,8 @@ export const ipc = {
     call<string | null>("export_provision_recipe", { recipeId }),
   getProvisionPlan: (serial: string, recipeId: string) =>
     call<ProvisionPlan>("get_provision_plan", { serial, recipeId }),
+  uninstallIncompatibleTermux: (serial: string, recipeId: string, confirmation: string) =>
+    call<void>("uninstall_incompatible_termux", { serial, recipeId, confirmation }),
   resetProvisionProgress: (serial: string, recipeId: string) =>
     call<void>("reset_provision_progress", { serial, recipeId }),
   runProvision: (

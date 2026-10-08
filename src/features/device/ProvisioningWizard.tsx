@@ -35,6 +35,8 @@ interface PhoneAction {
   onlyStep: boolean;
 }
 
+const TERMUX_UNINSTALL_CONFIRMATION = "UNINSTALL TERMUX";
+
 const stepLabel: Record<ProvisionStepState, string> = {
   done: "Done",
   todo: "To do",
@@ -71,6 +73,10 @@ function parseRecipeDraft(source: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function isTermuxSourceMismatch(detail: string | null): boolean {
+  return detail?.startsWith("Installed Termux source (") === true;
 }
 
 function setRecipeDraftValue(source: string, path: string[], value: unknown): string | null {
@@ -129,6 +135,9 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
   const [consentPrompt, setConsentPrompt] = useState<ConsentPrompt | null>(null);
   const [phoneAction, setPhoneAction] = useState<PhoneAction | null>(null);
   const [resetPromptOpen, setResetPromptOpen] = useState(false);
+  const [termuxUninstallOpen, setTermuxUninstallOpen] = useState(false);
+  const [termuxUninstallConfirmation, setTermuxUninstallConfirmation] = useState("");
+  const [uninstallingTermux, setUninstallingTermux] = useState(false);
   const [recipeEditorOpen, setRecipeEditorOpen] = useState(false);
   const [recipeEditorSource, setRecipeEditorSource] = useState("");
   const [recipeEditorBusy, setRecipeEditorBusy] = useState(false);
@@ -137,7 +146,7 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
   const loading = Boolean(
     recipeId && (!plan || plan.recipeId !== recipeId || plan.serial !== serial) && !error,
   );
-  const busy = loading || starting || runId !== null;
+  const busy = loading || starting || runId !== null || uninstallingTermux;
 
   useEffect(() => {
     let active = true;
@@ -306,6 +315,24 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
     }
   }
 
+  async function uninstallIncompatibleTermux(): Promise<void> {
+    if (termuxUninstallConfirmation !== TERMUX_UNINSTALL_CONFIRMATION) return;
+    setUninstallingTermux(true);
+    setError(null);
+    try {
+      await ipc.uninstallIncompatibleTermux(serial, recipeId, termuxUninstallConfirmation);
+      setTermuxUninstallOpen(false);
+      setTermuxUninstallConfirmation("");
+      setPhoneAction(null);
+      setOutput([]);
+      setPlan(await ipc.getProvisionPlan(serial, recipeId));
+    } catch (cause) {
+      setError(toErrorPayload(cause));
+    } finally {
+      setUninstallingTermux(false);
+    }
+  }
+
   async function openRecipeEditor(duplicate: boolean): Promise<void> {
     if (!recipeId) return;
     setRecipeEditorBusy(true);
@@ -457,6 +484,20 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                   label={`${step.title}: ${stepLabel[step.state]}`}
                 />
                 {step.detail && <span className="text-warning">{step.detail}</span>}
+                {step.id === "preflight" &&
+                  step.state === "blocked" &&
+                  isTermuxSourceMismatch(step.detail) && (
+                    <Button
+                      variant="danger"
+                      disabled={busy}
+                      onClick={() => {
+                        setTermuxUninstallConfirmation("");
+                        setTermuxUninstallOpen(true);
+                      }}
+                    >
+                      Uninstall incompatible Termux
+                    </Button>
+                  )}
                 {phoneAction?.step === step.id && (
                   <span role="status" className="w-full pl-4 text-warning">
                     {phoneAction.message}
@@ -553,6 +594,52 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
           already made on the phone.
         </p>
       </ConfirmDialog>
+
+      <Dialog
+        open={termuxUninstallOpen}
+        title={`Uninstall Termux from ${serial}?`}
+        onClose={() => {
+          if (uninstallingTermux) return;
+          setTermuxUninstallOpen(false);
+          setTermuxUninstallConfirmation("");
+        }}
+        footer={
+          <>
+            <Button
+              disabled={uninstallingTermux}
+              onClick={() => {
+                setTermuxUninstallOpen(false);
+                setTermuxUninstallConfirmation("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={uninstallingTermux}
+              disabled={termuxUninstallConfirmation !== TERMUX_UNINSTALL_CONFIRMATION}
+              onClick={() => void uninstallIncompatibleTermux()}
+            >
+              Uninstall Termux
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-3 text-danger">
+          This permanently removes Termux and deletes all of its data from {serial}. Provisioning
+          will continue only after the phone passes preflight again.
+        </p>
+        <label className="flex flex-col gap-1">
+          <span className="text-muted">Type UNINSTALL TERMUX to confirm</span>
+          <input
+            aria-label="Type UNINSTALL TERMUX to confirm"
+            autoComplete="off"
+            className="rounded-md border border-border bg-bg px-2 py-1.5"
+            value={termuxUninstallConfirmation}
+            onChange={(event) => setTermuxUninstallConfirmation(event.target.value)}
+          />
+        </label>
+      </Dialog>
 
       <Dialog
         open={recipeEditorOpen}

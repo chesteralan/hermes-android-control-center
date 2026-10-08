@@ -113,6 +113,24 @@ impl AdbClient {
         Ok(out)
     }
 
+    pub async fn uninstall_termux(&self, serial: &str) -> AppResult<RawOutput> {
+        let out = self
+            .exec(args::uninstall_termux(serial), Duration::from_secs(180))
+            .await?;
+        if !out.success() {
+            return Err(AppError::CommandFailed {
+                command: "Uninstall Termux".into(),
+                exit_code: out.exit_code,
+                stderr: if out.stderr.is_empty() {
+                    out.stdout.clone()
+                } else {
+                    out.stderr.clone()
+                },
+            });
+        }
+        Ok(out)
+    }
+
     pub async fn push_file(
         &self,
         serial: &str,
@@ -378,6 +396,36 @@ mod tests {
             .install_apk("S", Path::new("/tmp/termux.apk"))
             .await
             .unwrap_err();
+        assert!(matches!(error, AppError::CommandFailed { .. }));
+    }
+
+    #[tokio::test]
+    async fn uninstall_termux_is_device_scoped_and_propagates_failure() {
+        let f = FakeRunner::new();
+        f.on("-s S uninstall com.termux", Ok(RawOutput::ok("Success")));
+        let result = client(&f).uninstall_termux("S").await.unwrap();
+        assert_eq!(result.stdout, "Success");
+        assert_eq!(
+            f.calls(),
+            vec![vec![
+                "-s".to_string(),
+                "S".to_string(),
+                "uninstall".to_string(),
+                "com.termux".to_string(),
+            ]]
+        );
+
+        let f = FakeRunner::new();
+        f.on(
+            "-s S uninstall com.termux",
+            Ok(RawOutput {
+                stdout: String::new(),
+                stderr: "Failure [DELETE_FAILED_INTERNAL_ERROR]".into(),
+                exit_code: Some(1),
+                duration_ms: 10,
+            }),
+        );
+        let error = client(&f).uninstall_termux("S").await.unwrap_err();
         assert!(matches!(error, AppError::CommandFailed { .. }));
     }
 

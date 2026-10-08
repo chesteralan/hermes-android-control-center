@@ -103,6 +103,7 @@ pub fn run() {
             commands::provision::import_provision_recipe,
             commands::provision::export_provision_recipe,
             commands::provision::get_provision_plan,
+            commands::provision::uninstall_incompatible_termux,
             commands::provision::reset_provision_progress,
             commands::provision::run_provision,
             commands::provision::cancel_provision,
