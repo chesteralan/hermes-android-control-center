@@ -110,7 +110,7 @@ GitHub Releases is the recommended primary host; the existing tag workflow assem
 - [ ] [M16-T2 — Verify the GitHub Release pipeline](tasks/M16-download-distribution.md)
 - [ ] [M16-T3 — Public download path and instructions](tasks/M16-download-distribution.md)
 - [ ] [M16-T4 — Download and installation acceptance](tasks/M16-download-distribution.md)
-- [ ] [M16-T5 — Optional Cloudflare R2 mirror evaluation](tasks/M16-download-distribution.md)
+- [x] [M16-T5 — R2 mirror evaluated and deferred; GitHub Releases remains primary](tasks/M16-download-distribution.md)
 
 ## Open Milestone Exit Checks
 
