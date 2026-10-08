@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -65,6 +66,15 @@ fn android_settings_commands(sdk: Option<u32>) -> Vec<String> {
         commands.push("settings put global settings_enable_monitor_phantom_procs false".into());
     }
     commands
+}
+
+struct BootstrapTempFiles(PathBuf);
+
+impl Drop for BootstrapTempFiles {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+        let _ = std::fs::remove_file(self.0.with_extension("pub"));
+    }
 }
 
 pub struct AndroidProvisionExecutor<R: Runtime> {
@@ -185,6 +195,27 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
         cancel: CancellationToken,
         events: &mpsc::Sender<ProvisionEvent>,
     ) -> AppResult<()> {
+        let result = self.bootstrap_ssh_inner(cancel, events).await;
+        let cleanup = self
+            .adb_shell(&format!("rm -rf {BOOTSTRAP_DIR}"))
+            .await
+            .and_then(|output| ensure_success("Clean up Termux SSH bootstrap files", output));
+        match result {
+            Ok(()) => cleanup,
+            Err(error) => {
+                if let Err(cleanup_error) = cleanup {
+                    tracing::warn!(error = %cleanup_error, "failed to remove Termux bootstrap files");
+                }
+                Err(error)
+            }
+        }
+    }
+
+    async fn bootstrap_ssh_inner(
+        &self,
+        cancel: CancellationToken,
+        events: &mpsc::Sender<ProvisionEvent>,
+    ) -> AppResult<()> {
         ensure_success(
             "Keep Termux unlocked and in the foreground",
             self.adb_shell(TERMUX_FOCUS_CHECK).await?,
@@ -197,6 +228,7 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
             .app_cache_dir()
             .map_err(|error| AppError::Io(error.to_string()))?
             .join("hacc-termux-bootstrap.sh");
+        let _temporary_files = BootstrapTempFiles(script_path.clone());
         std::fs::write(&script_path, bootstrap_script())?;
 
         let client = state.adb_client().await?;
@@ -229,8 +261,6 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
                 &format!("{BOOTSTRAP_DIR}/id_ed25519.pub"),
             )
             .await;
-        let _ = std::fs::remove_file(&script_path);
-        let _ = std::fs::remove_file(&public_key_path);
         push_key?;
 
         let launch = format!("input text 'sh%s{BOOTSTRAP_DIR}/bootstrap.sh'; input keyevent 66");
@@ -273,13 +303,6 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
                     }
                 }
                 if marker == "done" {
-                    let _ = client
-                        .shell(
-                            &self.serial,
-                            &format!("rm -rf {BOOTSTRAP_DIR}"),
-                            COMMAND_TIMEOUT,
-                        )
-                        .await;
                     return Ok(());
                 }
                 if marker.starts_with("error") {
@@ -914,7 +937,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
 
 #[cfg(test)]
 mod tests {
-    use super::{android_settings_commands, device_awake_and_unlocked};
+    use super::{android_settings_commands, device_awake_and_unlocked, BootstrapTempFiles};
 
     #[test]
     fn android_settings_commands_cover_storage_notifications_and_phantom_api_ranges() {
@@ -980,5 +1003,22 @@ mod tests {
             "mWakefulness=Awake",
             "window state unknown"
         ));
+    }
+
+    #[test]
+    fn bootstrap_temporary_files_are_removed_on_drop() {
+        let root =
+            std::env::temp_dir().join(format!("hacc-bootstrap-temp-test-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("bootstrap.sh");
+        let public_key = script.with_extension("pub");
+        std::fs::write(&script, "script").unwrap();
+        std::fs::write(&public_key, "public key").unwrap();
+
+        drop(BootstrapTempFiles(script.clone()));
+
+        assert!(!script.exists());
+        assert!(!public_key.exists());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

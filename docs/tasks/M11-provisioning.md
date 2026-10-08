@@ -39,9 +39,10 @@ Remaining implementation and acceptance work:
   Android SDK and covered by command tests; runtime permission outcomes remain phone QA.
 - T6: launch now wakes the display, requires explicit awake/unlocked dumpsys state, and waits up
   to 20 seconds for Termux focus with cancellation. Device/OEM runtime verification remains.
-- T7: foreground checks, stale-status clearing, marker polling, and no-marker retry exist; test
-  escaping/marker/retry behavior and interruption cleanup on real phones. Success removes the handoff
-  directory; cancellation/failure may leave public-key/bootstrap files there. No private key is copied.
+- T7: foreground checks, stale-status clearing, marker polling, and no-marker retry exist. Local
+  bootstrap script/public-key files and the shared handoff directory are now cleaned on every
+  outcome; remote cleanup failures are logged without masking the original error. Test escaping,
+  marker/retry behavior, and interruption cleanup on real phones. No private key is copied.
 - T9/T10: live command streaming and robust partial-distro repair/idempotency checks.
 - T11: interactive handoff downloads/displays installer text and SHA-256 but does not execute it;
   user execution after review, a dedicated script viewer/approval path, and binary PATH discovery remain.
