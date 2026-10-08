@@ -74,7 +74,7 @@ this milestone is not complete.
 - [~] [M11-T5 — SDK-scoped settings commands implemented; phone permission and keyguard QA remain](tasks/M11-provisioning.md)
 - [~] [M11-T6 — Wake/keyguard detection and bounded Termux focus wait implemented; phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T7 — All-outcome bootstrap cleanup added; retry/interruption phone QA remains](tasks/M11-provisioning.md)
-- [~] [M11-T9 — Termux packages/wake lock; live streaming remains](tasks/M11-provisioning.md)
+- [~] [M11-T9 — Package/wake-lock output streams implemented; connected-phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T10 — Distro installation; partial-install/idempotency QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T11 — Installer review PTY handoff; approved launch/PATH discovery remains](tasks/M11-provisioning.md)
 - [~] [M11-T12 — Interactive setup; portal/hints/config fallback remain](tasks/M11-provisioning.md)

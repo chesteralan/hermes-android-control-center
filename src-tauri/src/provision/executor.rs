@@ -119,22 +119,21 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
         step: ProvisionStepId,
         command: &str,
         timeout: Duration,
+        cancel: CancellationToken,
         events: &mpsc::Sender<ProvisionEvent>,
     ) -> AppResult<()> {
-        let result = self.remote().await?.execute(command, timeout).await?;
-        emit_output(step, &result, events).await;
-        if result.exit_code.is_some_and(|code| code != 0) {
-            return Err(AppError::CommandFailed {
-                command: command.to_string(),
-                exit_code: result.exit_code,
-                stderr: if result.stderr.is_empty() {
-                    result.stdout
-                } else {
-                    result.stderr
-                },
-            });
+        let stream_cancel = cancel.child_token();
+        let stream = self
+            .remote()
+            .await?
+            .stream(command, stream_cancel.clone())
+            .await?;
+        let result =
+            forward_remote_stream(step, command, timeout, cancel, stream, events.clone()).await;
+        if result.is_err() {
+            stream_cancel.cancel();
         }
-        Ok(())
+        result
     }
 
     fn hermes_command(&self, command: &str) -> String {
@@ -378,6 +377,102 @@ fn ensure_success(command: &str, output: RawOutput) -> AppResult<()> {
                 output.stderr
             },
         })
+    }
+}
+
+async fn forward_remote_stream(
+    step: ProvisionStepId,
+    command: &str,
+    timeout: Duration,
+    cancel: CancellationToken,
+    mut stream: mpsc::Receiver<StreamEvent>,
+    events: mpsc::Sender<ProvisionEvent>,
+) -> AppResult<()> {
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let collect = async {
+        loop {
+            let next = tokio::select! {
+                _ = cancel.cancelled() => return Err(AppError::Cancelled),
+                event = stream.recv() => event,
+            };
+            let Some(event) = next else {
+                return Err(AppError::Io(
+                    "Remote command stream closed without an exit event.".into(),
+                ));
+            };
+
+            let output_event = match event {
+                StreamEvent::Stdout { line } => {
+                    stdout.push_str(&line);
+                    stdout.push('\n');
+                    Some(StreamEvent::Stdout { line })
+                }
+                StreamEvent::Stderr { line } => {
+                    stderr.push_str(&line);
+                    stderr.push('\n');
+                    Some(StreamEvent::Stderr { line })
+                }
+                StreamEvent::Error { error } => {
+                    let failure = AppError::Io(match error.details.as_deref() {
+                        Some(details) if !details.is_empty() => {
+                            format!("{}\n{details}", error.message)
+                        }
+                        _ => error.message.clone(),
+                    });
+                    if events
+                        .send(ProvisionEvent::Output {
+                            step,
+                            event: StreamEvent::Error { error },
+                        })
+                        .await
+                        .is_err()
+                    {
+                        return Err(AppError::Cancelled);
+                    }
+                    return Err(failure);
+                }
+                StreamEvent::Exit { code, duration_ms } => {
+                    if events
+                        .send(ProvisionEvent::Output {
+                            step,
+                            event: StreamEvent::Exit { code, duration_ms },
+                        })
+                        .await
+                        .is_err()
+                    {
+                        return Err(AppError::Cancelled);
+                    }
+                    return if code == Some(0) {
+                        Ok(())
+                    } else {
+                        Err(AppError::CommandFailed {
+                            command: command.to_string(),
+                            exit_code: code,
+                            stderr: if stderr.is_empty() { stdout } else { stderr },
+                        })
+                    };
+                }
+            };
+
+            if let Some(event) = output_event {
+                if events
+                    .send(ProvisionEvent::Output { step, event })
+                    .await
+                    .is_err()
+                {
+                    return Err(AppError::Cancelled);
+                }
+            }
+        }
+    };
+
+    match tokio::time::timeout(timeout, collect).await {
+        Ok(result) => result,
+        Err(_) => Err(AppError::Timeout {
+            operation: "Provisioning command".into(),
+            after_ms: timeout.as_millis() as u64,
+        }),
     }
 }
 
@@ -798,7 +893,8 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 let command = format!(
                     "pkg install -y {packages} && export SVDIR=\"$PREFIX/var/service\" LOGDIR=\"$PREFIX/var/log\" && (service-daemon start >/dev/null 2>&1 &) && sv-enable sshd && termux-wake-lock"
                 );
-                self.run_remote(step, &command, Duration::from_secs(600), &events).await?;
+                self.run_remote(step, &command, Duration::from_secs(600), cancel.clone(), &events)
+                    .await?;
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::InstallDistro => {
@@ -806,7 +902,14 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     return Ok(ProvisionStepRunOutcome::Done);
                 }
                 let distro = shell_escape(&self.recipe.distro);
-                self.run_remote(step, &format!("proot-distro install {distro}"), Duration::from_secs(1200), &events).await?;
+                self.run_remote(
+                    step,
+                    &format!("proot-distro install {distro}"),
+                    Duration::from_secs(1200),
+                    cancel.clone(),
+                    &events,
+                )
+                .await?;
                 if !self.recipe.distro_packages.is_empty() {
                     let packages = self.recipe.distro_packages.iter()
                         .map(|package| shell_escape(package))
@@ -815,7 +918,8 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         "proot-distro login {distro} -- bash -lc {}",
                         shell_escape(&format!("apt-get update && apt-get install -y {packages}"))
                     );
-                    self.run_remote(step, &command, Duration::from_secs(1200), &events).await?;
+                    self.run_remote(step, &command, Duration::from_secs(1200), cancel.clone(), &events)
+                        .await?;
                 }
                 Ok(ProvisionStepRunOutcome::Done)
             }
@@ -835,7 +939,8 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     "curl -fsSL {} -o /tmp/hacc-hermes-install.sh && bash /tmp/hacc-hermes-install.sh",
                     shell_escape(url)
                 ));
-                self.run_remote(step, &command, Duration::from_secs(1800), &events).await?;
+                self.run_remote(step, &command, Duration::from_secs(1800), cancel.clone(), &events)
+                    .await?;
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::ConfigureHermes => Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
@@ -912,13 +1017,15 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 let command = format!(
                     "mkdir -p \"$HOME/.termux/boot\" && printf '%s' '{encoded}' | base64 -d > \"$HOME/.termux/boot/10-hermes\" && chmod 700 \"$HOME/.termux/boot/10-hermes\""
                 );
-                self.run_remote(step, &command, COMMAND_TIMEOUT, &events).await?;
+                self.run_remote(step, &command, COMMAND_TIMEOUT, cancel.clone(), &events)
+                    .await?;
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::VerifyAndStart => {
                 let config = self.hermes_config();
                 let command = action_command(&config, HermesAction::Start);
-                self.run_remote(step, &command, Duration::from_secs(120), &events).await?;
+                self.run_remote(step, &command, Duration::from_secs(120), cancel.clone(), &events)
+                    .await?;
                 let status = self.hermes_command(&self.recipe.hermes_runtime.status_commands[0]);
                 let result = self.remote().await?.execute(&status, COMMAND_TIMEOUT).await?;
                 emit_output(step, &result, &events).await;
@@ -937,7 +1044,16 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
 
 #[cfg(test)]
 mod tests {
-    use super::{android_settings_commands, device_awake_and_unlocked, BootstrapTempFiles};
+    use super::{
+        android_settings_commands, device_awake_and_unlocked, forward_remote_stream,
+        BootstrapTempFiles,
+    };
+    use crate::error::AppError;
+    use crate::provision::types::{ProvisionEvent, ProvisionStepId};
+    use crate::transport::StreamEvent;
+    use std::time::Duration;
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
 
     #[test]
     fn android_settings_commands_cover_storage_notifications_and_phantom_api_ranges() {
@@ -1020,5 +1136,89 @@ mod tests {
         assert!(!script.exists());
         assert!(!public_key.exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn remote_stream_forwards_output_before_exit() {
+        let (remote_sender, remote_stream) = mpsc::channel(4);
+        let (event_sender, mut event_receiver) = mpsc::channel(4);
+        let cancel = CancellationToken::new();
+        let task = tokio::spawn(forward_remote_stream(
+            ProvisionStepId::TermuxPackages,
+            "pkg install openssh",
+            Duration::from_secs(2),
+            cancel,
+            remote_stream,
+            event_sender,
+        ));
+
+        remote_sender
+            .send(StreamEvent::Stdout {
+                line: "resolving packages".into(),
+            })
+            .await
+            .unwrap();
+        let first = event_receiver.recv().await.unwrap();
+        assert!(matches!(
+            first,
+            ProvisionEvent::Output {
+                event: StreamEvent::Stdout { line },
+                ..
+            } if line == "resolving packages"
+        ));
+
+        remote_sender
+            .send(StreamEvent::Exit {
+                code: Some(0),
+                duration_ms: 50,
+            })
+            .await
+            .unwrap();
+        assert!(matches!(
+            event_receiver.recv().await,
+            Some(ProvisionEvent::Output {
+                event: StreamEvent::Exit { code: Some(0), .. },
+                ..
+            })
+        ));
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn remote_stream_failure_preserves_stderr() {
+        let (remote_sender, remote_stream) = mpsc::channel(4);
+        let (event_sender, _event_receiver) = mpsc::channel(4);
+        remote_sender
+            .send(StreamEvent::Stderr {
+                line: "package mirror unavailable".into(),
+            })
+            .await
+            .unwrap();
+        remote_sender
+            .send(StreamEvent::Exit {
+                code: Some(17),
+                duration_ms: 50,
+            })
+            .await
+            .unwrap();
+
+        let error = forward_remote_stream(
+            ProvisionStepId::TermuxPackages,
+            "pkg install openssh",
+            Duration::from_secs(2),
+            CancellationToken::new(),
+            remote_stream,
+            event_sender,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            AppError::CommandFailed {
+                exit_code: Some(17),
+                ref stderr,
+                ..
+            } if stderr.contains("package mirror unavailable")
+        ));
     }
 }
