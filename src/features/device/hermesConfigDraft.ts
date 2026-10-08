@@ -61,10 +61,7 @@ export function maskHermesConfig(source: string): {
   return { source: document.toString(), secrets };
 }
 
-export function restoreHermesConfigSecrets(
-  source: string,
-  secrets: MaskedHermesSecrets,
-): string {
+export function restoreHermesConfigSecrets(source: string, secrets: MaskedHermesSecrets): string {
   const document = parseHermesDocument(source);
   visitSecretScalars(document.contents, [], (path, value) => {
     const original = secrets[JSON.stringify(path)];

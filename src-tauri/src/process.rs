@@ -1,6 +1,7 @@
 //! The only place in the app that spawns OS processes.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -46,6 +47,16 @@ impl RawOutput {
         } else {
             format!("{}\n{}", self.stdout, self.stderr)
         }
+    }
+}
+
+pub(crate) async fn cancellable<T>(
+    cancel: &CancellationToken,
+    operation: impl Future<Output = AppResult<T>>,
+) -> AppResult<T> {
+    tokio::select! {
+        _ = cancel.cancelled() => Err(AppError::Cancelled),
+        result = operation => result,
     }
 }
 
@@ -388,6 +399,53 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, AppError::AdbNotFound { .. }));
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_run_kills_the_child_process() {
+        let marker = std::env::temp_dir().join(format!("hacc-cancel-run-{}", std::process::id()));
+        let cancel = CancellationToken::new();
+        let task_cancel = cancel.clone();
+        let marker_for_task = marker.clone();
+        let task = tokio::spawn(async move {
+            let mut args = sh("echo $$ > \"$1\"; sleep 30");
+            args.push("hacc-cancel-test".into());
+            args.push(marker_for_task.to_string_lossy().into_owned());
+            cancellable(
+                &task_cancel,
+                TokioRunner.run(Path::new("/bin/sh"), &args, Duration::from_secs(60)),
+            )
+            .await
+        });
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !marker.exists() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        cancel.cancel();
+        let result = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(result, Err(AppError::Cancelled)));
+
+        let child_pid = std::fs::read_to_string(&marker).unwrap().trim().to_string();
+        std::fs::remove_file(marker).unwrap();
+        let child_state = TokioRunner
+            .run(
+                Path::new("/bin/sh"),
+                &sh(&format!("ps -p {child_pid} -o stat=")),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+        assert!(
+            !child_state.success() || child_state.stdout.trim().starts_with('Z'),
+            "Child process remained active after cancellation"
+        );
     }
 
     #[tokio::test]

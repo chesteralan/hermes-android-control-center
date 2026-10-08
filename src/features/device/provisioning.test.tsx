@@ -464,16 +464,16 @@ describe("ProvisioningWizard", () => {
 
     const configureRow = (await screen.findByText("Configure Hermes: To do")).closest("li");
     if (!configureRow) throw new Error("Configure Hermes step was not rendered.");
-    await userEvent.click(
-      within(configureRow).getByRole("button", { name: "Edit Hermes config" }),
-    );
+    await userEvent.click(within(configureRow).getByRole("button", { name: "Edit Hermes config" }));
     const yaml = await screen.findByRole("textbox", { name: "Hermes config YAML" });
     expect((yaml as HTMLTextAreaElement).value).toContain('api_key: "********"');
 
     await userEvent.clear(yaml);
     await userEvent.type(yaml, 'api_key: "********"\nmodel: selected\n');
     await userEvent.click(screen.getByRole("button", { name: "Save config" }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_hermes_config", expect.anything()));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("save_hermes_config", expect.anything()),
+    );
 
     const saveCall = invoke.mock.calls.find(([command]) => command === "save_hermes_config");
     const savedSource = (saveCall?.[1] as { source: string } | undefined)?.source ?? "";

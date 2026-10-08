@@ -10,9 +10,7 @@ import { RecentLogs } from "../logs/RecentLogs";
 export function DashboardView() {
   const device = useActiveDevice();
   const go = useRoute((state) => state.go);
-  const info = useDevices((state) =>
-    device ? state.info[deviceKey(device)]?.data : undefined,
-  );
+  const info = useDevices((state) => (device ? state.info[deviceKey(device)]?.data : undefined));
   if (!device) return <NoDeviceState />;
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

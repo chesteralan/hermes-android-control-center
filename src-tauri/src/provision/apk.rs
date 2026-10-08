@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
@@ -8,6 +7,7 @@ use sha2::{Digest, Sha256};
 use zip::ZipArchive;
 
 use crate::error::{AppError, AppResult};
+use crate::process::cancellable;
 use tokio_util::sync::CancellationToken;
 
 use super::recipe::ProvisionTermuxSource;
@@ -330,16 +330,6 @@ async fn download_app_apk(
         download_app_apk_inner(source, request, cache_dir, on_progress),
     )
     .await
-}
-
-pub(crate) async fn cancellable<T>(
-    cancel: &CancellationToken,
-    operation: impl Future<Output = AppResult<T>>,
-) -> AppResult<T> {
-    tokio::select! {
-        _ = cancel.cancelled() => Err(AppError::Cancelled),
-        result = operation => result,
-    }
 }
 
 async fn download_app_apk_inner(

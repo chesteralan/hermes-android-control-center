@@ -11,9 +11,9 @@ use crate::adb::{ConnectionType, DeviceState};
 use crate::commands::hermes::{action_command, HermesAction};
 use crate::config::{HermesConfig, HermesEnvironment, HermesTransportKind};
 use crate::error::{AppError, AppResult};
-use crate::process::RawOutput;
+use crate::process::{cancellable, RawOutput};
 use crate::provision::apk::{
-    apply_termux_install_receipt, cancellable, download_termux_apk, download_termux_boot_apk,
+    apply_termux_install_receipt, download_termux_apk, download_termux_boot_apk,
     record_termux_install,
 };
 use crate::provision::plan::{ProvisionCheck, ProvisionStepExecutor, ProvisionStepRunOutcome};
@@ -136,9 +136,27 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
             .await
     }
 
+    async fn adb_shell_cancellable(
+        &self,
+        command: &str,
+        cancel: &CancellationToken,
+    ) -> AppResult<RawOutput> {
+        let client = self.app.state::<AppState>().adb_client().await?;
+        cancellable(cancel, client.shell(&self.serial, command, COMMAND_TIMEOUT)).await
+    }
+
     async fn phone_awake_and_unlocked(&self) -> AppResult<bool> {
         let power = self.adb_shell("dumpsys power").await?;
         let window = self.adb_shell("dumpsys window").await?;
+        Ok(device_awake_and_unlocked(&power.stdout, &window.stdout))
+    }
+
+    async fn phone_awake_and_unlocked_cancellable(
+        &self,
+        cancel: &CancellationToken,
+    ) -> AppResult<bool> {
+        let power = self.adb_shell_cancellable("dumpsys power", cancel).await?;
+        let window = self.adb_shell_cancellable("dumpsys window", cancel).await?;
         Ok(device_awake_and_unlocked(&power.stdout, &window.stdout))
     }
 
@@ -287,7 +305,8 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
     ) -> AppResult<()> {
         ensure_success(
             "Keep Termux unlocked and in the foreground",
-            self.adb_shell(TERMUX_FOCUS_CHECK).await?,
+            self.adb_shell_cancellable(TERMUX_FOCUS_CHECK, &cancel)
+                .await?,
         )?;
         let state = self.app.state::<AppState>();
         let public_key = keys::public_key_line(state.ssh_key()?)?;
@@ -301,39 +320,49 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
         std::fs::write(&script_path, bootstrap_script())?;
 
         let client = state.adb_client().await?;
-        let mkdir = client
-            .shell(
+        let mkdir = cancellable(
+            &cancel,
+            client.shell(
                 &self.serial,
                 &format!("mkdir -p {BOOTSTRAP_DIR}"),
                 COMMAND_TIMEOUT,
-            )
-            .await?;
+            ),
+        )
+        .await?;
         ensure_success("Prepare Termux bootstrap directory", mkdir)?;
         ensure_success(
             "Clear stale bootstrap status",
-            self.adb_shell(&format!("rm -f {BOOTSTRAP_DIR}/status"))
+            self.adb_shell_cancellable(&format!("rm -f {BOOTSTRAP_DIR}/status"), &cancel)
                 .await?,
         )?;
-        client
-            .push_file(
+        cancellable(
+            &cancel,
+            client.push_file(
                 &self.serial,
                 &script_path,
                 &format!("{BOOTSTRAP_DIR}/bootstrap.sh"),
-            )
-            .await?;
+            ),
+        )
+        .await?;
         let public_key_path = script_path.with_extension("pub");
         std::fs::write(&public_key_path, format!("{public_key}\n"))?;
-        let push_key = client
-            .push_file(
+        let push_key = cancellable(
+            &cancel,
+            client.push_file(
                 &self.serial,
                 &public_key_path,
                 &format!("{BOOTSTRAP_DIR}/id_ed25519.pub"),
-            )
-            .await;
+            ),
+        )
+        .await;
         push_key?;
 
         let launch = format!("input text 'sh%s{BOOTSTRAP_DIR}/bootstrap.sh'; input keyevent 66");
-        let output = client.shell(&self.serial, &launch, COMMAND_TIMEOUT).await?;
+        let output = cancellable(
+            &cancel,
+            client.shell(&self.serial, &launch, COMMAND_TIMEOUT),
+        )
+        .await?;
         ensure_success("Start Termux SSH bootstrap", output)?;
 
         let started = Instant::now();
@@ -349,13 +378,15 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
                     after_ms: BOOTSTRAP_TIMEOUT.as_millis() as u64,
                 });
             }
-            let status = client
-                .shell(
+            let status = cancellable(
+                &cancel,
+                client.shell(
                     &self.serial,
                     &format!("cat {BOOTSTRAP_DIR}/status 2>/dev/null"),
                     Duration::from_secs(10),
-                )
-                .await;
+                ),
+            )
+            .await;
             if let Ok(output) = status {
                 let marker = output.stdout.trim();
                 if marker != last_marker {
@@ -385,11 +416,16 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
             if !retried && last_marker.is_empty() && started.elapsed() > Duration::from_secs(20) {
                 ensure_success(
                     "Keep Termux unlocked and in the foreground",
-                    self.adb_shell(TERMUX_FOCUS_CHECK).await?,
+                    self.adb_shell_cancellable(TERMUX_FOCUS_CHECK, &cancel)
+                        .await?,
                 )?;
                 ensure_success(
                     "Retry Termux SSH bootstrap",
-                    client.shell(&self.serial, &launch, COMMAND_TIMEOUT).await?,
+                    cancellable(
+                        &cancel,
+                        client.shell(&self.serial, &launch, COMMAND_TIMEOUT),
+                    )
+                    .await?,
                 )?;
                 retried = true;
             }
@@ -840,7 +876,8 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::InstallTermux => {
-                let info = state.adb_client().await?.device_info(&self.serial).await?;
+                let client = state.adb_client().await?;
+                let info = cancellable(&cancel, client.device_info(&self.serial)).await?;
                 let abi = info.cpu.and_then(|cpu| cpu.abi).ok_or_else(|| {
                     AppError::Config("The phone CPU ABI could not be detected.".into())
                 })?;
@@ -904,9 +941,14 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::AndroidSettings => {
-                let info = state.adb_client().await?.device_info(&self.serial).await?;
+                let client = state.adb_client().await?;
+                let info = cancellable(&cancel, client.device_info(&self.serial)).await?;
                 for command in android_settings_commands(info.sdk) {
-                    let result = state.adb_client().await?.shell(&self.serial, &command, COMMAND_TIMEOUT).await?;
+                    let result = cancellable(
+                        &cancel,
+                        client.shell(&self.serial, &command, COMMAND_TIMEOUT),
+                    )
+                    .await?;
                     let _ = events.send(ProvisionEvent::Output {
                         step,
                         event: if result.success() {
@@ -919,17 +961,24 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::LaunchTermux => {
-                let _ = self.adb_shell("input keyevent KEYCODE_WAKEUP").await;
-                if !self.phone_awake_and_unlocked().await? {
+                let _ = self
+                    .adb_shell_cancellable("input keyevent KEYCODE_WAKEUP", &cancel)
+                    .await;
+                if !self.phone_awake_and_unlocked_cancellable(&cancel).await? {
                     return Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
                         "Unlock the phone, then resume this step.".into(),
                     ));
                 }
-                let result = state.adb_client().await?.shell(
-                    &self.serial,
-                    "am start -n com.termux/.app.TermuxActivity",
-                    COMMAND_TIMEOUT,
-                ).await?;
+                let client = state.adb_client().await?;
+                let result = cancellable(
+                    &cancel,
+                    client.shell(
+                        &self.serial,
+                        "am start -n com.termux/.app.TermuxActivity",
+                        COMMAND_TIMEOUT,
+                    ),
+                )
+                .await?;
                 ensure_success("Launch Termux", result)?;
                 let started = Instant::now();
                 loop {
@@ -937,7 +986,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         return Err(AppError::Cancelled);
                     }
                     if self
-                        .adb_shell(TERMUX_FOCUS_CHECK)
+                        .adb_shell_cancellable(TERMUX_FOCUS_CHECK, &cancel)
                         .await
                         .is_ok_and(|output| output.success())
                     {
@@ -1039,11 +1088,15 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     return Ok(ProvisionStepRunOutcome::Done);
                 }
                 let boot_installed = self
-                    .adb_shell("pm list packages com.termux.boot | grep -q com.termux.boot")
+                    .adb_shell_cancellable(
+                        "pm list packages com.termux.boot | grep -q com.termux.boot",
+                        &cancel,
+                    )
                     .await
                     .is_ok_and(|output| output.success());
                 if !boot_installed {
-                    let info = state.adb_client().await?.device_info(&self.serial).await?;
+                    let client = state.adb_client().await?;
+                    let info = cancellable(&cancel, client.device_info(&self.serial)).await?;
                     let abi = info.cpu.and_then(|cpu| cpu.abi).ok_or_else(|| {
                         AppError::Config("The phone CPU ABI could not be detected.".into())
                     })?;
@@ -1064,7 +1117,6 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                             );
                         },
                     ).await?;
-                    let client = state.adb_client().await?;
                     let output = match cancellable(
                         &cancel,
                         client.install_apk(&self.serial, &downloaded.path),
@@ -1092,7 +1144,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     ));
                 }
                 let launch = self
-                    .adb_shell("am start -n com.termux.boot/.BootActivity")
+                    .adb_shell_cancellable("am start -n com.termux.boot/.BootActivity", &cancel)
                     .await?;
                 ensure_success("Launch Termux:Boot", launch)?;
                 let config = self.hermes_config();

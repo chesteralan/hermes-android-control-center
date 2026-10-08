@@ -63,11 +63,11 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ### M11 — New Phone Provisioning
 
-Local foundations are implemented and tested (233 Rust, 101 frontend, 21 Python tests).
+Local foundations are implemented and tested (291 Rust, 134 frontend, 21 Python tests).
 The task file lists remaining implementation details separately from phone-only QA;
 this milestone is not complete.
 
-- [~] [M11-T1 — APK transfer/install cancellation added; disconnect recovery and phone QA remain](tasks/M11-provisioning.md)
+- [~] [M11-T1 — In-step download/ADB/SSH cancellation added; disconnect recovery and phone QA remain](tasks/M11-provisioning.md)
 - [~] [M11-T2 — Recipes; native repository and per-phone configuration remain](tasks/M11-provisioning.md)
 - [~] [M11-T3 — Configurable threshold and typed Termux uninstall implemented; factory-phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T4 — Version checks, APK progress and common install-error guidance implemented; OEM/source and phone QA remain](tasks/M11-provisioning.md)

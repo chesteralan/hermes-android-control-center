@@ -12,20 +12,22 @@ validated bundled/user recipes, verified APK selection, concrete Android/SSH ste
 wizard, and form/raw-TOML editor are implemented. The SSH bridge and editor are locally complete;
 the remaining tickets are in progress, not completed acceptance criteria.
 
-Verification: 233 Rust tests, 101 frontend tests, and 21 control-service Python tests pass;
-TypeScript, ESLint, strict all-target Clippy, Rust/touched-file formatting, synchronized
-versions, and the production frontend build pass. Repository-wide Prettier still reports
-pre-existing unrelated files and scans Python virtualenv/cache contents. No factory-reset, APK installation,
-phone settings mutation, or reboot test was performed for this milestone.
+Verification: 291 Rust tests, 134 frontend tests, and 21 control-service Python tests pass;
+TypeScript, focused frontend ESLint, strict all-target Clippy, and Rust/touched-file formatting
+pass. The production Vite build did not complete in this environment because its transform stalled.
+Repository-wide Prettier still reports pre-existing unrelated files and scans Python virtualenv/cache
+contents. No factory-reset, APK installation, phone settings mutation, or reboot test was performed
+for this milestone.
 
 ADB-installed F-Droid Termux builds are recognized through a stable-device receipt only
 when the installed APK digest matches the verified download. Replacement APKs do not inherit
 that provenance. APK downloads enforce a 100 MiB limit while reading response chunks.
 
 Remaining implementation and acceptance work:
-- T1: Termux and Termux:Boot HTTP downloads and ADB APK installs now race against the provisioning
-  cancellation token; SSH commands already stream with cancellation. Other ADB commands,
-  disconnect/app-exit recovery, and connected-phone interruption QA remain.
+- T1: Termux and Termux:Boot HTTP downloads, ADB APK installs, and provisioning-owned ADB
+  shell/device-info/push operations now race against the cancellation token; SSH commands already
+  stream with cancellation. Preflight checks, disconnect/app-exit recovery, and connected-phone
+  interruption QA remain.
 - T2/T14: persist and consume recipe-derived HermesConfig per phone after success. M9's profile
   boundary is not implemented; changing the global config would incorrectly affect other phones.
 - T2/T11: native APT installation safely pauses for manual repository setup because no verified
