@@ -106,6 +106,7 @@ function shellQuote(value: string): string {
 function interactiveCommandForStep(
   recipe: ProvisionRecipe | undefined,
   step: ProvisionStepId,
+  usePortal = false,
 ): string | null {
   if (!recipe) return null;
   if (step === "installHermes" && recipe.hermesInstall.scriptUrl) {
@@ -116,10 +117,15 @@ function interactiveCommandForStep(
       : review;
   }
   if (step === "configureHermes") {
-    const commands = recipe.hermesConfigure.steps.join(" && ");
+    const commands = [...recipe.hermesConfigure.steps];
+    if (usePortal) {
+      if (commands[0]?.trim() !== "hermes setup") return null;
+      commands[0] = "hermes setup --portal";
+    }
+    const command = commands.join(" && ");
     return recipe.distro
-      ? `proot-distro login ${shellQuote(recipe.distro)} -- bash -lc ${shellQuote(commands)}`
-      : commands;
+      ? `proot-distro login ${shellQuote(recipe.distro)} -- bash -lc ${shellQuote(command)}`
+      : command;
   }
   return null;
 }
@@ -404,8 +410,8 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
     }
   }
 
-  function openInteractiveStep(step: ProvisionStepId): void {
-    const command = interactiveCommandForStep(activeRecipe, step);
+  function openInteractiveStep(step: ProvisionStepId, usePortal = false): void {
+    const command = interactiveCommandForStep(activeRecipe, step, usePortal);
     if (!command) return;
     requestInteractiveLaunch(serial, command);
     go("terminal");
@@ -556,6 +562,16 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                             : "Open interactive step"}
                         </Button>
                       )}
+                      {step.id === "configureHermes" &&
+                        interactiveCommandForStep(activeRecipe, step.id, true) && (
+                          <Button
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() => openInteractiveStep(step.id, true)}
+                          >
+                            Open setup portal
+                          </Button>
+                        )}
                       {step.id === "installHermes" && reviewedInstallerCommand(activeRecipe) && (
                         <Button
                           variant="danger"

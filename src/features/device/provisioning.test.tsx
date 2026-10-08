@@ -328,6 +328,11 @@ describe("ProvisioningWizard", () => {
     expect(screen.getByText(/there is no systemd/)).toBeInTheDocument();
     expect(screen.getByText(/choose No/)).toBeInTheDocument();
     expect(screen.getByText(/allow-listed or pairing-protected/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open setup portal" }));
+    const portalCommand = useTerminal.getState().pendingInteractiveLaunch?.command ?? "";
+    expect(portalCommand).toContain("hermes setup --portal && hermes gateway setup");
+    expect(useRoute.getState().route).toBe("terminal");
   });
 
   it("duplicates a bundled recipe and saves the edited TOML as a user recipe", async () => {
