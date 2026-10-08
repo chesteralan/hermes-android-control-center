@@ -75,7 +75,7 @@ this milestone is not complete.
 - [~] [M11-T6 — Wake/keyguard detection and bounded Termux focus wait implemented; phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T7 — All-outcome bootstrap cleanup added; retry/interruption phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T9 — Package/wake-lock output streams implemented; connected-phone QA remains](tasks/M11-provisioning.md)
-- [~] [M11-T10 — Existing-distro reruns are idempotent; partial-rootfs repair and phone QA remain](tasks/M11-provisioning.md)
+- [~] [M11-T10 — Existing-distro reruns and partial-rootfs detection/guidance implemented; connected-phone repair QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T11 — Reviewed installer can be explicitly run; PATH discovery and phone QA remain](tasks/M11-provisioning.md)
 - [~] [M11-T12 — Masked atomic YAML config fallback added; phone/install QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T13 — Autostart hook; phone activation/reboot QA remains](tasks/M11-provisioning.md)

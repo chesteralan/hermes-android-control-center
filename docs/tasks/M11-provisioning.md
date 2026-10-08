@@ -46,8 +46,10 @@ Remaining implementation and acceptance work:
   marker/retry behavior, and interruption cleanup on real phones. No private key is copied.
 - T9: Termux package and wake-lock commands now stream stdout/stderr and propagate cancellation
   and exit status. Connected-phone streaming verification remains.
-- T10: reruns now skip distro installation when the selected distro is listed and reapply its
-  package set idempotently. Partial-rootfs repair and connected-phone verification remain open.
+- T10: reruns skip distro installation when the selected distro is listed and reapply its package
+  set idempotently. A harmless login probe now detects listed-but-unstartable rootfs states; the
+  wizard pauses and gives backup-first manual remove/reinstall guidance without deleting distro
+  data automatically. Connected-phone repair verification remains open.
 - T11: the wizard can review installer size, SHA-256, and contents, then separately approve and
   run the script in the selected environment's interactive PTY. Binary PATH discovery and
   phone/install acceptance remain.

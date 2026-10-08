@@ -60,6 +60,20 @@ fn distro_is_listed_installed(output: &str, distro: &str) -> bool {
     })
 }
 
+fn distro_start_probe_command(distro: &str) -> String {
+    format!(
+        "proot-distro login {} -- bash -lc {}",
+        shell_escape(distro),
+        shell_escape("true")
+    )
+}
+
+fn distro_repair_guidance(distro: &str) -> String {
+    format!(
+        "The {distro} rootfs is listed as installed but cannot start. This app will not remove it automatically. Back up any files you need, then in Termux run `proot-distro remove {distro}` followed by `proot-distro install {distro}`. Removing the distro deletes all files inside it. Resume this step after reinstalling."
+    )
+}
+
 fn android_settings_commands(sdk: Option<u32>) -> Vec<String> {
     let mut commands = vec![
         "pm grant com.termux android.permission.READ_EXTERNAL_STORAGE".into(),
@@ -231,6 +245,18 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
             &result.stdout,
             &self.recipe.distro,
         ))
+    }
+
+    async fn distro_is_startable(&self) -> AppResult<bool> {
+        let result = self
+            .remote()
+            .await?
+            .execute(
+                &distro_start_probe_command(&self.recipe.distro),
+                COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(result.exit_code == Some(0))
     }
 
     async fn bootstrap_ssh(
@@ -705,6 +731,9 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 if !self.distro_is_installed().await? {
                     return Ok(ProvisionCheck::Todo);
                 }
+                if !self.distro_is_startable().await? {
+                    return Ok(ProvisionCheck::Todo);
+                }
                 let package_check = self.recipe.distro_packages.iter().map(|package| {
                     format!("dpkg-query -W -f='${{Status}}' {} 2>/dev/null | grep -q 'install ok installed'", shell_escape(package))
                 }).collect::<Vec<_>>().join(" && ");
@@ -945,7 +974,13 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     return Ok(ProvisionStepRunOutcome::Done);
                 }
                 let distro = shell_escape(&self.recipe.distro);
-                if !self.distro_is_installed().await? {
+                let distro_installed = self.distro_is_installed().await?;
+                if distro_installed && !self.distro_is_startable().await? {
+                    return Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
+                        distro_repair_guidance(&self.recipe.distro),
+                    ));
+                }
+                if !distro_installed {
                     self.run_remote(
                         step,
                         &format!("proot-distro install {distro}"),
@@ -954,6 +989,11 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         &events,
                     )
                     .await?;
+                    if !self.distro_is_startable().await? {
+                        return Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
+                            distro_repair_guidance(&self.recipe.distro),
+                        ));
+                    }
                 }
                 if !self.recipe.distro_packages.is_empty() {
                     let packages = self.recipe.distro_packages.iter()
@@ -1093,7 +1133,8 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
 mod tests {
     use super::{
         android_settings_commands, device_awake_and_unlocked, distro_is_listed_installed,
-        doctor_warning_lines, forward_remote_stream, BootstrapTempFiles,
+        distro_repair_guidance, distro_start_probe_command, doctor_warning_lines,
+        forward_remote_stream, BootstrapTempFiles,
     };
     use crate::error::AppError;
     use crate::provision::types::{ProvisionEvent, ProvisionStepId};
@@ -1177,6 +1218,26 @@ mod tests {
             "ubuntu (installed)\n",
             "debian"
         ));
+    }
+
+    #[test]
+    fn distro_start_probe_targets_and_escapes_selected_distro() {
+        assert_eq!(
+            distro_start_probe_command("debian"),
+            "proot-distro login debian -- bash -lc true"
+        );
+        assert_eq!(
+            distro_start_probe_command("debian; id"),
+            "proot-distro login 'debian; id' -- bash -lc true"
+        );
+    }
+
+    #[test]
+    fn partial_rootfs_guidance_warns_before_removal() {
+        let guidance = distro_repair_guidance("debian");
+        assert!(guidance.contains("will not remove it automatically"));
+        assert!(guidance.contains("proot-distro remove debian"));
+        assert!(guidance.contains("deletes all files inside it"));
     }
 
     #[test]
