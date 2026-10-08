@@ -1,6 +1,6 @@
 # Open Work
 
-Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-08. The linked milestone task files remain the source of truth; update this index when their status changes.
+Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-09. The linked milestone task files remain the source of truth; update this index when their status changes.
 
 Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need new evidence or a supported environment before implementation can proceed.
 
@@ -34,8 +34,8 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ## In Progress
 
-- [~] [M0-S3 — ADB output fixtures](tasks/M0-foundations.md)
-- [~] [M0-S4 — Provisioning feasibility](tasks/M0-foundations.md)
+- [!] [M0-S3 — ADB output fixtures](tasks/M0-foundations.md)
+- [!] [M0-S4 — Provisioning feasibility](tasks/M0-foundations.md)
 - [~] [M10-T1 — Error audit](tasks/M10-production.md)
 - [~] [M10-T2 — Isolated GLib backport passes optimized library tests and 241 Linux app tests/Clippy; strict dependency gate still blocked by six license rejections and one unmaintained advisory](tasks/M10-production.md)
 - [~] [M10-T4 — Keyboard command palette and shortcut guide](tasks/M10-production.md)
@@ -45,14 +45,14 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [~] [M10-T9 — Tray status, named stop alerts, and persistent gateway timeline; packaged notification/runtime QA remains](tasks/M10-production.md)
 - [~] [M10-T10–T13 — Signing, universal build, updater, and release workflow](tasks/M10-production.md)
 - [~] [M10-T15 — Root README](tasks/M10-production.md)
-- [~] [M13-T1 — Hermes session interface spike](tasks/M13-chat-sessions.md)
-- [~] [M13-T6 — Cross-platform and performance QA](tasks/M13-chat-sessions.md)
-- [~] [M14-T3–T4 — Windows/Linux/Wayland runtime and release QA](tasks/M14-tray-lifecycle.md)
 
 ## Blocked
 
 - [!] [M4-T5 — Optional bootstrap via RUN_COMMAND](tasks/M4-termux-bridge.md): Android denied the intent because the ADB-shell sender lacks `com.termux.permission.RUN_COMMAND`; manual SSH setup remains supported.
 - [!] M9 has no task breakdown: [the roadmap references `tasks/M9-multi-device.md`](MILESTONES.md), but that file is missing.
+- [!] M0-S3/S4 remaining fixture and provisioning acceptance: `adb devices -l` is empty; USB, unauthorized/offline, pairing failures, reset-phone install, and reboot captures require a connected Android phone.
+- [!] M13-T1/T6 live compatibility checks: only Hermes v0.21.4 has been tested on-device; upstream lists v0.21.6, but setting a supported range and verifying gateway-created sessions requires a phone. Windows/Linux session and performance QA also requires those platforms.
+- [!] M14-T3/T4 Windows/Linux/Wayland tray and release QA: this workspace is on macOS; native runtime behavior cannot be certified without those desktop environments.
 
 ## Open Tickets
 
