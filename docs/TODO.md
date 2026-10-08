@@ -77,7 +77,7 @@ this milestone is not complete.
 - [~] [M11-T9 — Package/wake-lock output streams implemented; connected-phone QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T10 — Existing-distro reruns are idempotent; partial-rootfs repair and phone QA remain](tasks/M11-provisioning.md)
 - [~] [M11-T11 — Reviewed installer can be explicitly run; PATH discovery and phone QA remain](tasks/M11-provisioning.md)
-- [~] [M11-T12 — Portal and proot/gateway safety guidance added; config fallback remains](tasks/M11-provisioning.md)
+- [~] [M11-T12 — Portal, safety hints and nonfatal doctor warnings added; config fallback/phone QA remain](tasks/M11-provisioning.md)
 - [~] [M11-T13 — Autostart hook; phone activation/reboot QA remains](tasks/M11-provisioning.md)
 - [~] [M11-T14 — Start/status verification; M9 profile persistence remains](tasks/M11-provisioning.md)
 - [~] [M11-T15 — Device-page wizard; entry points/state coverage/runtime QA remain](tasks/M11-provisioning.md)

@@ -78,6 +78,17 @@ fn android_settings_commands(sdk: Option<u32>) -> Vec<String> {
     commands
 }
 
+fn doctor_warning_lines(stdout: &str, stderr: &str) -> Vec<String> {
+    stdout
+        .lines()
+        .chain(stderr.lines())
+        .filter(|line| line.to_ascii_lowercase().contains("warn"))
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 struct BootstrapTempFiles(PathBuf);
 
 impl Drop for BootstrapTempFiles {
@@ -724,17 +735,22 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
             }),
             ProvisionStepId::ConfigureHermes => {
                 let command = self.hermes_command(&self.recipe.hermes_runtime.doctor_command);
-                Ok(
-                    match self
-                        .remote()
-                        .await?
-                        .execute(&command, COMMAND_TIMEOUT)
-                        .await
-                    {
-                        Ok(result) if result.exit_code == Some(0) => ProvisionCheck::Done,
-                        _ => ProvisionCheck::Todo,
-                    },
-                )
+                match self
+                    .remote()
+                    .await?
+                    .execute(&command, COMMAND_TIMEOUT)
+                    .await
+                {
+                    Ok(result) if result.exit_code == Some(0) => {
+                        let warnings = doctor_warning_lines(&result.stdout, &result.stderr);
+                        if warnings.is_empty() {
+                            Ok(ProvisionCheck::Done)
+                        } else {
+                            Ok(ProvisionCheck::DoneWithWarnings(warnings))
+                        }
+                    }
+                    _ => Ok(ProvisionCheck::Todo),
+                }
             }
             ProvisionStepId::Autostart => {
                 if !self.recipe.autostart {
@@ -1073,7 +1089,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
 mod tests {
     use super::{
         android_settings_commands, device_awake_and_unlocked, distro_is_listed_installed,
-        forward_remote_stream, BootstrapTempFiles,
+        doctor_warning_lines, forward_remote_stream, BootstrapTempFiles,
     };
     use crate::error::AppError;
     use crate::provision::types::{ProvisionEvent, ProvisionStepId};
@@ -1157,6 +1173,20 @@ mod tests {
             "ubuntu (installed)\n",
             "debian"
         ));
+    }
+
+    #[test]
+    fn doctor_warning_lines_select_warning_output_without_command_contents() {
+        assert_eq!(
+            doctor_warning_lines(
+                "Doctor passed\nWarning: service setup unavailable",
+                "WARN: configure an allow-listed user\nordinary detail"
+            ),
+            [
+                "Warning: service setup unavailable",
+                "WARN: configure an allow-listed user"
+            ]
+        );
     }
 
     #[test]

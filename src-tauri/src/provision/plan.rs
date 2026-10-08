@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
 use crate::error::{AppError, AppResult};
+use crate::transport::StreamEvent;
 
 use super::recipe::ProvisionRecipe;
 use super::types::{
@@ -203,6 +204,7 @@ fn step(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProvisionCheck {
     Done,
+    DoneWithWarnings(Vec<String>),
     Todo,
     Blocked(String),
 }
@@ -437,6 +439,26 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
                     .await;
                 continue;
             }
+            ProvisionCheck::DoneWithWarnings(warnings) => {
+                for warning in warnings {
+                    let _ = events
+                        .send(ProvisionEvent::Output {
+                            step: step.id,
+                            event: StreamEvent::Stderr {
+                                line: format!("Hermes doctor warning: {warning}"),
+                            },
+                        })
+                        .await;
+                }
+                step.state = ProvisionStepState::Done;
+                step.detail = None;
+                progress.mark_done(step.id);
+                store.save(progress)?;
+                let _ = events
+                    .send(ProvisionEvent::StepDone { step: step.id })
+                    .await;
+                continue;
+            }
             ProvisionCheck::Blocked(reason) => {
                 step.state = ProvisionStepState::Blocked;
                 step.detail = Some(reason.clone());
@@ -650,6 +672,57 @@ mod tests {
             .steps
             .iter()
             .all(|item| item.state == ProvisionStepState::Done));
+    }
+
+    #[tokio::test]
+    async fn doctor_warnings_are_emitted_without_failing_the_completed_step() {
+        let step_id = ProvisionStepId::ConfigureHermes;
+        let executor = MockExecutor {
+            checks: vec![(
+                step_id,
+                ProvisionCheck::DoneWithWarnings(vec![
+                    "Warning: gateway service setup was skipped".into(),
+                ]),
+            )],
+            ..Default::default()
+        };
+        let mut plan = plan(vec![step(step_id, None)]);
+        let mut progress = ProvisionProgress::new("device-id", "debian-official");
+        let store = ProvisionProgressStore::new(temp_root());
+        let (events, mut received) = mpsc::channel(8);
+
+        let outcome = run_plan(
+            &executor,
+            &mut plan,
+            &mut progress,
+            None,
+            false,
+            &[],
+            CancellationToken::new(),
+            events,
+            &store,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome, ProvisionRunOutcome::PlanDone);
+        assert!(matches!(
+            received.recv().await,
+            Some(ProvisionEvent::Output {
+                step: ProvisionStepId::ConfigureHermes,
+                event: crate::transport::StreamEvent::Stderr { line },
+            }) if line == "Hermes doctor warning: Warning: gateway service setup was skipped"
+        ));
+        assert!(matches!(
+            received.recv().await,
+            Some(ProvisionEvent::StepDone {
+                step: ProvisionStepId::ConfigureHermes
+            })
+        ));
+        assert!(matches!(
+            received.recv().await,
+            Some(ProvisionEvent::PlanDone)
+        ));
     }
 
     #[tokio::test]
