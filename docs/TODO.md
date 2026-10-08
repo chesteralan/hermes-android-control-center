@@ -115,7 +115,7 @@ GitHub Releases is the recommended primary host; the existing tag workflow assem
 
 ### M2 — ADB Core
 
-- [~] [Live device info, mDNS discovery, rebuilt-app mDNS/IP disconnect, and Retry verified; fresh-phone QR/code pairing, wireless-toggle recovery, and release gates remain](tasks/M2-adb-core.md)
+- [!] [Live device info, mDNS discovery, rebuilt-app mDNS/IP disconnect, and Retry verified; fresh-phone pairing and wireless-toggle recovery need a connected phone](tasks/M2-adb-core.md)
 
 ### M3 — Basic Terminal + Live Logs
 
@@ -128,11 +128,11 @@ GitHub Releases is the recommended primary host; the existing tag workflow assem
 
 ### M7 — Logs Complete
 
-- [ ] [Demonstrate brief §8 requirements on real Hermes logs](tasks/M7-logs.md)
+- [!] [Demonstrate brief §8 requirements on real Hermes logs; no Android device is connected](tasks/M7-logs.md)
 
 ### M8 — Hermes Control API
 
-- [~] [Verify Hermes action state transitions; on-device API auth/status without fallback/log streaming and contract tests pass](tasks/M8-control-api.md)
+- [!] [Verify Hermes action state transitions and on-device API auth/status; requires a connected Hermes phone](tasks/M8-control-api.md)
 
 ### M10 — Hardening & Production
 
@@ -141,34 +141,34 @@ GitHub Releases is the recommended primary host; the existing tag workflow assem
 
 ### M11 — New Phone Provisioning
 
-- [ ] [Factory-fresh Android 13/14+ provisioning run](tasks/M11-provisioning.md)
-- [ ] [Wizard rerun is idempotent](tasks/M11-provisioning.md)
-- [ ] [Interrupted wizard resumes successfully](tasks/M11-provisioning.md)
-- [ ] [Termux:Boot restores Hermes after reboot](tasks/M11-provisioning.md)
-- [ ] [No bootstrap downloads or secrets remain](tasks/M11-provisioning.md)
+- [!] [Factory-fresh Android 13/14+ provisioning run; requires a reset phone](tasks/M11-provisioning.md)
+- [!] [Wizard rerun is idempotent; requires a provisioned phone](tasks/M11-provisioning.md)
+- [!] [Interrupted wizard resumes successfully; requires a connected phone](tasks/M11-provisioning.md)
+- [!] [Termux:Boot restores Hermes after reboot; requires a phone and reboot cycle](tasks/M11-provisioning.md)
+- [!] [No bootstrap downloads or secrets remain on the phone; requires device inspection](tasks/M11-provisioning.md)
 
 ### M12 — Cross-Platform
 
-- [ ] [Windows and Linux install/update without warnings](tasks/M12-cross-platform.md)
-- [ ] [Core workflows match across all three OSes](tasks/M12-cross-platform.md)
-- [ ] [No orphan ADB processes on any OS](tasks/M12-cross-platform.md)
-- [ ] [Tag `v1.1.0`](tasks/M12-cross-platform.md)
+- [!] [Windows and Linux install/update without warnings; requires those native hosts and signing credentials](tasks/M12-cross-platform.md)
+- [!] [Core workflows match across all three OSes; Windows and Linux runtime QA remains](tasks/M12-cross-platform.md)
+- [!] [No orphan ADB processes on any OS; Windows and Linux quit QA remains](tasks/M12-cross-platform.md)
+- [!] [Tag `v1.1.0`; release is gated on signing and platform acceptance](tasks/M12-cross-platform.md)
 
 ### M13 — Chat Session History
 
-- [ ] [Browse app-created and gateway-created sessions](tasks/M13-chat-sessions.md)
+- [!] [Browse app-created and gateway-created sessions; requires a connected Hermes phone](tasks/M13-chat-sessions.md)
 - [x] [Document and test session API/page limits](tasks/M13-chat-sessions.md)
-- [ ] [Establish and test the supported Hermes version range](tasks/M13-chat-sessions.md)
-- [ ] [CI and connected-phone QA on all M12 platforms](tasks/M13-chat-sessions.md)
+- [!] [Establish and test the supported Hermes version range; only v0.21.4 is live-verified](tasks/M13-chat-sessions.md)
+- [!] [CI and connected-phone QA on all M12 platforms; Windows/Linux hosts and a phone are required](tasks/M13-chat-sessions.md)
 
 ### M14 — Tray & Window Lifecycle
 - [x] [macOS QA: close/minimize hides the window and preserves active work](tasks/M14-tray-lifecycle.md)
 - [x] [macOS QA: tray restore and explicit quit work](tasks/M14-tray-lifecycle.md)
 - [x] [macOS QA: explicit quit cancels streams and reaps the logcat child](tasks/M14-tray-lifecycle.md)
-- [~] [Behavior/fallback documented; macOS, Windows, and Linux runtime QA pending](tasks/M14-tray-lifecycle.md)
-- [ ] [Tag `v1.3.0`](tasks/M14-tray-lifecycle.md)
+- [!] [Behavior/fallback documented; Windows/Linux/Wayland runtime QA requires those desktop environments](tasks/M14-tray-lifecycle.md)
+- [!] [Tag `v1.3.0`; gated on supported-platform runtime QA](tasks/M14-tray-lifecycle.md)
 
 ### M16 — Public Download Distribution
 
-- [ ] [Public, verified downloads available for each supported platform](tasks/M16-download-distribution.md)
-- [ ] [Clean install and upgrade acceptance completed](tasks/M16-download-distribution.md)
+- [!] [Public, verified downloads available for each supported platform; release signing/publication prerequisites remain](tasks/M16-download-distribution.md)
+- [!] [Clean install and upgrade acceptance completed; requires signed release artifacts and platform hosts](tasks/M16-download-distribution.md)
