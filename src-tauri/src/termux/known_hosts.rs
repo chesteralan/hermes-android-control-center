@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use crate::error::{AppError, AppResult};
 
@@ -31,35 +31,43 @@ impl KnownHosts {
         }
     }
 
-    pub fn expected(&self, device_id: &str) -> Option<String> {
-        self.map.lock().unwrap().get(device_id).cloned()
+    fn lock_map(&self) -> AppResult<MutexGuard<'_, BTreeMap<String, String>>> {
+        self.map.lock().map_err(|_| {
+            AppError::Io(
+                "SSH host-key state is unavailable after a previous failure. Restart the app before reconnecting.".into(),
+            )
+        })
     }
 
-    pub fn check(&self, device_id: &str, fingerprint: &str) -> Trust {
-        match self.expected(device_id) {
+    pub fn expected(&self, device_id: &str) -> AppResult<Option<String>> {
+        Ok(self.lock_map()?.get(device_id).cloned())
+    }
+
+    pub fn check(&self, device_id: &str, fingerprint: &str) -> AppResult<Trust> {
+        Ok(match self.expected(device_id)? {
             None => Trust::New,
             Some(e) if e == fingerprint => Trust::Match,
             Some(expected) => Trust::Mismatch { expected },
-        }
+        })
     }
 
     pub fn pin(&self, device_id: &str, fingerprint: &str) -> AppResult<()> {
-        let mut m = self.map.lock().unwrap();
-        m.insert(device_id.to_string(), fingerprint.to_string());
-        self.save(&m)
+        let mut map = self.lock_map()?;
+        map.insert(device_id.to_string(), fingerprint.to_string());
+        self.save(&map)
     }
 
     pub fn forget(&self, device_id: &str) -> AppResult<()> {
-        let mut m = self.map.lock().unwrap();
-        m.remove(device_id);
-        self.save(&m)
+        let mut map = self.lock_map()?;
+        map.remove(device_id);
+        self.save(&map)
     }
 
-    fn save(&self, m: &BTreeMap<String, String>) -> AppResult<()> {
+    fn save(&self, map: &BTreeMap<String, String>) -> AppResult<()> {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let json = serde_json::to_string_pretty(m).map_err(|e| AppError::Io(e.to_string()))?;
+        let json = serde_json::to_string_pretty(map).map_err(|e| AppError::Io(e.to_string()))?;
         std::fs::write(&self.path, json)?;
         Ok(())
     }
@@ -74,19 +82,39 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("hacc-kh-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let kh = KnownHosts::load(&dir);
-        assert_eq!(kh.check("DEV1", "SHA256:a"), Trust::New);
+        assert_eq!(kh.check("DEV1", "SHA256:a").unwrap(), Trust::New);
         kh.pin("DEV1", "SHA256:a").unwrap();
         let kh = KnownHosts::load(&dir);
-        assert_eq!(kh.check("DEV1", "SHA256:a"), Trust::Match);
+        assert_eq!(kh.check("DEV1", "SHA256:a").unwrap(), Trust::Match);
         assert_eq!(
-            kh.check("DEV1", "SHA256:b"),
+            kh.check("DEV1", "SHA256:b").unwrap(),
             Trust::Mismatch {
                 expected: "SHA256:a".into()
             }
         );
-        assert_eq!(kh.check("DEV2", "SHA256:a"), Trust::New);
+        assert_eq!(kh.check("DEV2", "SHA256:a").unwrap(), Trust::New);
         kh.forget("DEV1").unwrap();
-        assert_eq!(KnownHosts::load(&dir).check("DEV1", "SHA256:b"), Trust::New);
+        assert_eq!(
+            KnownHosts::load(&dir).check("DEV1", "SHA256:b").unwrap(),
+            Trust::New
+        );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn poisoned_host_key_state_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("hacc-kh-poison-{}", std::process::id()));
+        let known_hosts = std::sync::Arc::new(KnownHosts::load(&dir));
+        let poison = known_hosts.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison.map.lock().unwrap();
+            panic!("poison host-key map");
+        })
+        .join();
+
+        assert!(known_hosts.expected("device").is_err());
+        assert!(known_hosts.check("device", "SHA256:new").is_err());
+        assert!(known_hosts.pin("device", "SHA256:new").is_err());
+        assert!(known_hosts.forget("device").is_err());
     }
 }

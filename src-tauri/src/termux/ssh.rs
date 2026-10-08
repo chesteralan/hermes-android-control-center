@@ -38,7 +38,11 @@ impl client::Handler for HostKeyCheck {
                 c.public_key().fingerprint(HashAlg::Sha256).to_string()
             }
         };
-        *self.seen.lock().unwrap() = Some(fp.clone());
+        let Ok(mut seen) = self.seen.lock() else {
+            tracing::error!("SSH host-key verification lock was poisoned; rejecting key");
+            return Ok(false);
+        };
+        *seen = Some(fp.clone());
         Ok(self.expected.as_ref().is_none_or(|e| *e == fp))
     }
 }
@@ -51,6 +55,12 @@ fn unavailable(reason: impl Into<String>) -> AppError {
     }
 }
 
+fn seen_fingerprint(seen: &StdMutex<Option<String>>) -> AppResult<Option<String>> {
+    seen.lock()
+        .map(|fingerprint| fingerprint.clone())
+        .map_err(|_| AppError::Io("SSH host-key verification state is unavailable.".into()))
+}
+
 /// Connects and authenticates; pins the host key on first use.
 pub async fn connect(
     port: u16,
@@ -61,7 +71,7 @@ pub async fn connect(
 ) -> AppResult<SshHandle> {
     let seen = Arc::new(StdMutex::new(None));
     let handler = HostKeyCheck {
-        expected: known_hosts.expected(device_id),
+        expected: known_hosts.expected(device_id)?,
         seen: seen.clone(),
     };
     let config = Arc::new(client::Config {
@@ -78,8 +88,8 @@ pub async fn connect(
             })
         }
         Ok(Err(e)) => {
-            let seen_fp = seen.lock().unwrap().clone();
-            if let (Some(fp), Some(expected)) = (seen_fp, known_hosts.expected(device_id)) {
+            let seen_fp = seen_fingerprint(&seen)?;
+            if let (Some(fp), Some(expected)) = (seen_fp, known_hosts.expected(device_id)?) {
                 if fp != expected {
                     return Err(unavailable(format!(
                         "Termux SSH host key changed (expected {expected}, got {fp}). If you reinstalled Termux, forget the host key in the Termux setup and verify again."
@@ -105,8 +115,8 @@ pub async fn connect(
             "Termux rejected the app's SSH key. Add the public key from Termux setup to ~/.ssh/authorized_keys.",
         ));
     }
-    if let Some(fp) = seen.lock().unwrap().clone() {
-        if known_hosts.check(device_id, &fp) == Trust::New {
+    if let Some(fp) = seen_fingerprint(&seen)? {
+        if known_hosts.check(device_id, &fp)? == Trust::New {
             known_hosts.pin(device_id, &fp)?;
         }
     }
@@ -349,6 +359,22 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio::sync::{mpsc as tokio_mpsc, oneshot};
 
+    #[test]
+    fn poisoned_seen_fingerprint_returns_error() {
+        let seen = Arc::new(StdMutex::new(Some("SHA256:known".into())));
+        let poison = seen.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison.lock().unwrap();
+            panic!("poison SSH seen fingerprint");
+        })
+        .join();
+
+        assert!(matches!(
+            seen_fingerprint(&seen),
+            Err(AppError::Io(message)) if message.contains("host-key verification")
+        ));
+    }
+
     #[derive(Clone)]
     struct TestServer {
         signals: tokio_mpsc::UnboundedSender<Sig>,
@@ -521,7 +547,7 @@ mod tests {
             .await
             .unwrap(),
         );
-        assert!(known_hosts.expected("test-device").is_some());
+        assert!(known_hosts.expected("test-device").unwrap().is_some());
 
         let result = transport
             .execute("probe", Duration::from_secs(2))

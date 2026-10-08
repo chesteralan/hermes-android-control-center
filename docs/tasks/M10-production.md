@@ -19,6 +19,7 @@
 - **Progress (2026-10-09):** Process startup now returns a structured I/O error if a spawned child unexpectedly lacks piped stdout or stderr, rather than panicking. The eight ProcessRunner tests pass, including timeout and cancellation child cleanup. The remaining non-test mutex/panic/error-propagation audit and live failure matrix remain open.
 - **Progress (2026-10-09):** Device and reconnect registries now recover poisoned locks with an error log; stream-registry recovery cancels and clears active streams, and reconnect-registry recovery cancels active retries. Poison regressions pass. The remaining non-test mutex/panic/error-propagation audit and live failure matrix remain open.
 - **Progress (2026-10-09):** Encrypted-secret lock poisoning now discards the in-memory vault (zeroizing key/token state), reports locked status, and requires explicit unlock before access; the encrypted file remains recoverable. The poison/reunlock regression passes. The remaining non-test mutex/panic/error-propagation audit and live failure matrix remain open.
+- **Progress (2026-10-09):** Poisoned known-host state now returns an I/O error, and a poisoned per-connection fingerprint lock rejects the SSH host key rather than proceeding. TOFU persistence, poisoned-state, and in-process SSH transport tests pass. The wider non-test error audit and live SSH failure matrix remain open.
 
 ### [~] M10-T2 Security review
 - Complete SECURITY.md checklist; `cargo audit`, `cargo deny`, `npm audit --omit=dev` in CI; CSP locked down in `tauri.conf.json`.

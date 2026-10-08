@@ -116,7 +116,7 @@ GitHub Releases is the recommended primary host; the existing tag workflow assem
 
 ### M1 — Desktop Shell
 
-- [~] [CI run and `v0.1.0-alpha.1` tag](tasks/M1-desktop-shell.md)
+- [!] [CI run and `v0.1.0-alpha.1` tag; release tagging is deferred with M10 signing readiness](tasks/M1-desktop-shell.md)
 
 ### M2 — ADB Core
 
@@ -124,7 +124,7 @@ GitHub Releases is the recommended primary host; the existing tag workflow assem
 
 ### M3 — Basic Terminal + Live Logs
 
-- [ ] [Tag `v0.1.0` and attach the unsigned CI app](tasks/M3-basic-terminal-logs.md)
+- [!] [Tag `v0.1.0` and attach the CI app; stable tagging depends on deferred M10 release readiness](tasks/M3-basic-terminal-logs.md)
 
 ### M5 — Hermes Management
 
