@@ -25,18 +25,23 @@ support was removed; Ed25519 SSH execution/streaming/cancellation still passes. 
 audit reports zero vulnerabilities, with existing `proc-macro-error` unmaintained and
 `glib` unsoundness warnings.
 
-The dependency-policy job still blocks the overall run. It rejects existing
-MPL-2.0 and Apache-2.0 WITH LLVM-exception dependencies, and reports
+The dependency-policy job blocked the overall run at the time. It rejected existing
+MPL-2.0 and Apache-2.0 WITH LLVM-exception dependencies, and reported
 `RUSTSEC-2024-0370` (`proc-macro-error`). `RUSTSEC-2024-0429` (`glib`) remains an
-audit warning requiring review. No license allowances or advisory ignores were added.
-The project's existing MIT license is now declared in crate metadata. Completing this
-gate requires replacements for rejected-license dependencies and verified upgrades
-or backports for affected dependencies, not exceptions or disabling checks. The user
-selected strict remediation: no policy exceptions. Both HTTP clients now use certificate-verified
+audit warning requiring review. No license allowances or advisory ignores were added
+in that pass. The project's existing MIT license is now declared in crate metadata.
+The user selected strict remediation at that time: no policy exceptions. Both HTTP clients now use certificate-verified
 native TLS, removing the CDLA-licensed embedded certificate-root packages from the
 lockfile. Local HTTP/API and APK selector tests and Clippy pass. The mandatory Tauri
 HTML-parser licensing and GTK3/GLib compatibility boundaries remain; see
 [strict remediation evidence](../SECURITY.md#6-strict-dependency-remediation).
+
+Update (2026-10-12): the owner authorized a reviewed policy relaxation —
+`MPL-2.0` and `Apache-2.0 WITH LLVM-exception` are on the allowlist and
+`RUSTSEC-2024-0370` carries a justified ignore in `deny.toml`. `cargo deny check`
+now passes all categories; the Security job's Gitleaks failure was separately fixed
+with a full-history checkout. The `glib` unsoundness warning
+(`RUSTSEC-2024-0429`) remains open and is not covered by the relaxation.
 
 A mocked-IPC browser smoke run at 1280x900 and the native 900x600 minimum verified
 vault consent, passphrase input clearing, locked state, package-update notice, and

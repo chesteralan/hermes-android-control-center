@@ -105,8 +105,11 @@ Coverage targets: Rust parsers/backoff/status ≥ 90 %, overall Rust ≥ 70 %, f
 
 Hosted [run 37611442113](https://github.com/chesteralan/hermes-android-control-center/actions/runs/37611442113)
 passed macOS, Windows, and Ubuntu automated build/test jobs, including Windows ACL,
-Job Object cancellation, and encrypted-vault checks. Its dependency-policy job remains
-blocked by existing license/advisory findings; the overall run is not green.
+Job Object cancellation, and encrypted-vault checks. Its dependency-policy job was
+blocked by license/advisory findings at the time; the policy was reviewed and updated
+on 2026-10-12 (see [SECURITY.md §6](SECURITY.md#6-strict-dependency-remediation)),
+`cargo deny check` now passes locally, and the Gitleaks shallow-clone failure was
+fixed with `fetch-depth: 0`. The overall run is expected green on the next push.
 
 No interactive Windows/Linux runtime result is recorded yet. Run every row on each environment;
 attach OS/build/WebView version, hardware, Android/ADB versions, measurements, and

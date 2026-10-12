@@ -3,31 +3,31 @@ import type { HermesEnvironment } from "./HermesEnvironment";
 import type { HermesTransportKind } from "./HermesTransportKind";
 import type { StartMode } from "./StartMode";
 
-export type HermesConfig = { environment: HermesEnvironment, startMode: StartMode, transport: HermesTransportKind, fallbackToSsh: boolean,
+export type HermesConfig = { environment: HermesEnvironment, startMode: StartMode, transport: HermesTransportKind, fallbackToSsh: boolean, 
 /**
  * Run inside the environment, e.g. `hermes gateway run`.
  */
-gatewayCommand: string,
+gatewayCommand: string, 
 /**
  * Matches any Hermes process command line (gateway or CLI).
  */
-processMatch: string,
+processMatch: string, 
 /**
  * Extra text identifying the gateway among Hermes processes.
  */
-gatewayMatch: string,
+gatewayMatch: string, 
 /**
  * HERMES_HOME inside the environment.
  */
-hermesHome: string,
+hermesHome: string, 
 /**
  * Log paths inside the Hermes environment; gateway first, tool calls second.
  */
-logFiles: Array<string>,
+logFiles: Array<string>, 
 /**
  * Prepended to PATH inside the environment (installers often only update interactive shells).
  */
-pathPrepend: Array<string>,
+pathPrepend: Array<string>, 
 /**
  * Optional overrides; when set they replace the built-in supervisor actions.
  */

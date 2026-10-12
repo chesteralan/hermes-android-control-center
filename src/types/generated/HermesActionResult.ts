@@ -2,7 +2,7 @@
 import type { CommandResult } from "./CommandResult";
 import type { HermesStatus } from "./HermesStatus";
 
-export type HermesActionResult = { output: CommandResult, status: HermesStatus,
+export type HermesActionResult = { output: CommandResult, status: HermesStatus, 
 /**
  * Whether the status reached the expected state before we stopped waiting.
  */

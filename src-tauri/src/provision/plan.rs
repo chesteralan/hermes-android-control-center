@@ -32,7 +32,7 @@ pub fn build_plan(
             Some(ProvisionConsent {
                 title: "Install Termux from the selected source".into(),
                 commands: vec![format!(
-                    "Download the official {} APK for this phone, verify its SHA-256, then run adb install -r.",
+                    "Download the official {} APK for this phone, verify its SHA-256 (or record it when the release publishes no digest), then run adb install -r.",
                     source_label(recipe)
                 )],
                 destructive: false,
@@ -58,6 +58,20 @@ pub fn build_plan(
             "Launch Termux",
             None,
             Some("Unlock the phone and keep Termux visible for first launch.".into()),
+        ),
+        step(
+            ProvisionStepId::SetupStorage,
+            "Grant Termux storage access",
+            (!recipe.distro.is_empty()).then(|| ProvisionConsent {
+                title: "Grant Termux access to shared storage".into(),
+                commands: vec![
+                    "Run termux-setup-storage in Termux (the app types the command for you).".into(),
+                    "Tap Allow, or enable All files access for Termux, when Android prompts you."
+                        .into(),
+                ],
+                destructive: false,
+            }),
+            Some("Tap Allow on the Android storage prompt, then resume.".into()),
         ),
         step(
             ProvisionStepId::BootstrapSsh,
@@ -116,7 +130,8 @@ pub fn build_plan(
                     .map(|url| {
                         vec![
                             format!("Download {url} over HTTPS and show its SHA-256."),
-                            "Run the reviewed installer inside the selected environment.".into(),
+                            "Run the reviewed installer inside the selected environment over the SSH bridge (interactive setup follows in the next step)."
+                                .into(),
                         ]
                     })
                     .unwrap_or_else(|| {
@@ -163,6 +178,7 @@ pub fn build_plan(
     for item in &mut steps {
         if progress.completed_steps.contains(&item.id)
             || item.id == ProvisionStepId::InstallDistro && recipe.distro.is_empty()
+            || item.id == ProvisionStepId::SetupStorage && recipe.distro.is_empty()
             || item.id == ProvisionStepId::Autostart && !recipe.autostart
         {
             item.state = ProvisionStepState::Done;
@@ -908,6 +924,44 @@ mod tests {
         assert_eq!(outcome, ProvisionRunOutcome::StepDone { step: first });
         assert_eq!(*executor.runs.lock().unwrap(), vec![first]);
         assert_eq!(plan.steps[1].state, ProvisionStepState::Todo);
+    }
+
+    #[test]
+    fn setup_storage_step_gates_on_proot_recipes() {
+        let recipes = crate::provision::recipe::bundled_recipes().unwrap();
+        let proot = recipes
+            .iter()
+            .find(|recipe| !recipe.distro.is_empty())
+            .unwrap();
+        let native = recipes
+            .iter()
+            .find(|recipe| recipe.distro.is_empty())
+            .unwrap();
+        let progress = ProvisionProgress::new("device-id", "debian-official");
+
+        let proot_plan = build_plan("phone", "device-id", proot, &progress);
+        let launch = proot_plan
+            .steps
+            .iter()
+            .position(|step| step.id == ProvisionStepId::LaunchTermux)
+            .unwrap();
+        let setup = proot_plan
+            .steps
+            .iter()
+            .position(|step| step.id == ProvisionStepId::SetupStorage)
+            .unwrap();
+        assert_eq!(setup, launch + 1);
+        assert!(proot_plan.steps[setup].consent.is_some());
+        assert_eq!(proot_plan.steps[setup].state, ProvisionStepState::Todo);
+
+        let native_plan = build_plan("phone", "device-id", native, &progress);
+        let native_setup = native_plan
+            .steps
+            .iter()
+            .find(|step| step.id == ProvisionStepId::SetupStorage)
+            .unwrap();
+        assert_eq!(native_setup.state, ProvisionStepState::Done);
+        assert!(native_setup.consent.is_none());
     }
 
     #[test]

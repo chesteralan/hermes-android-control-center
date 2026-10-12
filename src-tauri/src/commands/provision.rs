@@ -11,8 +11,9 @@ use crate::adb::{
 };
 use crate::error::{AppError, AppResult};
 use crate::provision::{
-    build_plan, bundled_recipes, run_plan, AndroidProvisionExecutor, ProvisionEvent, ProvisionPlan,
-    ProvisionProgressStore, ProvisionRecipe, ProvisionStepId, ProvisionStepState,
+    build_plan, bundled_recipes, run_plan, AndroidProvisionExecutor, HermesSetupInput,
+    ProvisionEvent, ProvisionPlan, ProvisionProgressStore, ProvisionRecipe, ProvisionStepId,
+    ProvisionStepState,
 };
 use crate::state::AppState;
 use crate::transport::DeviceTransport;
@@ -297,6 +298,252 @@ pub async fn save_hermes_config(
 }
 
 #[tauri::command]
+pub async fn apply_hermes_setup(
+    state: State<'_, AppState>,
+    serial: String,
+    recipe_id: String,
+    input: HermesSetupInput,
+) -> AppResult<()> {
+    let command = hermes_setup_apply_command(&input)?;
+    let result = execute_hermes_config_command(&state, &serial, &recipe_id, &command).await?;
+    if result.exit_code == Some(0) {
+        Ok(())
+    } else {
+        let detail = [result.stderr.trim(), result.stdout.trim()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        Err(AppError::Config(if detail.is_empty() {
+            "Hermes setup could not be applied. Check the phone connection and try again.".into()
+        } else {
+            format!("Hermes setup could not be applied:\n{detail}")
+        }))
+    }
+}
+
+fn non_empty(value: &Option<String>) -> Option<&str> {
+    value.as_deref().map(str::trim).filter(|value| !value.is_empty())
+}
+
+const HERMES_PROVIDER_ENV_KEYS: &[(&str, &str)] = &[
+    ("openrouter", "OPENROUTER_API_KEY"),
+    ("openai", "OPENAI_API_KEY"),
+    ("anthropic", "ANTHROPIC_API_KEY"),
+    ("gemini", "GEMINI_API_KEY"),
+    ("nous-api", "NOUS_API_KEY"),
+    ("kimi-coding", "KIMI_API_KEY"),
+    ("minimax", "MINIMAX_API_KEY"),
+    ("zai", "GLM_API_KEY"),
+    ("ollama-cloud", "OLLAMA_API_KEY"),
+    ("fireworks", "FIREWORKS_API_KEY"),
+];
+
+const HERMES_SETUP_ENV_KEY_PATTERN: &str =
+    "^(OPENROUTER|OPENAI|ANTHROPIC|GOOGLE|GEMINI|NOUS|GLM|KIMI|MINIMAX|FIREWORKS|OLLAMA|HF|DEEPINFRA|XIAOMI|ARCEEAI|OPENCODE_ZEN|OPENCODE_GO|NOVITA|UPSTAGE|NEBIUS|TOKENHUB|TOKENPLAN|RAMP_ROUTER|GROQ|NVIDIA)_[A-Z0-9_]*=[^[:space:]#]";
+
+fn hermes_setup_values(input: &HermesSetupInput) -> AppResult<Vec<(String, &str)>> {
+    let mut assignments = Vec::new();
+    for (label, value) in [
+        ("the model provider", non_empty(&input.model_provider)),
+        ("the model name", non_empty(&input.model_name)),
+        ("the model base URL", non_empty(&input.model_base_url)),
+        ("the provider API key", non_empty(&input.provider_api_key)),
+        ("the Telegram bot token", non_empty(&input.telegram_bot_token)),
+        (
+            "the Telegram allowed users",
+            non_empty(&input.telegram_allowed_users),
+        ),
+        ("the Discord bot token", non_empty(&input.discord_bot_token)),
+        (
+            "the Discord allowed users",
+            non_empty(&input.discord_allowed_users),
+        ),
+        ("the Slack bot token", non_empty(&input.slack_bot_token)),
+        ("the Slack app token", non_empty(&input.slack_app_token)),
+        (
+            "the Slack allowed users",
+            non_empty(&input.slack_allowed_users),
+        ),
+    ] {
+        if let Some(value) = value {
+            if value.contains(['\n', '\r', '\0']) {
+                return Err(AppError::Config(format!("{label} must be a single line.")));
+            }
+            assignments.push((label.to_string(), value));
+        }
+    }
+    Ok(assignments)
+}
+
+fn hermes_setup_env_assignments(input: &HermesSetupInput) -> AppResult<Vec<(String, String)>> {
+    hermes_setup_values(input)?;
+    let provider = non_empty(&input.model_provider);
+    let api_key = non_empty(&input.provider_api_key);
+    let mut assignments = Vec::new();
+
+    if let Some(provider) = provider {
+        if provider != "custom"
+            && !HERMES_PROVIDER_ENV_KEYS
+                .iter()
+                .any(|(name, _)| *name == provider)
+        {
+            return Err(AppError::Config(format!(
+                "Unknown model provider \"{provider}\". Pick a provider from the list or use \"custom\"."
+            )));
+        }
+    }
+    if provider.is_some() && api_key.is_none() && provider != Some("custom") {
+        return Err(AppError::Config(
+            "Enter the API key for the selected model provider (a custom provider may omit it for a local, no-auth endpoint).".into(),
+        ));
+    }
+    if api_key.is_some() && provider.is_none() {
+        return Err(AppError::Config(
+            "Select the model provider for the API key.".into(),
+        ));
+    }
+    if let (Some(provider), Some(api_key)) = (provider, api_key) {
+        if provider == "custom" {
+            // Custom OpenAI-compatible endpoints often run without auth; when a
+            // key is supplied it is stored in config.yaml instead of .env.
+        } else {
+            let env_key = HERMES_PROVIDER_ENV_KEYS
+                .iter()
+                .find(|(name, _)| *name == provider)
+                .map(|(_, key)| *key)
+                .expect("provider validated above");
+            assignments.push((env_key.to_string(), api_key.to_string()));
+        }
+    }
+
+    for (token_label, token, users_label, users) in [
+        (
+            "the Telegram bot token",
+            non_empty(&input.telegram_bot_token),
+            "the Telegram allowed users",
+            non_empty(&input.telegram_allowed_users),
+        ),
+        (
+            "the Discord bot token",
+            non_empty(&input.discord_bot_token),
+            "the Discord allowed users",
+            non_empty(&input.discord_allowed_users),
+        ),
+        (
+            "the Slack bot token",
+            non_empty(&input.slack_bot_token),
+            "the Slack allowed users",
+            non_empty(&input.slack_allowed_users),
+        ),
+    ] {
+        if token.is_some() != users.is_some() {
+            return Err(AppError::Config(format!(
+                "Enter {token_label} together with {users_label} so the gateway stays allow-listed."
+            )));
+        }
+    }
+
+    for (key, value) in [
+        ("TELEGRAM_BOT_TOKEN", non_empty(&input.telegram_bot_token)),
+        (
+            "TELEGRAM_ALLOWED_USERS",
+            non_empty(&input.telegram_allowed_users),
+        ),
+        ("DISCORD_BOT_TOKEN", non_empty(&input.discord_bot_token)),
+        (
+            "DISCORD_ALLOWED_USERS",
+            non_empty(&input.discord_allowed_users),
+        ),
+        ("SLACK_BOT_TOKEN", non_empty(&input.slack_bot_token)),
+        ("SLACK_APP_TOKEN", non_empty(&input.slack_app_token)),
+        (
+            "SLACK_ALLOWED_USERS",
+            non_empty(&input.slack_allowed_users),
+        ),
+    ] {
+        if let Some(value) = value {
+            assignments.push((key.to_string(), value.to_string()));
+        }
+    }
+    Ok(assignments)
+}
+
+fn hermes_env_update_command(assignments: &[(String, String)]) -> String {
+    let mut script = String::from(
+        "set -eu\nmkdir -p \"$HOME/.hermes\"\nf=\"$HOME/.hermes/.env\"\n[ -f \"$f\" ] || : > \"$f\"\nchmod 600 \"$f\"\nhermes_set_env() {\n  key=$1\n  val=$2\n  tmp=$(mktemp \"$HOME/.hermes/.env.XXXXXX\")\n  chmod 600 \"$tmp\"\n  grep -v \"^#*${key}=\" \"$f\" > \"$tmp\" || true\n  printf '%s=%s\\n' \"$key\" \"$val\" >> \"$tmp\"\n  mv -f \"$tmp\" \"$f\"\n}\n",
+    );
+    for (key, value) in assignments {
+        let file_value = value.replace('\'', "\\'");
+        script.push_str(&format!(
+            "hermes_set_env {} {}\n",
+            shell_quote(key),
+            shell_quote(&file_value)
+        ));
+    }
+    script
+}
+
+fn hermes_setup_config_set_command(input: &HermesSetupInput) -> Option<String> {
+    let mut sets = Vec::new();
+    if let Some(provider) = non_empty(&input.model_provider) {
+        sets.push(format!(
+            "hermes config set model.provider {}",
+            shell_quote(provider)
+        ));
+    }
+    if let Some(model) = non_empty(&input.model_name) {
+        sets.push(format!("hermes config set model.default {}", shell_quote(model)));
+    }
+    if let Some(base_url) = non_empty(&input.model_base_url) {
+        sets.push(format!(
+            "hermes config set model.base_url {}",
+            shell_quote(base_url)
+        ));
+    }
+    if non_empty(&input.model_provider) == Some("custom") {
+        if let Some(api_key) = non_empty(&input.provider_api_key) {
+            sets.push(format!(
+                "hermes config set model.api_key {}",
+                shell_quote(api_key)
+            ));
+        }
+    }
+    if sets.is_empty() {
+        None
+    } else {
+        Some(sets.join(" && "))
+    }
+}
+
+fn hermes_setup_apply_command(input: &HermesSetupInput) -> AppResult<String> {
+    hermes_setup_values(input)?;
+    let assignments = hermes_setup_env_assignments(input)?;
+    let config_sets = hermes_setup_config_set_command(input);
+    if assignments.is_empty() && config_sets.is_none() {
+        return Err(AppError::Config(
+            "Enter at least a model provider with its API key, or a messaging platform token with its allow-list.".into(),
+        ));
+    }
+    let mut script = hermes_env_update_command(&assignments);
+    if let Some(config_sets) = config_sets {
+        script.push_str(&config_sets);
+        script.push('\n');
+    }
+    Ok(script)
+}
+
+pub(crate) fn hermes_configured_check_command() -> String {
+    format!(
+        "envf=\"$HOME/.hermes/.env\"\n\
+         cfg=\"$HOME/.hermes/config.yaml\"\n\
+         if [ -f \"$cfg\" ] && ! grep -Eq '^[[:space:]]*provider:[[:space:]]*\"?auto\"?[[:space:]]*$' \"$cfg\"; then exit 0; fi\n\
+         if [ -f \"$envf\" ] && grep -Eq '{HERMES_SETUP_ENV_KEY_PATTERN}' \"$envf\"; then exit 0; fi\n\
+         exit 1"
+    )
+}
+
+#[tauri::command]
 pub fn save_provision_recipe(
     state: State<'_, AppState>,
     source: String,
@@ -464,6 +711,8 @@ pub async fn uninstall_incompatible_termux(
     }
 
     client.uninstall_termux(&serial).await?;
+    state.ssh.drop_device(&serial).await;
+    state.known_hosts.forget(&device_id)?;
     Ok(())
 }
 
@@ -615,6 +864,121 @@ mod tests {
         let command = hermes_config_command(&recipe, "cat ~/.hermes/config.yaml");
         assert!(command.starts_with("proot-distro login 'debian' -- bash -lc "));
         assert!(command.contains("cat ~/.hermes/config.yaml"));
+    }
+
+    #[test]
+    fn hermes_env_update_command_is_private_atomic_and_quotes_values() {
+        let command = hermes_env_update_command(&[(
+            "OPENROUTER_API_KEY".into(),
+            "sk-or-v1:abc".into(),
+        )]);
+        assert!(command.contains("chmod 600"));
+        assert!(command.contains("mktemp"));
+        assert!(command.contains("mv -f"));
+        assert!(command.contains("grep -v \"^#*${key}=\""));
+        assert!(command.contains("hermes_set_env 'OPENROUTER_API_KEY' 'sk-or-v1:abc'"));
+
+        let quoted = hermes_env_update_command(&[("TELEGRAM_ALLOWED_USERS".into(), "a'b".into())]);
+        assert!(quoted.contains("hermes_set_env 'TELEGRAM_ALLOWED_USERS' 'a\\'\\''b'"));
+    }
+
+    #[test]
+    fn hermes_setup_env_assignments_maps_provider_keys_and_requires_allowlists() {
+        let input = HermesSetupInput {
+            model_provider: Some("openrouter".into()),
+            provider_api_key: Some("sk-or".into()),
+            telegram_bot_token: Some("token".into()),
+            telegram_allowed_users: Some("111,222".into()),
+            ..HermesSetupInput::default()
+        };
+        let assignments = hermes_setup_env_assignments(&input).unwrap();
+        assert!(assignments.contains(&("OPENROUTER_API_KEY".into(), "sk-or".into())));
+        assert!(assignments.contains(&("TELEGRAM_BOT_TOKEN".into(), "token".into())));
+        assert!(assignments.contains(&(
+            "TELEGRAM_ALLOWED_USERS".into(),
+            "111,222".into()
+        )));
+
+        let token_without_users = HermesSetupInput {
+            telegram_bot_token: Some("token".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&token_without_users).is_err());
+
+        let key_without_provider = HermesSetupInput {
+            provider_api_key: Some("sk-or".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&key_without_provider).is_err());
+
+        let provider_without_key = HermesSetupInput {
+            model_provider: Some("openai".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&provider_without_key).is_err());
+
+        let custom_without_key = HermesSetupInput {
+            model_provider: Some("custom".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&custom_without_key).is_ok());
+
+        let unknown_provider = HermesSetupInput {
+            model_provider: Some("contoso".into()),
+            provider_api_key: Some("sk".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&unknown_provider).is_err());
+
+        let multiline = HermesSetupInput {
+            model_provider: Some("openai".into()),
+            provider_api_key: Some("sk\ninjected".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&multiline).is_err());
+    }
+
+    #[test]
+    fn hermes_setup_apply_command_requires_content_and_builds_config_sets() {
+        assert!(hermes_setup_apply_command(&HermesSetupInput::default()).is_err());
+
+        let custom = HermesSetupInput {
+            model_provider: Some("custom".into()),
+            model_name: Some("qwen3".into()),
+            model_base_url: Some("http://127.0.0.1:11434/v1".into()),
+            ..HermesSetupInput::default()
+        };
+        let command = hermes_setup_apply_command(&custom).unwrap();
+        assert!(command.contains("hermes config set model.provider 'custom'"));
+        assert!(command.contains("hermes config set model.default 'qwen3'"));
+        assert!(command.contains("hermes config set model.base_url 'http://127.0.0.1:11434/v1'"));
+        assert!(!command.contains("model.api_key"));
+
+        let custom_with_key = HermesSetupInput {
+            provider_api_key: Some("local-key".into()),
+            ..custom
+        };
+        assert!(hermes_setup_apply_command(&custom_with_key)
+            .unwrap()
+            .contains("hermes config set model.api_key 'local-key'"));
+
+        let openrouter = HermesSetupInput {
+            model_provider: Some("openrouter".into()),
+            provider_api_key: Some("sk-or".into()),
+            ..HermesSetupInput::default()
+        };
+        let command = hermes_setup_apply_command(&openrouter).unwrap();
+        assert!(command.contains("hermes_set_env 'OPENROUTER_API_KEY' 'sk-or'"));
+        assert!(command.contains("hermes config set model.provider 'openrouter'"));
+    }
+
+    #[test]
+    fn hermes_configured_check_command_accepts_provider_or_env_credentials() {
+        let command = hermes_configured_check_command();
+        assert!(command.contains("provider:[[:space:]]*\"?auto\"?"));
+        assert!(command.contains("OPENROUTER"));
+        assert!(command.contains("GEMINI"));
+        assert!(command.trim().ends_with("exit 1"));
     }
 
     fn temp_data_dir() -> PathBuf {

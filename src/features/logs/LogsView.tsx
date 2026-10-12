@@ -1,5 +1,12 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { ErrorPanel } from "../../components/ErrorPanel";
@@ -98,7 +105,11 @@ export function LogRow({
       <span className="w-[140px] shrink-0 text-muted">{line.timestamp ?? ""}</span>
       <LevelBadge level={line.level} />
       <span className="truncate">
-        {line.tag && <span className="text-muted"><HighlightText text={`${line.tag}: `} pattern={pattern} /></span>}
+        {line.tag && (
+          <span className="text-muted">
+            <HighlightText text={`${line.tag}: `} pattern={pattern} />
+          </span>
+        )}
         <HighlightText text={line.message} pattern={pattern} />
       </span>
     </button>
@@ -141,7 +152,8 @@ export function LogsView() {
   const visibleLines = paused && pauseSnapshot ? pauseSnapshot.lines : lines;
   const lastSequence = lines.at(-1)?.seq ?? -1;
   const displayedSource = LOG_SOURCES.find((option) => option.value === (entry?.source ?? source));
-  const newLineCount = paused && pauseSnapshot ? Math.max(0, lastSequence - pauseSnapshot.lastSequence) : 0;
+  const newLineCount =
+    paused && pauseSnapshot ? Math.max(0, lastSequence - pauseSnapshot.lastSequence) : 0;
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -184,7 +196,11 @@ export function LogsView() {
       ? visibleLines.filter((line) => workerMatchSet.has(line.seq))
       : []
     : searchPattern
-      ? visibleLines.filter((line) => searchPattern?.test(`${line.timestamp ?? ""} ${line.level ?? ""} ${line.tag ?? ""} ${line.message}`))
+      ? visibleLines.filter((line) =>
+          searchPattern?.test(
+            `${line.timestamp ?? ""} ${line.level ?? ""} ${line.tag ?? ""} ${line.message}`,
+          ),
+        )
       : visibleLines;
   const levelCounts = searchMatches.reduce<Record<LevelFilter, number>>(
     (counts, line) => {
@@ -194,15 +210,20 @@ export function LogsView() {
     { info: 0, warn: 0, error: 0, debug: 0, unknown: 0 },
   );
   const matchingLines = searchMatches.filter((line) => selectedLevels.has(line.level ?? "unknown"));
-  const activeMatchIndex = matchingLines.length === 0 ? -1 : Math.min(matchCursor, matchingLines.length - 1);
-  const activeMatchSequence = searchPattern && activeMatchIndex >= 0 ? matchingLines[activeMatchIndex]?.seq : null;
+  const activeMatchIndex =
+    matchingLines.length === 0 ? -1 : Math.min(matchCursor, matchingLines.length - 1);
+  const activeMatchSequence =
+    searchPattern && activeMatchIndex >= 0 ? matchingLines[activeMatchIndex]?.seq : null;
   const renderedLines = matchingLines;
 
   useEffect(() => {
     if (typeof Worker === "undefined") return;
-    const worker = new Worker(new URL("./logSearch.worker.ts", import.meta.url), { type: "module" });
+    const worker = new Worker(new URL("./logSearch.worker.ts", import.meta.url), {
+      type: "module",
+    });
     workerRef.current = worker;
-    worker.onmessage = (event: MessageEvent<LogSearchWorkerResponse>) => setWorkerResult(event.data);
+    worker.onmessage = (event: MessageEvent<LogSearchWorkerResponse>) =>
+      setWorkerResult(event.data);
     return () => {
       worker.terminate();
       workerRef.current = null;
@@ -268,9 +289,10 @@ export function LogsView() {
     }
 
     const toggle = event.metaKey || event.ctrlKey;
-    const next = toggle && selectionState.deviceKey === key
-      ? new Set(selectionState.selectedSeqs)
-      : new Set<number>();
+    const next =
+      toggle && selectionState.deviceKey === key
+        ? new Set(selectionState.selectedSeqs)
+        : new Set<number>();
     if (toggle && next.has(line.seq)) next.delete(line.seq);
     else next.add(line.seq);
     setSelectionState({
@@ -314,7 +336,9 @@ export function LogsView() {
       <header className="flex shrink-0 flex-col gap-2 border-b border-border px-4 py-2">
         <span>
           <b>Logs</b>{" "}
-          <span className="text-muted">{displayedSource?.label} · {lines.length.toLocaleString()} lines</span>
+          <span className="text-muted">
+            {displayedSource?.label} · {lines.length.toLocaleString()} lines
+          </span>
         </span>
         <span className="flex min-w-0 flex-wrap items-center gap-2">
           <select
@@ -395,7 +419,11 @@ export function LogsView() {
             />
             Case
           </label>
-          <span className="flex max-w-full flex-wrap items-center gap-1" role="group" aria-label="Filter log levels">
+          <span
+            className="flex max-w-full flex-wrap items-center gap-1"
+            role="group"
+            aria-label="Filter log levels"
+          >
             <Button
               variant="ghost"
               aria-pressed={selectedLevels.size === LEVEL_FILTERS.length}
@@ -423,7 +451,8 @@ export function LogsView() {
             ))}
           </span>
           <span role={searchError ? "alert" : "status"} className="text-[10px] text-muted">
-            {searchError ?? (searchPending ? "Searching…" : searchQuery ? `${renderedLines.length} matches` : "")}
+            {searchError ??
+              (searchPending ? "Searching…" : searchQuery ? `${renderedLines.length} matches` : "")}
           </span>
           <Button
             variant="ghost"
@@ -525,7 +554,11 @@ export function LogsView() {
           <Button onClick={() => setFollow(true)}>Jump to latest</Button>
         </div>
       )}
-      {exportStatus && <p className="sr-only" role="status">{exportStatus}</p>}
+      {exportStatus && (
+        <p className="sr-only" role="status">
+          {exportStatus}
+        </p>
+      )}
       <Dialog
         open={exportDialogOpen}
         title="Export logs"

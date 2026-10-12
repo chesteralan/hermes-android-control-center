@@ -3,6 +3,7 @@
 ## Why
 
 ## Definition of Done (docs/MILESTONES.md)
+
 - [ ] No `adb` spawn outside `AdbClient`/`ProcessRunner`; no single-device assumptions; OS-specific code only in `platform`
 - [ ] Unit tests added/updated (no physical device required)
 - [ ] `npm run lint`, `npm run typecheck`, `npm test`, `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test` green

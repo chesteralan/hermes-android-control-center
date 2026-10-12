@@ -11,7 +11,7 @@ Do not add a second host just to make downloads possible. Consider Cloudflare R2
 ## Tasks
 
 ### [ ] M16-T1 Release publication prerequisites
-- Resolve the strict dependency-policy gate and required security review; do not publish while the release gate is red.
+- Complete the required security review; the strict dependency-policy gate was resolved on 2026-10-12 (see [SECURITY.md §6](../SECURITY.md#6-strict-dependency-remediation)); do not publish while any remaining release gate is red.
 - Complete required macOS, Windows, and Linux signing setup and platform install/update QA.
 - Confirm the version, tag, release notes, support policy, and asset list with maintainers before creating a release.
 

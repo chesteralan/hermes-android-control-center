@@ -231,10 +231,7 @@ describe("TerminalView", () => {
       error: null,
     });
 
-    const blocks = trimTerminalBlocks([
-      makeBlock(1, "old", 9_000),
-      makeBlock(2, "new", 1_001),
-    ]);
+    const blocks = trimTerminalBlocks([makeBlock(1, "old", 9_000), makeBlock(2, "new", 1_001)]);
 
     expect(blocks.reduce((total, block) => total + block.lines.length, 0)).toBe(MAX_TERMINAL_LINES);
     expect(blocks[0]?.lines).toHaveLength(8_999);
@@ -254,18 +251,14 @@ describe("TerminalView", () => {
       });
       const currentDevice = device();
       const key = deviceKey(currentDevice);
-      await useTerminal
-        .getState()
-        .run(key, currentDevice.serial, "stream-benchmark", "adbShell");
+      await useTerminal.getState().run(key, currentDevice.serial, "stream-benchmark", "adbShell");
       const sessionId = useTerminal.getState().activeSessionByDevice[key];
       if (!sessionId || !channel) throw new Error("Terminal stream did not start");
       const sessionKey = terminalSessionKey(key, sessionId);
       let lineUpdates = 0;
       const unsubscribe = useTerminal.subscribe((state, previous) => {
-        const currentCount =
-          state.sessions[sessionKey]?.blocks[0]?.lines.length ?? 0;
-        const previousCount =
-          previous.sessions[sessionKey]?.blocks[0]?.lines.length ?? 0;
+        const currentCount = state.sessions[sessionKey]?.blocks[0]?.lines.length ?? 0;
+        const previousCount = previous.sessions[sessionKey]?.blocks[0]?.lines.length ?? 0;
         if (currentCount > previousCount) lineUpdates += 1;
       });
 
@@ -282,10 +275,10 @@ describe("TerminalView", () => {
       unsubscribe();
 
       const lines = useTerminal.getState().sessions[sessionKey]?.blocks[0]?.lines ?? [];
-  expect(lines).toHaveLength(1008);
+      expect(lines).toHaveLength(1008);
       expect(lines[0]?.text).toBe("line 0");
-  expect(lines.at(-1)?.text).toBe("line 1007");
-  expect(lineUpdates).toBe(63);
+      expect(lines.at(-1)?.text).toBe("line 1007");
+      expect(lineUpdates).toBe(63);
     } finally {
       vi.useRealTimers();
     }
@@ -433,7 +426,10 @@ describe("TerminalView", () => {
     await userEvent.click(screen.getByRole("button", { name: "Close session" }));
     expect(fn).toHaveBeenCalledWith("cancel_stream", { streamId: "running-tab-stream" });
     expect(screen.queryByRole("tab", { name: "Terminal 1" })).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Terminal 2" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Terminal 2" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   it("saves snippets and requires confirmation before running the exact command", async () => {
@@ -555,7 +551,9 @@ describe("TerminalView", () => {
 
   it("renders ANSI colors as styled text and strips other escape sequences", () => {
     const { container } = render(
-      <AnsiText text={'\u001b[31mred\u001b[0m plain \u001b]0;title\u0007<script>alert(1)</script>'} />,
+      <AnsiText
+        text={"\u001b[31mred\u001b[0m plain \u001b]0;title\u0007<script>alert(1)</script>"}
+      />,
     );
 
     expect(screen.getByText("red")).toHaveStyle({ color: "rgb(210, 83, 61)" });

@@ -15,6 +15,6 @@ pub use plan::{
 };
 pub use recipe::{bundled_recipes, ProvisionRecipe, ProvisionTermuxSource};
 pub use types::{
-    ProvisionConsent, ProvisionEvent, ProvisionPlan, ProvisionStep, ProvisionStepId,
-    ProvisionStepState,
+    HermesSetupInput, ProvisionConsent, ProvisionEvent, ProvisionPlan, ProvisionStep,
+    ProvisionStepId, ProvisionStepState,
 };

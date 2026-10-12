@@ -4,11 +4,11 @@ Desktop app (Tauri 2, Rust, and React) for managing a [Hermes Agent](https://git
 
 **Release status:** pre-1.0. macOS is the first release target. Windows and Linux are planned for v1.1; see the [roadmap](docs/MILESTONES.md) and [open work](docs/TODO.md).
 
-| Platform | Bundles | Verification Status |
-|---|---|---|
-| macOS | Universal app + DMG | Local Apple Silicon tests; signed-release/Intel QA pending |
-| Windows x86_64 | Per-user NSIS + managed MSI | Build/signing workflow implemented; Windows runtime QA pending |
-| Linux x86_64 | AppImage, `.deb`, `.rpm` | Build/signing workflow implemented; Wayland/X11 runtime QA pending |
+| Platform       | Bundles                     | Verification Status                                                |
+| -------------- | --------------------------- | ------------------------------------------------------------------ |
+| macOS          | Universal app + DMG         | Local Apple Silicon tests; signed-release/Intel QA pending         |
+| Windows x86_64 | Per-user NSIS + managed MSI | Build/signing workflow implemented; Windows runtime QA pending     |
+| Linux x86_64   | AppImage, `.deb`, `.rpm`    | Build/signing workflow implemented; Wayland/X11 runtime QA pending |
 
 Release downloads will appear after a public release is published: [GitHub Releases](https://github.com/chesteralan/hermes-android-control-center/releases).
 See [desktop setup, build prerequisites, and secret storage](docs/guides/DESKTOP_PLATFORMS.md).

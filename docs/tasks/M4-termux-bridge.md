@@ -44,8 +44,11 @@
   2. Append public key to `~/.ssh/authorized_keys`
   3. `sshd -o ListenAddress=127.0.0.1` (port 8022)
   4. Optional: `termux-wake-lock`, `pkg install termux-services`, fully exit + reopen Termux, then `sv-enable sshd` (otherwise: `fail: sshd: runsv not running`)
-  5. Verify (runs `check_termux`)
-- **Tests:** renders checklist states.
+  5. Verify (runs `check_termux`; auto-triggered once when the device page loads and the phone is connected)
+- Recovery buttons:
+  - "Forget pinned host key" (shown when the SSH check fails): drops the pooled session + forgets the TOFU pin.
+  - "Reset host key & repair bridge (keep Termux open)" (shown whenever the checklist is not ready): forgets the pin, then re-runs the bootstrap handoff automatically (`pkg install openssh`, authorize the app key, start sshd) via `repair_termux_ssh_bridge`, and re-verifies. Termux must be unlocked and in the foreground.
+- **Tests:** renders checklist states; auto-verify on mount; repair button invokes `repair_termux_ssh_bridge` then re-checks.
 
 ### [x] M4-T8 Terminal transport selector
 - Toggle "Android shell | Termux"; badge on each output block showing which transport ran it.

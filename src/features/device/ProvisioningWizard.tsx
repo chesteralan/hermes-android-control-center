@@ -111,13 +111,6 @@ function interactiveCommandForStep(
   usePortal = false,
 ): string | null {
   if (!recipe) return null;
-  if (step === "installHermes" && recipe.hermesInstall.scriptUrl) {
-    const url = shellQuote(recipe.hermesInstall.scriptUrl);
-    const review = `curl -fsSL ${url} -o /tmp/hacc-hermes-install.sh && wc -c /tmp/hacc-hermes-install.sh && sha256sum /tmp/hacc-hermes-install.sh && cat /tmp/hacc-hermes-install.sh`;
-    return recipe.distro
-      ? `proot-distro login ${shellQuote(recipe.distro)} -- bash -lc ${shellQuote(review)}`
-      : review;
-  }
   if (step === "configureHermes") {
     const commands = [...recipe.hermesConfigure.steps];
     if (usePortal) {
@@ -132,14 +125,6 @@ function interactiveCommandForStep(
   return null;
 }
 
-function reviewedInstallerCommand(recipe: ProvisionRecipe | undefined): string | null {
-  if (!recipe?.hermesInstall.scriptUrl) return null;
-  const command = "bash /tmp/hacc-hermes-install.sh";
-  return recipe.distro
-    ? `proot-distro login ${shellQuote(recipe.distro)} -- bash -lc ${shellQuote(command)}`
-    : command;
-}
-
 export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
   const go = useRoute((state) => state.go);
   const requestInteractiveLaunch = useTerminal((state) => state.requestInteractiveLaunch);
@@ -149,7 +134,6 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
   const [starting, setStarting] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [consentPrompt, setConsentPrompt] = useState<ConsentPrompt | null>(null);
-  const [installScriptApprovalOpen, setInstallScriptApprovalOpen] = useState(false);
   const [phoneAction, setPhoneAction] = useState<PhoneAction | null>(null);
   const [resetPromptOpen, setResetPromptOpen] = useState(false);
   const [termuxUninstallOpen, setTermuxUninstallOpen] = useState(false);
@@ -465,14 +449,6 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
     go("terminal");
   }
 
-  function runReviewedInstaller(): void {
-    const command = reviewedInstallerCommand(activeRecipe);
-    if (!command) return;
-    setInstallScriptApprovalOpen(false);
-    requestInteractiveLaunch(serial, command);
-    go("terminal");
-  }
-
   const activeRecipe = recipes.find((recipe) => recipe.id === recipeId);
   return (
     <>
@@ -605,9 +581,7 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                           disabled={busy}
                           onClick={() => openInteractiveStep(step.id)}
                         >
-                          {step.id === "installHermes"
-                            ? "View installer script"
-                            : "Open interactive step"}
+                          Open interactive step
                         </Button>
                       )}
                       {step.id === "configureHermes" &&
@@ -620,15 +594,6 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                             Open setup portal
                           </Button>
                         )}
-                      {step.id === "installHermes" && reviewedInstallerCommand(activeRecipe) && (
-                        <Button
-                          variant="danger"
-                          disabled={busy}
-                          onClick={() => setInstallScriptApprovalOpen(true)}
-                        >
-                          Run reviewed installer
-                        </Button>
-                      )}
                     </>
                   ) : (
                     <Button
@@ -696,23 +661,6 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
             )}
           </>
         )}
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={installScriptApprovalOpen}
-        title={`Run the reviewed Hermes installer on ${serial}?`}
-        confirmLabel="Run installer"
-        danger
-        onConfirm={runReviewedInstaller}
-        onCancel={() => setInstallScriptApprovalOpen(false)}
-      >
-        <p className="mb-3 text-danger">
-          This executes the script downloaded by View installer script. Review its contents and
-          checksum in the terminal before continuing.
-        </p>
-        <pre className="overflow-auto rounded border border-border bg-bg p-2 font-mono text-[12px]">
-          {reviewedInstallerCommand(activeRecipe)}
-        </pre>
       </ConfirmDialog>
 
       <ConfirmDialog

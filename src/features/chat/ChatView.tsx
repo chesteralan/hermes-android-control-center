@@ -66,11 +66,7 @@ export function ChatView() {
   const deviceIdentity = device ? deviceKey(device) : null;
   const preferenceKey =
     deviceIdentity && hermesConfig
-      ? chatSessionPreferenceKey(
-          deviceIdentity,
-          hermesConfig.environment,
-          hermesConfig.hermesHome,
-        )
+      ? chatSessionPreferenceKey(deviceIdentity, hermesConfig.environment, hermesConfig.hermesHome)
       : null;
   const key = preferenceKey ?? deviceIdentity ?? "";
   const serial = device?.serial;
@@ -132,7 +128,11 @@ export function ChatView() {
   }
 
   const sourceOptions = Array.from(
-    new Set(entry.sessions.map((session) => session.source).filter((source): source is string => !!source)),
+    new Set(
+      entry.sessions
+        .map((session) => session.source)
+        .filter((source): source is string => !!source),
+    ),
   ).sort();
   const visibleSessions = entry.sessions.filter((session) => {
     const query = sessionFilter.trim().toLowerCase();

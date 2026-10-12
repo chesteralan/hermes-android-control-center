@@ -9,6 +9,7 @@ autostart = true
 experimental = true
 
 [hermes_install]
+script_url = "https://hermes-agent.nousresearch.com/install.sh"
 native_apt_package = "hermes-agent"
 apt_key_fingerprint = "C572 B5FD D1A2 9CCF A9A9 12B6 840B 0848 E139 156D"
 interactive = false

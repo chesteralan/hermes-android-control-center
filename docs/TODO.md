@@ -1,10 +1,33 @@
 # Open Work
 
-Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-09. The linked milestone task files remain the source of truth; update this index when their status changes.
+Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-12. The linked milestone task files remain the source of truth; update this index when their status changes.
 
 Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need new evidence or a supported environment before implementation can proceed.
 
 ## Recently Completed
+
+- [x] "Install Hermes Agent" no longer dies at "bootstrap Python lookup failed" on android/proot (M11-T11): uv 0.12.3's `python find --managed-python` cannot see freshly installed managed interpreters under proot (the flag alone reproduces the miss; plain find works — verified on-device with RUST_LOG=debug). The step now retries a failed install once with the installer's pin-verified uv binary wrapped by a shim that strips only that flag (uv moved to `uv.real`, shim execs it unchanged), after deleting version-alias symlinks in the managed python dir. Confirmed on-device: the installer's exact lookup exits 0 through the shim.
+
+- [x] "Install Hermes Agent" now runs automatically for interactive recipes (M11-T11): after the consent dialog, the reviewed installer is downloaded inside the environment over the SSH bridge, its SHA-256 is printed into the streamed output, and it is executed with `--non-interactive` (the Hermes installer's documented flag for skipping the setup/gateway stages that need a terminal — those are handled by the Configure Hermes step, whose phone-action message now names the full `proot-distro login <distro> -- bash` entry command). The manual "View installer script" / "Run reviewed installer" terminal handoff is gone.
+
+- [x] "Install Linux environment" step hardened (M11-T10): invalid `proot-distro list --installed` replaced with a direct rootfs probe that detects a complete install (`<rootfs>/etc`) across v4, legacy, and v5 containers layouts; an incomplete rootfs left by a failed install is removed before reinstalling; rootfs download failures from the default easycli.sh mirror (known ISP/DPI interference, termux/proot-distro#643) are retried once from the official GitHub release via `PD_OVERRIDE_TARBALL_URL`; probe failures containing `CANNOT LINK EXECUTABLE` (Termux partial-upgrade breakage, e.g. lscpu/libsmartcols desync) get `pkg upgrade -y` guidance appended.
+
+- [x] "Install Hermes Agent" no longer dead-ends on the native APT recipe with "requires adding its signed repository manually": the step now runs the official installer `script_url` inside Termux over SSH whenever one is configured (native and proot recipes share the path), the bundled `termux-native-apt` recipe sets `script_url`, and a native recipe without a script URL now points at `hermes_install.script_url` in the recipe editor. (M11-T11)
+
+- [x] Termux bridge card: Verify auto-runs on page load (once, when the phone is connected), and a new "Reset host key & repair bridge" button (`repair_termux_ssh_bridge`) forgets the pinned host key and re-runs the bootstrap handoff (`pkg install openssh`, authorize the app key, start sshd) in one click, then re-verifies. The bootstrap flow is now a shared function used by both the wizard and the repair command. (M4-T7, M11-T7)
+
+- [x] Bootstrap `fail: sshd: runsv not running` fixed: `bootstrap.sh` detaches `service-daemon start` (setsid when available), waits for runit to supervise `sshd` before `sv-enable`, and falls back to a direct `sshd` start; the Termux-packages step got the same detached start + tolerant `sv-enable`. (M11-T7)
+
+- [x] Wizard no longer dead-ends on "Termux SSH host key changed" after its own Termux (re)install: the InstallTermux step and the confirmed `uninstall_incompatible_termux` flow now drop the pooled SSH session and forget the pinned TOFU host key, so the next Connect step re-verifies and re-pins automatically. (M11-T3/T4)
+
+- [x] Proot recipes now have a "Grant Termux storage access" wizard step after Launch Termux: auto-types `termux-setup-storage`, checks `appops get com.termux MANAGE_EXTERNAL_STORAGE` / `READ_EXTERNAL_STORAGE` grant state, and falls back to a resume prompt. Skipped (Done) for native APT recipes. (`provision/types.rs`, `plan.rs`, `executor.rs`; M11-T6b)
+- [x] Bootstrap `trap: ERR: bad trap` fixed: `bootstrap.sh` now uses a POSIX `trap ... EXIT` for the error marker so `sh /sdcard/Download/hacc/bootstrap.sh` works when Termux's `sh` is not bash. (M11-T7)
+- [x] Termux install on the GitHub source no longer fails with "GitHub release does not provide a SHA-256 digest": the app now falls back to the release's SHA256SUMS-style checksum asset, then to trust-on-first-download with the digest recorded in the install receipt and reported in the step output; a present-but-invalid digest is still a hard error. SECURITY.md §2 and M11-T4 updated.
+- [x] `tasks/M9-multi-device.md` written (the roadmap referenced it but the file was missing); M9 tasks/exit checks now exist and the M11-T2/T14 dependency is documented.
+- [x] APK download safety limit raised from 100 MiB to 200 MiB (`MAX_APK_MIB` in `provision/apk.rs`); the error message is now derived from the constant; M11 task doc updated.
+- [x] CI Security-job Gitleaks failure fixed: `actions/checkout@v4` now uses `fetch-depth: 0` so gitleaks-action can resolve its commit range; local full-history scan found no leaks.
+- [x] Dependency policy resolved (owner-approved 2026-10-12): `deny.toml` allows `MPL-2.0` and `Apache-2.0 WITH LLVM-exception` and carries a justified `RUSTSEC-2024-0370` ignore; `cargo deny check` passes all categories. SECURITY.md §6, M10-T2, and M12 updated.
+- [x] Prettier gate fixed: `.prettierignore` now excludes `android/hermes-control/.venv`, generated schemas, and pytest caches; 9 source/docs files formatted; `npm run format:check` passes.
 
 - [x] [M10-T1 — Recoverable SSH-key initialization failure](tasks/M10-production.md): poisoned initialization returns an error without creating a key; key reload/permissions behavior remains tested.
 - [x] [M10-T1 — Observable logging setup and reload failures](tasks/M10-production.md): file/subscriber/reload errors are reported instead of silently ignored; console fallback is retained and broader startup QA remains open.
@@ -35,7 +58,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 ## In Progress
 
 - [~] [M10-T1 — Error audit](tasks/M10-production.md)
-- [~] [M10-T2 — Isolated GLib backport passes optimized library tests and 241 Linux app tests/Clippy; strict dependency gate still blocked by six license rejections and one unmaintained advisory](tasks/M10-production.md)
+- [~] [M10-T2 — Isolated GLib backport passes optimized library tests and 241 Linux app tests/Clippy; dependency policy resolved 2026-10-12 (MPL-2.0 and Apache-2.0 WITH LLVM-exception allowed, RUSTSEC-2024-0370 justified ignore) and `cargo deny check` passes; glib unsoundness warning and CSP/capability/diagnostics reviews remain](tasks/M10-production.md)
 - [~] [M10-T4 — Keyboard command palette and shortcut guide](tasks/M10-production.md)
 - [~] [M10-T6 — Consent-gated diagnostics ZIP](tasks/M10-production.md)
 - [~] [M10-T7 — Existing setup path; automatic wizard awaits M11](tasks/M10-production.md)
@@ -47,15 +70,14 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 ## Blocked
 
 - [!] [M4-T5 — Optional bootstrap via RUN_COMMAND](tasks/M4-termux-bridge.md): Android denied the intent because the ADB-shell sender lacks `com.termux.permission.RUN_COMMAND`; manual SSH setup remains supported.
-- [!] M9 has no task breakdown: [the roadmap references `tasks/M9-multi-device.md`](MILESTONES.md), but that file is missing.
 - [!] M0-S3/S4 remaining fixture and provisioning acceptance: `adb devices -l` is empty; USB, unauthorized/offline, pairing failures, reset-phone install, and reboot captures require a connected Android phone.
 - [!] M11 phone acceptance: factory setup, rerun/idempotency, interruption recovery, Termux:Boot, permission prompts, and on-phone cleanup require a connected Android phone.
 - [!] M11 T2/T14 per-phone HermesConfig persistence: M9's device-profile boundary is not implemented; changing the global Hermes config would affect other phones.
-- [!] M11 T2/T11 native APT setup: no verified repository URL is configured, so repository installation/fingerprint validation cannot be safely completed.
+- [!] M11 T2/T11 signed APT repository install: no verified repository URL exists, so the automated signed-repo flow (key URL + repo entry) remains unbundled. The wizard no longer blocks on this — the native recipe installs via the official `script_url` in Termux.
 - [!] M13-T1/T6 live compatibility checks: only Hermes v0.21.4 has been tested on-device; upstream lists v0.21.6, but setting a supported range and verifying gateway-created sessions requires a phone. Windows/Linux session and performance QA also requires those platforms.
 - [!] M14-T3/T4 Windows/Linux/Wayland tray and release QA: this workspace is on macOS; native runtime behavior cannot be certified without those desktop environments.
 - [!] M12 native runtime/installer QA: Windows/Linux desktop hosts are unavailable; M12-T6/T7 additionally require Authenticode/GPG signing credentials.
-- [!] M16-T1–T4 public release/download acceptance: requires signing credentials, dependency-policy remediation, and a published release; optional R2 evaluation remains discretionary.
+- [!] M16-T1–T4 public release/download acceptance: requires signing credentials and a published release; optional R2 evaluation remains discretionary.
 
 ## Open Tickets
 
@@ -63,6 +85,20 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 - [ ] [M10-T3 — Performance budgets](tasks/M10-production.md)
 - [ ] [M10-T5 — Resilience QA matrix](tasks/M10-production.md)
+
+### M9 — Multi-Device
+
+Task breakdown written 2026-10-12; no M9 implementation has started. Groundwork from earlier milestones (stable `device_id`, per-device host keys/secrets/registries) is noted in the task file.
+
+- [~] [M9-T1 — Backend isolation audit and completion](tasks/M9-multi-device.md)
+- [ ] [M9-T2 — DeviceProfile schema, persistence, and effective config](tasks/M9-multi-device.md)
+- [ ] [M9-T3 — Profile editor UI](tasks/M9-multi-device.md)
+- [ ] [M9-T4 — Device tab bar](tasks/M9-multi-device.md)
+- [ ] [M9-T5 — Per-tab terminal and log isolation](tasks/M9-multi-device.md)
+- [ ] [M9-T6 — Overview view](tasks/M9-multi-device.md)
+- [ ] [M9-T7 — Independent reconnect verification](tasks/M9-multi-device.md)
+- [ ] [M9-T8 — Destructive actions and limited broadcast](tasks/M9-multi-device.md)
+- [ ] [M9-T9 — Multi-device QA (needs ≥ 2 phones)](tasks/M9-multi-device.md)
 
 ### M11 — New Phone Provisioning
 
@@ -88,8 +124,8 @@ this milestone is not complete.
 ### M12 — Cross-Platform
 
 Local implementation passes 237 Rust, 106 frontend, and 3 release-assembly tests.
-Hosted macOS/Windows/Ubuntu build/test jobs now pass; dependency policy still blocks
-on existing license/advisory findings. Interactive runtime, signing, and installed-update
+Hosted macOS/Windows/Ubuntu build/test jobs now pass; the dependency-policy gate
+was resolved on 2026-10-12 (see M10-T2). Interactive runtime, signing, and installed-update
 acceptance remain open; no cross-platform release certification is claimed.
 
 - [~] [M12-T2 — Job Objects/no-console clients; Windows runtime/orphan QA remains](tasks/M12-cross-platform.md)
@@ -99,12 +135,12 @@ acceptance remain open; no cross-platform release certification is claimed.
 - [!] [M12-T6 — NSIS/MSI configuration; Authenticode credentials and Windows install QA required](tasks/M12-cross-platform.md)
 - [!] [M12-T7 — AppImage/deb/rpm configuration; GPG credentials and Linux install QA required](tasks/M12-cross-platform.md)
 - [~] [M12-T8 — Consolidated metadata/package-manager guard; installed update QA remains](tasks/M12-cross-platform.md)
-- [!] [M12-T9 — Three-OS build/test jobs pass; dependency-policy review and hosted signing remain](tasks/M12-cross-platform.md)
+- [!] [M12-T9 — Three-OS build/test jobs pass; hosted signing remains (dependency-policy review resolved 2026-10-12)](tasks/M12-cross-platform.md)
 - [~] [M12-T11 — QA matrix documented; native runtime/performance cells pending](tasks/M12-cross-platform.md)
 
 ### M16 — Public Download Distribution
 
-GitHub Releases is the recommended primary host; the existing tag workflow assembles signed bundles as a draft. Public release remains gated on dependency-policy remediation, signing credentials, and platform install/update QA. Cloudflare R2 is optional pending a concrete custom-domain, retention, or traffic requirement.
+GitHub Releases is the recommended primary host; the existing tag workflow assembles signed bundles as a draft. Public release remains gated on signing credentials and platform install/update QA; the dependency-policy gate was resolved on 2026-10-12. Cloudflare R2 is optional pending a concrete custom-domain, retention, or traffic requirement.
 
 - [ ] [M16-T1 — Release publication prerequisites](tasks/M16-download-distribution.md)
 - [ ] [M16-T2 — Verify the GitHub Release pipeline](tasks/M16-download-distribution.md)

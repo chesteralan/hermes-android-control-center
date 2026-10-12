@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::adb::{ConnectionType, DeviceState};
 use crate::commands::hermes::{action_command, HermesAction};
+use crate::commands::provision::hermes_configured_check_command;
 use crate::config::{HermesConfig, HermesEnvironment, HermesTransportKind};
 use crate::error::{AppError, AppResult};
 use crate::process::{cancellable, RawOutput};
@@ -28,6 +29,16 @@ const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(600);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 const TERMUX_FOCUS_CHECK: &str =
     "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | grep -q 'com.termux/'";
+const TERMUX_STORAGE_CHECK: &str = "appops get com.termux MANAGE_EXTERNAL_STORAGE 2>/dev/null; \
+     dumpsys package com.termux | grep EXTERNAL_STORAGE";
+
+fn termux_storage_granted(output: &str) -> bool {
+    output.lines().any(|line| {
+        let line = line.trim();
+        (line.contains("MANAGE_EXTERNAL_STORAGE") && line.contains("mode=allowed"))
+            || (line.contains("READ_EXTERNAL_STORAGE") && line.contains("granted=true"))
+    })
+}
 
 fn device_awake_and_unlocked(power: &str, window: &str) -> bool {
     let asleep = power.contains("mWakefulness=Asleep") || power.contains("mWakefulness=Dozing");
@@ -50,14 +61,106 @@ fn device_awake_and_unlocked(power: &str, window: &str) -> bool {
     awake && unlocked && !locked
 }
 
-fn distro_is_listed_installed(output: &str, distro: &str) -> bool {
-    output.lines().any(|line| {
-        let line = line.trim();
-        line == distro
-            || line
-                .strip_prefix(distro)
-                .is_some_and(|suffix| suffix.starts_with(" ("))
-    })
+fn distro_rootfs_probe_command(distro: &str) -> String {
+    format!(
+        "test -d \"$PREFIX/var/lib/proot-distro/installed-rootfs/{distro}/etc\" \
+         -o -d \"$HOME/.proot-distro/installed_rootfs/{distro}/etc\" \
+         -o -d \"$PREFIX/var/lib/proot-distro/containers/{distro}/rootfs/etc\" \
+         && echo installed || echo missing",
+        distro = distro
+    )
+}
+
+fn distro_rootfs_listed_installed(output: &str) -> bool {
+    output.lines().any(|line| line.trim() == "installed")
+}
+
+/// `proot-distro install` with two safeguards:
+/// - removes an incomplete rootfs left behind by a previous failed install
+///   (directory exists but has no `/etc`, which proot-distro itself treats
+///   as not installed);
+/// - if the download from the default mirror (easycli.sh, behind Cloudflare)
+///   fails — a known ISP/DPI interference issue (termux/proot-distro#643) —
+///   retries once from the official GitHub release using
+///   `PD_OVERRIDE_TARBALL_URL`, the workaround the proot-distro maintainer
+///   recommends.
+fn distro_install_command(distro: &str) -> String {
+    let escaped = shell_escape(distro);
+    let inner = format!(
+        r#"for d in "$PREFIX/var/lib/proot-distro/installed-rootfs/{distro}" "$HOME/.proot-distro/installed_rootfs/{distro}"; do
+  if [ -d "$d" ] && [ ! -d "$d/etc" ]; then rm -rf "$d"; fi
+done
+log=$(mktemp)
+proot-distro install {escaped} 2>&1 | tee "$log"
+code=${{PIPESTATUS[0]}}
+if [ "$code" -eq 0 ]; then rm -f "$log"; exit 0; fi
+url=$(grep -oE 'https://[^ ]+\.tar\.[a-z0-9]+' "$log" | head -n1)
+rm -f "$log"
+case "$url" in *easycli.sh*) ;; *) exit "$code"; ;; esac
+archive=${{url##*/}}
+version=$(printf '%s' "$archive" | sed -n 's/.*-pd-v\([0-9][0-9.]*\)\.tar\..*/\1/p')
+if [ -z "$version" ]; then exit "$code"; fi
+fallback="https://github.com/termux/proot-distro/releases/download/v${{version}}/${{archive}}"
+echo "Mirror download failed; retrying rootfs from GitHub releases: $fallback"
+PD_OVERRIDE_TARBALL_URL="$fallback" PD_OVERRIDE_TARBALL_SHA256="" proot-distro install {escaped}"#,
+        distro = distro,
+        escaped = escaped
+    );
+    format!("bash -lc {}", shell_escape(&inner))
+}
+
+/// Download the reviewed installer over HTTPS and run it. Interactive
+/// installers (the Hermes `install.sh` stage protocol) get `--non-interactive`
+/// so the stages that need a terminal (setup, gateway) are skipped here and
+/// handled by the ConfigureHermes step afterwards.
+///
+/// uv 0.12.3's `python find --managed-python` cannot find freshly installed
+/// managed interpreters on android/proot (plain `uv python find <ver>` works;
+/// the flag alone reproduces the miss). The installer hardcodes the flag for
+/// its bootstrap-Python lookup, so a failed run is retried once with the
+/// installer's own pin-verified uv binary wrapped by a shim that strips that
+/// one flag; version-alias symlinks in the managed dir are removed first so
+/// discovery only sees real install directories.
+fn hermes_install_script_command(script_url: &str, interactive: bool) -> String {
+    let base = format!(
+        "curl -fsSL {url} -o /tmp/hacc-hermes-install.sh && sha256sum /tmp/hacc-hermes-install.sh",
+        url = shell_escape(script_url)
+    );
+    if !interactive {
+        return format!("{base} && bash /tmp/hacc-hermes-install.sh");
+    }
+    format!(
+        r#"{base} && {{
+run_hermes_install() {{ bash /tmp/hacc-hermes-install.sh --non-interactive; }}
+run_hermes_install && exit 0
+echo "Installer failed; retrying once with a uv wrapper that strips the broken --managed-python flag (uv 0.12.3 on proot)."
+find /root/.local/share/uv/python -maxdepth 1 -type l -delete 2>/dev/null || :
+for d in /root/.hermes/tools/uv-*; do
+  [ -x "$d/uv.real" ] && continue
+  [ -x "$d/uv" ] || continue
+  mv "$d/uv" "$d/uv.real" || exit 1
+  printf '%s\n' \
+    '#!/bin/sh' \
+    'for arg do shift; case "$arg" in --managed-python) continue ;; *) set -- "$@" "$arg" ;; esac; done' \
+    "exec \"$d/uv.real\" \"\$@\"" \
+    > "$d/uv"
+  chmod +x "$d/uv"
+done
+run_hermes_install
+}}"#,
+        base = base
+    )
+}
+
+fn configure_hermes_message(distro: &str, steps: &[String]) -> String {
+    let steps = steps.join("; ");
+    if distro.is_empty() {
+        format!("Complete these commands in the interactive Termux terminal: {steps}. Then resume this step.")
+    } else {
+        format!(
+            "In the interactive Termux terminal run `proot-distro login {distro} -- bash` to enter the Linux environment, then run: {steps}. Then resume this step."
+        )
+    }
 }
 
 fn distro_start_probe_command(distro: &str) -> String {
@@ -243,26 +346,30 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
     }
 
     async fn distro_is_installed(&self) -> AppResult<bool> {
+        let command = distro_rootfs_probe_command(&self.recipe.distro);
         let result = self
             .remote()
             .await?
-            .execute("proot-distro list --installed", COMMAND_TIMEOUT)
+            .execute(&command, COMMAND_TIMEOUT)
             .await?;
         if result.exit_code != Some(0) {
+            let mut stderr = if result.stderr.is_empty() {
+                result.stdout
+            } else {
+                result.stderr
+            };
+            if stderr.contains("CANNOT LINK EXECUTABLE") {
+                stderr.push_str(
+                    "\nTermux packages are out of sync (partial upgrade). In Termux run `pkg upgrade -y`, then resume this step.",
+                );
+            }
             return Err(AppError::CommandFailed {
-                command: "List installed proot distros".into(),
+                command: "Check the proot-distro rootfs".into(),
                 exit_code: result.exit_code,
-                stderr: if result.stderr.is_empty() {
-                    result.stdout
-                } else {
-                    result.stderr
-                },
+                stderr,
             });
         }
-        Ok(distro_is_listed_installed(
-            &result.stdout,
-            &self.recipe.distro,
-        ))
+        Ok(distro_rootfs_listed_installed(&result.stdout))
     }
 
     async fn distro_is_startable(&self) -> AppResult<bool> {
@@ -282,158 +389,7 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
         cancel: CancellationToken,
         events: &mpsc::Sender<ProvisionEvent>,
     ) -> AppResult<()> {
-        let result = self.bootstrap_ssh_inner(cancel, events).await;
-        let cleanup = self
-            .adb_shell(&format!("rm -rf {BOOTSTRAP_DIR}"))
-            .await
-            .and_then(|output| ensure_success("Clean up Termux SSH bootstrap files", output));
-        match result {
-            Ok(()) => cleanup,
-            Err(error) => {
-                if let Err(cleanup_error) = cleanup {
-                    tracing::warn!(error = %cleanup_error, "failed to remove Termux bootstrap files");
-                }
-                Err(error)
-            }
-        }
-    }
-
-    async fn bootstrap_ssh_inner(
-        &self,
-        cancel: CancellationToken,
-        events: &mpsc::Sender<ProvisionEvent>,
-    ) -> AppResult<()> {
-        ensure_success(
-            "Keep Termux unlocked and in the foreground",
-            self.adb_shell_cancellable(TERMUX_FOCUS_CHECK, &cancel)
-                .await?,
-        )?;
-        let state = self.app.state::<AppState>();
-        let public_key = keys::public_key_line(state.ssh_key()?)?;
-        let script_path = self
-            .app
-            .path()
-            .app_cache_dir()
-            .map_err(|error| AppError::Io(error.to_string()))?
-            .join("hacc-termux-bootstrap.sh");
-        let _temporary_files = BootstrapTempFiles(script_path.clone());
-        std::fs::write(&script_path, bootstrap_script())?;
-
-        let client = state.adb_client().await?;
-        let mkdir = cancellable(
-            &cancel,
-            client.shell(
-                &self.serial,
-                &format!("mkdir -p {BOOTSTRAP_DIR}"),
-                COMMAND_TIMEOUT,
-            ),
-        )
-        .await?;
-        ensure_success("Prepare Termux bootstrap directory", mkdir)?;
-        ensure_success(
-            "Clear stale bootstrap status",
-            self.adb_shell_cancellable(&format!("rm -f {BOOTSTRAP_DIR}/status"), &cancel)
-                .await?,
-        )?;
-        cancellable(
-            &cancel,
-            client.push_file(
-                &self.serial,
-                &script_path,
-                &format!("{BOOTSTRAP_DIR}/bootstrap.sh"),
-            ),
-        )
-        .await?;
-        let public_key_path = script_path.with_extension("pub");
-        std::fs::write(&public_key_path, format!("{public_key}\n"))?;
-        let push_key = cancellable(
-            &cancel,
-            client.push_file(
-                &self.serial,
-                &public_key_path,
-                &format!("{BOOTSTRAP_DIR}/id_ed25519.pub"),
-            ),
-        )
-        .await;
-        push_key?;
-
-        let launch = format!("input text 'sh%s{BOOTSTRAP_DIR}/bootstrap.sh'; input keyevent 66");
-        let output = cancellable(
-            &cancel,
-            client.shell(&self.serial, &launch, COMMAND_TIMEOUT),
-        )
-        .await?;
-        ensure_success("Start Termux SSH bootstrap", output)?;
-
-        let started = Instant::now();
-        let mut retried = false;
-        let mut last_marker = String::new();
-        loop {
-            if cancel.is_cancelled() {
-                return Err(AppError::Cancelled);
-            }
-            if started.elapsed() > BOOTSTRAP_TIMEOUT {
-                return Err(AppError::Timeout {
-                    operation: "Termux SSH bootstrap".into(),
-                    after_ms: BOOTSTRAP_TIMEOUT.as_millis() as u64,
-                });
-            }
-            let status = cancellable(
-                &cancel,
-                client.shell(
-                    &self.serial,
-                    &format!("cat {BOOTSTRAP_DIR}/status 2>/dev/null"),
-                    Duration::from_secs(10),
-                ),
-            )
-            .await;
-            if let Ok(output) = status {
-                let marker = output.stdout.trim();
-                if marker != last_marker {
-                    last_marker = marker.to_string();
-                    if !marker.is_empty() {
-                        let _ = events
-                            .send(ProvisionEvent::Output {
-                                step: ProvisionStepId::BootstrapSsh,
-                                event: StreamEvent::Stdout {
-                                    line: format!("Bootstrap status: {marker}"),
-                                },
-                            })
-                            .await;
-                    }
-                }
-                if marker == "done" {
-                    return Ok(());
-                }
-                if marker.starts_with("error") {
-                    return Err(AppError::CommandFailed {
-                        command: "Termux SSH bootstrap".into(),
-                        exit_code: Some(1),
-                        stderr: marker.to_string(),
-                    });
-                }
-            }
-            if !retried && last_marker.is_empty() && started.elapsed() > Duration::from_secs(20) {
-                ensure_success(
-                    "Keep Termux unlocked and in the foreground",
-                    self.adb_shell_cancellable(TERMUX_FOCUS_CHECK, &cancel)
-                        .await?,
-                )?;
-                ensure_success(
-                    "Retry Termux SSH bootstrap",
-                    cancellable(
-                        &cancel,
-                        client.shell(&self.serial, &launch, COMMAND_TIMEOUT),
-                    )
-                    .await?,
-                )?;
-                retried = true;
-            }
-            tokio::select! {
-                _ = cancel.cancelled() => return Err(AppError::Cancelled),
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-            }
-        }
+        bootstrap_ssh_with_cleanup(&self.app, &self.serial, cancel, events).await
     }
 
     async fn hermes_is_installed(&self) -> AppResult<bool> {
@@ -447,11 +403,184 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
     }
 }
 
+/// Pushes the bootstrap script + app public key to the phone, auto-types
+/// `sh .../bootstrap.sh` in Termux (pkg install openssh, authorize the key,
+/// start sshd), and waits for the status marker. Shared by the provisioning
+/// wizard and the Termux-bridge repair command.
+pub(crate) async fn run_termux_bootstrap<R: Runtime>(
+    app: &AppHandle<R>,
+    serial: &str,
+    cancel: CancellationToken,
+    events: &mpsc::Sender<ProvisionEvent>,
+) -> AppResult<()> {
+    let state = app.state::<AppState>();
+    let adb = state.adb_client().await?;
+    ensure_success(
+        "Keep Termux unlocked and in the foreground",
+        cancellable(
+            &cancel,
+            adb.shell(serial, TERMUX_FOCUS_CHECK, COMMAND_TIMEOUT),
+        )
+        .await?,
+    )?;
+    let public_key = keys::public_key_line(state.ssh_key()?)?;
+    let script_path = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| AppError::Io(error.to_string()))?
+        .join("hacc-termux-bootstrap.sh");
+    let _temporary_files = BootstrapTempFiles(script_path.clone());
+    std::fs::write(&script_path, bootstrap_script())?;
+
+    let mkdir = cancellable(
+        &cancel,
+        adb.shell(
+            serial,
+            &format!("mkdir -p {BOOTSTRAP_DIR}"),
+            COMMAND_TIMEOUT,
+        ),
+    )
+    .await?;
+    ensure_success("Prepare Termux bootstrap directory", mkdir)?;
+    ensure_success(
+        "Clear stale bootstrap status",
+        cancellable(
+            &cancel,
+            adb.shell(
+                serial,
+                &format!("rm -f {BOOTSTRAP_DIR}/status"),
+                COMMAND_TIMEOUT,
+            ),
+        )
+        .await?,
+    )?;
+    cancellable(
+        &cancel,
+        adb.push_file(
+            serial,
+            &script_path,
+            &format!("{BOOTSTRAP_DIR}/bootstrap.sh"),
+        ),
+    )
+    .await?;
+    let public_key_path = script_path.with_extension("pub");
+    std::fs::write(&public_key_path, format!("{public_key}\n"))?;
+    cancellable(
+        &cancel,
+        adb.push_file(
+            serial,
+            &public_key_path,
+            &format!("{BOOTSTRAP_DIR}/id_ed25519.pub"),
+        ),
+    )
+    .await?;
+
+    let launch = format!("input text 'sh%s{BOOTSTRAP_DIR}/bootstrap.sh'; input keyevent 66");
+    let output = cancellable(&cancel, adb.shell(serial, &launch, COMMAND_TIMEOUT)).await?;
+    ensure_success("Start Termux SSH bootstrap", output)?;
+
+    let started = Instant::now();
+    let mut retried = false;
+    let mut last_marker = String::new();
+    loop {
+        if cancel.is_cancelled() {
+            return Err(AppError::Cancelled);
+        }
+        if started.elapsed() > BOOTSTRAP_TIMEOUT {
+            return Err(AppError::Timeout {
+                operation: "Termux SSH bootstrap".into(),
+                after_ms: BOOTSTRAP_TIMEOUT.as_millis() as u64,
+            });
+        }
+        let status = cancellable(
+            &cancel,
+            adb.shell(
+                serial,
+                &format!("cat {BOOTSTRAP_DIR}/status 2>/dev/null"),
+                Duration::from_secs(10),
+            ),
+        )
+        .await;
+        if let Ok(output) = status {
+            let marker = output.stdout.trim();
+            if marker != last_marker {
+                last_marker = marker.to_string();
+                if !marker.is_empty() {
+                    let _ = events
+                        .send(ProvisionEvent::Output {
+                            step: ProvisionStepId::BootstrapSsh,
+                            event: StreamEvent::Stdout {
+                                line: format!("Bootstrap status: {marker}"),
+                            },
+                        })
+                        .await;
+                }
+            }
+            if marker == "done" {
+                return Ok(());
+            }
+            if marker.starts_with("error") {
+                return Err(AppError::CommandFailed {
+                    command: "Termux SSH bootstrap".into(),
+                    exit_code: Some(1),
+                    stderr: marker.to_string(),
+                });
+            }
+        }
+        if !retried && last_marker.is_empty() && started.elapsed() > Duration::from_secs(20) {
+            ensure_success(
+                "Keep Termux unlocked and in the foreground",
+                cancellable(
+                    &cancel,
+                    adb.shell(serial, TERMUX_FOCUS_CHECK, COMMAND_TIMEOUT),
+                )
+                .await?,
+            )?;
+            ensure_success(
+                "Retry Termux SSH bootstrap",
+                cancellable(&cancel, adb.shell(serial, &launch, COMMAND_TIMEOUT)).await?,
+            )?;
+            retried = true;
+        }
+        tokio::select! {
+            _ = cancel.cancelled() => return Err(AppError::Cancelled),
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+        }
+    }
+}
+
+/// Same as the provisioning BootstrapSsh step: run the bootstrap flow and
+/// remove `/sdcard/Download/hacc/` afterwards (keeping the cleanup error
+/// non-fatal only when the bootstrap itself succeeded).
+pub(crate) async fn bootstrap_ssh_with_cleanup<R: Runtime>(
+    app: &AppHandle<R>,
+    serial: &str,
+    cancel: CancellationToken,
+    events: &mpsc::Sender<ProvisionEvent>,
+) -> AppResult<()> {
+    let result = run_termux_bootstrap(app, serial, cancel, events).await;
+    let cleanup = {
+        let adb = app.state::<AppState>().adb_client().await?;
+        adb.shell(serial, &format!("rm -rf {BOOTSTRAP_DIR}"), COMMAND_TIMEOUT)
+            .await
+            .and_then(|output| ensure_success("Clean up Termux SSH bootstrap files", output))
+    };
+    match result {
+        Ok(()) => cleanup,
+        Err(error) => {
+            if let Err(cleanup_error) = cleanup {
+                tracing::warn!(error = %cleanup_error, "failed to remove Termux bootstrap files");
+            }
+            Err(error)
+        }
+    }
+}
+
 fn bootstrap_script() -> &'static str {
     r#"#!/data/data/com.termux/files/usr/bin/bash
 set -eu
 STATUS=/sdcard/Download/hacc/status
-trap 'printf "error:bootstrap\n" > "$STATUS"' ERR
+trap 'status=$?; [ "$status" -eq 0 ] || printf "error:bootstrap\n" > "$STATUS"; exit "$status"' EXIT
 printf 'installing-packages\n' > "$STATUS"
 export DEBIAN_FRONTEND=noninteractive
 pkg install -y -o Dpkg::Options::=--force-confold openssh termux-services
@@ -463,9 +592,27 @@ chmod 600 "$HOME/.ssh/authorized_keys"
 SSHD="$PREFIX/etc/ssh/sshd_config"
 grep -q '^ListenAddress 127.0.0.1$' "$SSHD" || printf '\nListenAddress 127.0.0.1\n' >> "$SSHD"
 export SVDIR="$PREFIX/var/service" LOGDIR="$PREFIX/var/log"
-(service-daemon start >/dev/null 2>&1 &)
-sshd
-sv-enable sshd || true
+if command -v setsid >/dev/null 2>&1; then
+  setsid service-daemon start >/dev/null 2>&1 < /dev/null &
+else
+  service-daemon start >/dev/null 2>&1 < /dev/null &
+fi
+tries=0
+while [ ! -e "$SVDIR/sshd/supervise/ok" ] && [ "$tries" -lt 30 ]; do
+  sleep 1
+  tries=$((tries + 1))
+done
+if [ -e "$SVDIR/sshd/supervise/ok" ]; then
+  sv-enable sshd || true
+  tries=0
+  until sv check sshd >/dev/null 2>&1 || [ "$tries" -ge 10 ]; do
+    sleep 1
+    tries=$((tries + 1))
+  done
+  sv check sshd >/dev/null 2>&1 || sshd
+else
+  sshd
+fi
 printf 'done\n' > "$STATUS"
 "#
 }
@@ -731,6 +878,17 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     ProvisionCheck::Todo
                 })
             }
+            ProvisionStepId::SetupStorage => {
+                if self.recipe.distro.is_empty() {
+                    return Ok(ProvisionCheck::Done);
+                }
+                Ok(match self.adb_shell(TERMUX_STORAGE_CHECK).await {
+                    Ok(output) if termux_storage_granted(&output.combined()) => {
+                        ProvisionCheck::Done
+                    }
+                    _ => ProvisionCheck::Todo,
+                })
+            }
             ProvisionStepId::BootstrapSsh | ProvisionStepId::ConnectSsh => {
                 Ok(if state.termux_transport(&self.serial).await.is_ok() {
                     ProvisionCheck::Done
@@ -881,7 +1039,10 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 let abi = info.cpu.and_then(|cpu| cpu.abi).ok_or_else(|| {
                     AppError::Config("The phone CPU ABI could not be detected.".into())
                 })?;
-                let cache = self.app.path().app_cache_dir()
+                let cache = self
+                    .app
+                    .path()
+                    .app_cache_dir()
                     .map_err(|error| AppError::Io(error.to_string()))?;
                 let progress_events = events.clone();
                 let downloaded = download_termux_apk(
@@ -890,7 +1051,12 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     &cache,
                     cancel.clone(),
                     move |downloaded_bytes, total_bytes| {
-                        emit_apk_download_progress(step, downloaded_bytes, total_bytes, &progress_events);
+                        emit_apk_download_progress(
+                            step,
+                            downloaded_bytes,
+                            total_bytes,
+                            &progress_events,
+                        );
                     },
                 )
                 .await?;
@@ -908,12 +1074,23 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         downloaded.version_name
                     )));
                 }
-                let _ = events.send(ProvisionEvent::Output {
-                    step,
-                    event: StreamEvent::Stdout {
-                        line: format!("Verified {} ({}, SHA-256 {}).", downloaded.file_name, downloaded.version_name, downloaded.sha256),
-                    },
-                }).await;
+                let digest_line = if downloaded.verified_against_source {
+                    format!(
+                        "Verified {} ({}, SHA-256 {}).",
+                        downloaded.file_name, downloaded.version_name, downloaded.sha256
+                    )
+                } else {
+                    format!(
+                        "Downloaded {} ({}, SHA-256 {}). The release published no digest and no checksum file; recorded the first-download digest for future verification.",
+                        downloaded.file_name, downloaded.version_name, downloaded.sha256
+                    )
+                };
+                let _ = events
+                    .send(ProvisionEvent::Output {
+                        step,
+                        event: StreamEvent::Stdout { line: digest_line },
+                    })
+                    .await;
                 let client = state.adb_client().await?;
                 let output = match cancellable(
                     &cancel,
@@ -931,13 +1108,34 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     }
                     Err(error) => return Err(error),
                 };
-                record_termux_install(&state.data_dir, &state.device_id_for(&self.serial), self.recipe.termux_source, &downloaded)?;
-                emit_output(step, &crate::transport::CommandResult {
-                    stdout: output.stdout,
-                    stderr: output.stderr,
-                    exit_code: output.exit_code,
-                    duration_ms: output.duration_ms,
-                }, &events).await;
+                record_termux_install(
+                    &state.data_dir,
+                    &state.device_id_for(&self.serial),
+                    self.recipe.termux_source,
+                    &downloaded,
+                )?;
+                let device_id = state.device_id_for(&self.serial);
+                if state.known_hosts.expected(&device_id)?.is_some() {
+                    state.ssh.drop_device(&self.serial).await;
+                    state.known_hosts.forget(&device_id)?;
+                    let _ = events.send(ProvisionEvent::Output {
+                        step,
+                        event: StreamEvent::Stdout {
+                            line: "Cleared the pinned SSH host key; the next connect will verify Termux again (a reinstall regenerates the host keys).".into(),
+                        },
+                    }).await;
+                }
+                emit_output(
+                    step,
+                    &crate::transport::CommandResult {
+                        stdout: output.stdout,
+                        stderr: output.stderr,
+                        exit_code: output.exit_code,
+                        duration_ms: output.duration_ms,
+                    },
+                    &events,
+                )
+                .await;
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::AndroidSettings => {
@@ -949,14 +1147,20 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         client.shell(&self.serial, &command, COMMAND_TIMEOUT),
                     )
                     .await?;
-                    let _ = events.send(ProvisionEvent::Output {
-                        step,
-                        event: if result.success() {
-                            StreamEvent::Stdout { line: format!("Applied: {command}") }
-                        } else {
-                            StreamEvent::Stderr { line: format!("Optional setting failed: {}", result.combined()) }
-                        },
-                    }).await;
+                    let _ = events
+                        .send(ProvisionEvent::Output {
+                            step,
+                            event: if result.success() {
+                                StreamEvent::Stdout {
+                                    line: format!("Applied: {command}"),
+                                }
+                            } else {
+                                StreamEvent::Stderr {
+                                    line: format!("Optional setting failed: {}", result.combined()),
+                                }
+                            },
+                        })
+                        .await;
                 }
                 Ok(ProvisionStepRunOutcome::Done)
             }
@@ -1003,19 +1207,88 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     }
                 }
             }
+            ProvisionStepId::SetupStorage => {
+                if self.recipe.distro.is_empty() {
+                    return Ok(ProvisionStepRunOutcome::Done);
+                }
+                let client = state.adb_client().await?;
+                let probe = cancellable(
+                    &cancel,
+                    client.shell(&self.serial, TERMUX_STORAGE_CHECK, Duration::from_secs(15)),
+                )
+                .await?;
+                if termux_storage_granted(&probe.combined()) {
+                    return Ok(ProvisionStepRunOutcome::Done);
+                }
+                ensure_success(
+                    "Keep Termux unlocked and in the foreground",
+                    self.adb_shell_cancellable(TERMUX_FOCUS_CHECK, &cancel)
+                        .await?,
+                )?;
+                let typed = "input text 'termux-setup-storage'; input keyevent 66";
+                ensure_success(
+                    "Start termux-setup-storage",
+                    cancellable(&cancel, client.shell(&self.serial, typed, COMMAND_TIMEOUT))
+                        .await?,
+                )?;
+                let _ = events
+                    .send(ProvisionEvent::Output {
+                        step,
+                        event: StreamEvent::Stdout {
+                            line: "Waiting for the Android storage permission prompt.".into(),
+                        },
+                    })
+                    .await;
+                let started = Instant::now();
+                loop {
+                    if cancel.is_cancelled() {
+                        return Err(AppError::Cancelled);
+                    }
+                    let probe = cancellable(
+                        &cancel,
+                        client.shell(&self.serial, TERMUX_STORAGE_CHECK, Duration::from_secs(10)),
+                    )
+                    .await?;
+                    if termux_storage_granted(&probe.combined()) {
+                        return Ok(ProvisionStepRunOutcome::Done);
+                    }
+                    if started.elapsed() >= Duration::from_secs(60) {
+                        return Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
+                            "Tap Allow on the Android storage prompt (or enable All files access for Termux), then resume this step.".into(),
+                        ));
+                    }
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Err(AppError::Cancelled),
+                        _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                    }
+                }
+            }
             ProvisionStepId::BootstrapSsh => {
                 self.bootstrap_ssh(cancel, &events).await?;
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::TermuxPackages => {
-                let packages = self.recipe.termux_packages.iter()
+                let packages = self
+                    .recipe
+                    .termux_packages
+                    .iter()
                     .map(|package| shell_escape(package))
-                    .collect::<Vec<_>>().join(" ");
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 let command = format!(
-                    "pkg install -y {packages} && export SVDIR=\"$PREFIX/var/service\" LOGDIR=\"$PREFIX/var/log\" && (service-daemon start >/dev/null 2>&1 &) && sv-enable sshd && termux-wake-lock"
+                    "pkg install -y {packages} || exit 1; export SVDIR=\"$PREFIX/var/service\" LOGDIR=\"$PREFIX/var/log\"; \
+                     if command -v setsid >/dev/null 2>&1; then setsid service-daemon start >/dev/null 2>&1 < /dev/null & \
+                     else service-daemon start >/dev/null 2>&1 & fi; \
+                     sv-enable sshd || true; termux-wake-lock"
                 );
-                self.run_remote(step, &command, Duration::from_secs(600), cancel.clone(), &events)
-                    .await?;
+                self.run_remote(
+                    step,
+                    &command,
+                    Duration::from_secs(600),
+                    cancel.clone(),
+                    &events,
+                )
+                .await?;
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::InstallDistro => {
@@ -1032,7 +1305,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 if !distro_installed {
                     self.run_remote(
                         step,
-                        &format!("proot-distro install {distro}"),
+                        &distro_install_command(&self.recipe.distro),
                         Duration::from_secs(1200),
                         cancel.clone(),
                         &events,
@@ -1045,44 +1318,72 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     }
                 }
                 if !self.recipe.distro_packages.is_empty() {
-                    let packages = self.recipe.distro_packages.iter()
+                    let packages = self
+                        .recipe
+                        .distro_packages
+                        .iter()
                         .map(|package| shell_escape(package))
-                        .collect::<Vec<_>>().join(" ");
+                        .collect::<Vec<_>>()
+                        .join(" ");
                     let command = format!(
                         "proot-distro login {distro} -- bash -lc {}",
                         shell_escape(&format!("apt-get update && apt-get install -y {packages}"))
                     );
-                    self.run_remote(step, &command, Duration::from_secs(1200), cancel.clone(), &events)
-                        .await?;
+                    self.run_remote(
+                        step,
+                        &command,
+                        Duration::from_secs(1200),
+                        cancel.clone(),
+                        &events,
+                    )
+                    .await?;
                 }
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::InstallHermes => {
-                if self.recipe.hermes_install.native_apt_package.is_some() {
-                    return Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
-                        "This experimental native APT recipe requires adding its signed repository manually; no repository URL is configured.".into(),
+                let Some(url) = self.recipe.hermes_install.script_url.as_deref() else {
+                    if self.recipe.hermes_install.native_apt_package.is_some() {
+                        return Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
+                            "This experimental native APT recipe has no installer script URL configured. Set hermes_install.script_url in the recipe editor, then resume.".into(),
+                        ));
+                    }
+                    return Err(AppError::Config(
+                        "No Hermes installer URL is configured.".into(),
                     ));
-                }
-                if self.recipe.hermes_install.interactive {
-                    return Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
-                        "Open the interactive Termux terminal and run the reviewed Hermes installer inside the selected environment.".into(),
-                    ));
-                }
-                let url = self.recipe.hermes_install.script_url.as_deref().ok_or_else(|| AppError::Config("No Hermes installer URL is configured.".into()))?;
-                let command = self.hermes_command(&format!(
-                    "curl -fsSL {} -o /tmp/hacc-hermes-install.sh && bash /tmp/hacc-hermes-install.sh",
-                    shell_escape(url)
+                };
+                let command = self.hermes_command(&hermes_install_script_command(
+                    url,
+                    self.recipe.hermes_install.interactive,
                 ));
-                self.run_remote(step, &command, Duration::from_secs(1800), cancel.clone(), &events)
-                    .await?;
+                self.run_remote(
+                    step,
+                    &command,
+                    Duration::from_secs(1800),
+                    cancel.clone(),
+                    &events,
+                )
+                .await?;
                 Ok(ProvisionStepRunOutcome::Done)
             }
-            ProvisionStepId::ConfigureHermes => Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
-                format!(
-                    "Complete these commands in the interactive terminal: {}. Then resume this step.",
-                    self.recipe.hermes_configure.steps.join("; ")
-                ),
-            )),
+            ProvisionStepId::ConfigureHermes => {
+                let check = self.hermes_command(&hermes_configured_check_command());
+                let configured = self
+                    .remote()
+                    .await?
+                    .execute(&check, Duration::from_secs(30))
+                    .await
+                    .is_ok_and(|result| result.exit_code == Some(0));
+                if configured {
+                    Ok(ProvisionStepRunOutcome::Done)
+                } else {
+                    Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
+                        configure_hermes_message(
+                            &self.recipe.distro,
+                            &self.recipe.hermes_configure.steps,
+                        ),
+                    ))
+                }
+            }
             ProvisionStepId::Autostart => {
                 if !self.recipe.autostart {
                     return Ok(ProvisionStepRunOutcome::Done);
@@ -1100,7 +1401,10 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     let abi = info.cpu.and_then(|cpu| cpu.abi).ok_or_else(|| {
                         AppError::Config("The phone CPU ABI could not be detected.".into())
                     })?;
-                    let cache = self.app.path().app_cache_dir()
+                    let cache = self
+                        .app
+                        .path()
+                        .app_cache_dir()
                         .map_err(|error| AppError::Io(error.to_string()))?;
                     let progress_events = events.clone();
                     let downloaded = download_termux_boot_apk(
@@ -1116,7 +1420,8 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                                 &progress_events,
                             );
                         },
-                    ).await?;
+                    )
+                    .await?;
                     let output = match cancellable(
                         &cancel,
                         client.install_apk(&self.serial, &downloaded.path),
@@ -1133,12 +1438,17 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         }
                         Err(error) => return Err(error),
                     };
-                    emit_output(step, &crate::transport::CommandResult {
-                        stdout: output.stdout,
-                        stderr: output.stderr,
-                        exit_code: output.exit_code,
-                        duration_ms: output.duration_ms,
-                    }, &events).await;
+                    emit_output(
+                        step,
+                        &crate::transport::CommandResult {
+                            stdout: output.stdout,
+                            stderr: output.stderr,
+                            exit_code: output.exit_code,
+                            duration_ms: output.duration_ms,
+                        },
+                        &events,
+                    )
+                    .await;
                     return Ok(ProvisionStepRunOutcome::PhoneActionNeeded(
                         "Open Termux:Boot once on the phone, then resume this step to create the boot script.".into(),
                     ));
@@ -1163,10 +1473,20 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
             ProvisionStepId::VerifyAndStart => {
                 let config = self.hermes_config();
                 let command = action_command(&config, HermesAction::Start);
-                self.run_remote(step, &command, Duration::from_secs(120), cancel.clone(), &events)
-                    .await?;
+                self.run_remote(
+                    step,
+                    &command,
+                    Duration::from_secs(120),
+                    cancel.clone(),
+                    &events,
+                )
+                .await?;
                 let status = self.hermes_command(&self.recipe.hermes_runtime.status_commands[0]);
-                let result = self.remote().await?.execute(&status, COMMAND_TIMEOUT).await?;
+                let result = self
+                    .remote()
+                    .await?
+                    .execute(&status, COMMAND_TIMEOUT)
+                    .await?;
                 emit_output(step, &result, &events).await;
                 let lower = result.stdout.to_ascii_lowercase();
                 if result.exit_code == Some(0) && lower.contains("running") {
@@ -1184,9 +1504,11 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
 #[cfg(test)]
 mod tests {
     use super::{
-        android_settings_commands, device_awake_and_unlocked, distro_is_listed_installed,
-        distro_repair_guidance, distro_start_probe_command, doctor_warning_lines,
-        forward_remote_stream, BootstrapTempFiles,
+        android_settings_commands, bootstrap_script, configure_hermes_message,
+        device_awake_and_unlocked, distro_install_command, distro_repair_guidance,
+        distro_rootfs_listed_installed, distro_rootfs_probe_command, distro_start_probe_command,
+        doctor_warning_lines, forward_remote_stream, hermes_install_script_command,
+        termux_storage_granted, BootstrapTempFiles,
     };
     use crate::error::AppError;
     use crate::provision::types::{ProvisionEvent, ProvisionStepId};
@@ -1194,6 +1516,23 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
+
+    #[test]
+    fn termux_storage_granted_reads_appops_and_permission_dump() {
+        assert!(termux_storage_granted(
+            "MANAGE_EXTERNAL_STORAGE: mode=allowed; time=+1d\n"
+        ));
+        assert!(!termux_storage_granted(
+            "MANAGE_EXTERNAL_STORAGE: mode=default\n"
+        ));
+        assert!(termux_storage_granted(
+            "android.permission.READ_EXTERNAL_STORAGE: granted=true, flags=[ USER_SENSITIVE_WHEN_GRANTED ]\n"
+        ));
+        assert!(!termux_storage_granted(
+            "android.permission.READ_EXTERNAL_STORAGE: granted=false\n"
+        ));
+        assert!(!termux_storage_granted(""));
+    }
 
     #[test]
     fn android_settings_commands_cover_storage_notifications_and_phantom_api_ranges() {
@@ -1262,14 +1601,138 @@ mod tests {
     }
 
     #[test]
-    fn distro_listing_matches_only_the_selected_distribution() {
-        assert!(distro_is_listed_installed("debian\n", "debian"));
-        assert!(distro_is_listed_installed("debian (installed)\n", "debian"));
-        assert!(!distro_is_listed_installed("debian-testing\n", "debian"));
-        assert!(!distro_is_listed_installed(
-            "ubuntu (installed)\n",
-            "debian"
-        ));
+    fn distro_rootfs_probe_detects_installed_distribution() {
+        assert_eq!(
+            distro_rootfs_probe_command("debian"),
+            "test -d \"$PREFIX/var/lib/proot-distro/installed-rootfs/debian/etc\" \
+             -o -d \"$HOME/.proot-distro/installed_rootfs/debian/etc\" \
+             -o -d \"$PREFIX/var/lib/proot-distro/containers/debian/rootfs/etc\" \
+             && echo installed || echo missing"
+        );
+        assert!(distro_rootfs_listed_installed("installed\n"));
+        assert!(distro_rootfs_listed_installed("\ninstalled\n"));
+        assert!(!distro_rootfs_listed_installed("missing\n"));
+        assert!(!distro_rootfs_listed_installed(""));
+        assert!(!distro_rootfs_listed_installed("installedish\n"));
+    }
+
+    #[test]
+    fn distro_install_command_cleans_partial_rootfs_and_falls_back_to_github() {
+        let command = distro_install_command("debian");
+        assert!(
+            command.starts_with("bash -lc "),
+            "must force bash for PIPESTATUS: {command}"
+        );
+        assert!(
+            command.contains("if [ -d \"$d\" ] && [ ! -d \"$d/etc\" ]; then rm -rf \"$d\"; fi"),
+            "must remove incomplete rootfs without /etc: {command}"
+        );
+        assert!(
+            command.contains("proot-distro install debian"),
+            "must install the selected distro: {command}"
+        );
+        assert!(
+            command.contains("case \"$url\" in *easycli.sh*)"),
+            "must only retry when the default mirror was used: {command}"
+        );
+        assert!(
+            command.contains(
+                "https://github.com/termux/proot-distro/releases/download/v${version}/${archive}"
+            ),
+            "must rebuild the official GitHub release URL: {command}"
+        );
+        assert!(
+            command
+                .contains("PD_OVERRIDE_TARBALL_URL=\"$fallback\" PD_OVERRIDE_TARBALL_SHA256=\"\""),
+            "must override the tarball URL and skip the checksum override: {command}"
+        );
+        assert!(
+            command.contains("exit \"$code\""),
+            "must preserve the original exit code when no fallback applies: {command}"
+        );
+    }
+
+    #[test]
+    fn distro_install_command_escapes_distro_names_with_spaces() {
+        let command = distro_install_command("some distro");
+        assert!(
+            command.contains("proot-distro install '\\''some distro'\\''"),
+            "{command}"
+        );
+    }
+
+    #[test]
+    fn hermes_install_script_command_runs_interactive_installers_non_interactively() {
+        let command =
+            hermes_install_script_command("https://hermes-agent.nousresearch.com/install.sh", true);
+        assert!(
+            command
+                .contains("curl -fsSL https://hermes-agent.nousresearch.com/install.sh -o /tmp/hacc-hermes-install.sh"),
+            "{command}"
+        );
+        assert!(
+            command.contains("sha256sum /tmp/hacc-hermes-install.sh"),
+            "the script checksum must appear in the streamed output: {command}"
+        );
+        assert!(
+            command.contains("bash /tmp/hacc-hermes-install.sh --non-interactive"),
+            "interactive installers must skip terminal stages over SSH: {command}"
+        );
+        assert!(
+            command.contains("run_hermes_install && exit 0"),
+            "a successful first run must not retry: {command}"
+        );
+        assert!(
+            command.contains("find /root/.local/share/uv/python -maxdepth 1 -type l -delete"),
+            "version-alias symlinks must be removed before the retry: {command}"
+        );
+        assert!(
+            command.contains("--managed-python) continue ;;"),
+            "the retry shim must strip uv's broken --managed-python flag: {command}"
+        );
+        assert!(
+            command.contains("exec \\\"$d/uv.real\\\" \\\"\\$@\\\""),
+            "the shim must exec the pin-verified uv binary: {command}"
+        );
+    }
+
+    #[test]
+    fn hermes_install_script_command_leaves_plain_scripts_untouched() {
+        let command = hermes_install_script_command("https://example.com/install.sh", false);
+        assert!(
+            command.contains("bash /tmp/hacc-hermes-install.sh"),
+            "{command}"
+        );
+        assert!(
+            !command.contains("--non-interactive"),
+            "custom scripts must not receive installer-only flags: {command}"
+        );
+    }
+
+    #[test]
+    fn hermes_install_script_command_escapes_urls_with_spaces() {
+        let command = hermes_install_script_command("https://example.com/my install.sh", false);
+        assert!(
+            command.contains("curl -fsSL 'https://example.com/my install.sh'"),
+            "{command}"
+        );
+    }
+
+    #[test]
+    fn configure_hermes_message_names_the_distro_entry_command() {
+        assert_eq!(
+            configure_hermes_message(
+                "debian",
+                &["hermes setup".into(), "hermes gateway setup".into()]
+            ),
+            "In the interactive Termux terminal run `proot-distro login debian -- bash` to enter the \
+             Linux environment, then run: hermes setup; hermes gateway setup. Then resume this step."
+        );
+        assert_eq!(
+            configure_hermes_message("", &["hermes setup".into()]),
+            "Complete these commands in the interactive Termux terminal: hermes setup. Then resume \
+             this step."
+        );
     }
 
     #[test]
@@ -1303,6 +1766,21 @@ mod tests {
                 "Warning: service setup unavailable",
                 "WARN: configure an allow-listed user"
             ]
+        );
+    }
+
+    #[test]
+    fn bootstrap_script_waits_for_runit_before_enabling_sshd() {
+        let script = bootstrap_script();
+        assert!(script.contains("command -v setsid"));
+        assert!(script.contains("supervise/ok"));
+        assert!(script.contains("sv check sshd"));
+        assert!(script.contains("sv-enable sshd || true"));
+        assert!(
+            !script
+                .lines()
+                .any(|line| line.contains("trap") && line.contains("ERR")),
+            "bootstrap must stay POSIX: no bash-only trap ERR"
         );
     }
 

@@ -328,7 +328,7 @@ describe("ProvisioningWizard", () => {
     expect(await screen.findByText("Preflight: Done")).toBeInTheDocument();
   });
 
-  it("reviews the installer before requiring explicit approval to run it", async () => {
+  it("runs the interactive installer automatically without a manual terminal handoff", async () => {
     const installPlan: ProvisionPlan = {
       ...plan,
       steps: [
@@ -348,13 +348,15 @@ describe("ProvisioningWizard", () => {
       get_provision_plan: () => installPlan,
       run_provision: (args) => {
         const channel = args?.onEvent as { onmessage: (event: ProvisionEvent) => void };
-        window.setTimeout(() =>
+        window.setTimeout(() => {
+          channel.onmessage({ type: "stepStarted", step: "installHermes" });
           channel.onmessage({
-            type: "phoneActionNeeded",
+            type: "output",
             step: "installHermes",
-            message: "Review the downloaded installer before running it.",
-          }),
-        );
+            event: { type: "stdout", line: "Hermes Agent install complete." },
+          });
+          channel.onmessage({ type: "stepDone", step: "installHermes" });
+        });
         return "provision-install-hermes";
       },
     });
@@ -364,31 +366,11 @@ describe("ProvisioningWizard", () => {
     const installRow = installLabel.closest("li");
     if (!installRow) throw new Error("Install Hermes step was not rendered.");
     await userEvent.click(within(installRow).getByRole("button", { name: "Run step" }));
-    await waitFor(() =>
-      expect(
-        screen.getAllByText("Review the downloaded installer before running it."),
-      ).toHaveLength(2),
-    );
 
-    await userEvent.click(screen.getByRole("button", { name: "View installer script" }));
-    const reviewCommand = useTerminal.getState().pendingInteractiveLaunch?.command ?? "";
-    expect(reviewCommand).toContain("wc -c /tmp/hacc-hermes-install.sh");
-    expect(reviewCommand).toContain("sha256sum /tmp/hacc-hermes-install.sh");
-    expect(reviewCommand).toContain("cat /tmp/hacc-hermes-install.sh");
-    expect(reviewCommand).not.toContain("bash /tmp/hacc-hermes-install.sh");
-    expect(useRoute.getState().route).toBe("terminal");
-
-    await userEvent.click(screen.getByRole("button", { name: "Run reviewed installer" }));
-    expect(
-      screen.getByRole("dialog", { name: `Run the reviewed Hermes installer on ${plan.serial}?` }),
-    ).toBeVisible();
-    expect(screen.getByRole("button", { name: "Run installer" })).toBeVisible();
-    expect(useTerminal.getState().pendingInteractiveLaunch?.command).toBe(reviewCommand);
-
-    await userEvent.click(screen.getByRole("button", { name: "Run installer" }));
-    const installCommand = useTerminal.getState().pendingInteractiveLaunch?.command ?? "";
-    expect(installCommand).toContain("proot-distro login 'debian'");
-    expect(installCommand).toContain("bash /tmp/hacc-hermes-install.sh");
+    await screen.findByText("Install Hermes Agent: Done");
+    expect(screen.queryByRole("button", { name: "View installer script" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Run reviewed installer" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /reviewed Hermes installer/ })).toBeNull();
   });
 
   it("shows proot service and gateway safety hints during interactive Hermes setup", async () => {

@@ -98,7 +98,10 @@ describe("LogsView", () => {
     const fn = mockIpc({ start_log_stream: () => "hermes-logs-1" });
     render(<LogsView />);
 
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Log source" }), "hermesGateway");
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Log source" }),
+      "hermesGateway",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
 
     expect(fn).toHaveBeenCalledWith(
@@ -150,11 +153,13 @@ describe("LogsView", () => {
 
   it("searches text and regex, toggles case, highlights matches, and reports invalid regex", async () => {
     mockIpc({});
-    useLogs.getState().append(KEY, [
-      line(1, { tag: "App", message: "Hermes started" }),
-      line(2, { tag: "Queue", level: "warn", message: "queue warning" }),
-      line(3, { tag: "App", message: "Hermes stopped" }),
-    ]);
+    useLogs
+      .getState()
+      .append(KEY, [
+        line(1, { tag: "App", message: "Hermes started" }),
+        line(2, { tag: "Queue", level: "warn", message: "queue warning" }),
+        line(3, { tag: "App", message: "Hermes stopped" }),
+      ]);
     const offsetHeightSpy = vi
       .spyOn(HTMLElement.prototype, "offsetHeight", "get")
       .mockImplementation(function (this: HTMLElement) {
@@ -165,10 +170,9 @@ describe("LogsView", () => {
       const search = screen.getByRole("searchbox", { name: "Search logs" });
       await userEvent.type(search, "hermes");
       expect(await screen.findByText("2 matches")).toBeInTheDocument();
-      expect(Array.from(container.querySelectorAll("mark")).map((mark) => mark.textContent)).toEqual([
-        "Hermes",
-        "Hermes",
-      ]);
+      expect(
+        Array.from(container.querySelectorAll("mark")).map((mark) => mark.textContent),
+      ).toEqual(["Hermes", "Hermes"]);
       expect(screen.queryByText("queue warning")).not.toBeInTheDocument();
       expect(screen.getByText(/3 lines/)).toBeInTheDocument();
 
@@ -206,10 +210,15 @@ describe("LogsView", () => {
     );
     class MockWorker {
       onmessage: ((event: MessageEvent<LogSearchWorkerResponse>) => void) | null = null;
-      constructor(readonly scriptUrl: URL, readonly options: WorkerOptions) {}
+      constructor(
+        readonly scriptUrl: URL,
+        readonly options: WorkerOptions,
+      ) {}
 
       postMessage(request: LogSearchWorkerRequest) {
-        this.onmessage?.({ data: searchLogSequences(request) } as MessageEvent<LogSearchWorkerResponse>);
+        this.onmessage?.({
+          data: searchLogSequences(request),
+        } as MessageEvent<LogSearchWorkerResponse>);
       }
 
       terminate() {}
@@ -227,7 +236,9 @@ describe("LogsView", () => {
       await userEvent.type(search, "worker target");
 
       expect(await screen.findByText("1 matches", {}, { timeout: 3000 })).toBeInTheDocument();
-      expect(container.querySelector('[data-seq="10001"]')).toHaveTextContent("worker target match");
+      expect(container.querySelector('[data-seq="10001"]')).toHaveTextContent(
+        "worker target match",
+      );
       expect(screen.queryByText(/bulk line/)).not.toBeInTheDocument();
       expect(useLogs.getState().byDevice[KEY]?.lines).toHaveLength(10_001);
 
@@ -252,13 +263,15 @@ describe("LogsView", () => {
 
   it("filters by level with counts and restores all levels", async () => {
     mockIpc({});
-    useLogs.getState().append(KEY, [
-      line(1, { level: "info", message: "information" }),
-      line(2, { level: "warn", message: "warning" }),
-      line(3, { level: "error", message: "failure" }),
-      line(4, { level: "debug", message: "diagnostic" }),
-      line(5, { level: null, message: "plain" }),
-    ]);
+    useLogs
+      .getState()
+      .append(KEY, [
+        line(1, { level: "info", message: "information" }),
+        line(2, { level: "warn", message: "warning" }),
+        line(3, { level: "error", message: "failure" }),
+        line(4, { level: "debug", message: "diagnostic" }),
+        line(5, { level: null, message: "plain" }),
+      ]);
     const offsetHeightSpy = vi
       .spyOn(HTMLElement.prototype, "offsetHeight", "get")
       .mockImplementation(function (this: HTMLElement) {
@@ -266,7 +279,10 @@ describe("LogsView", () => {
       });
     try {
       render(<LogsView />);
-      expect(screen.getByRole("button", { name: "INFO 1" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "INFO 1" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
       expect(screen.getByRole("button", { name: "WARN 1" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "ERROR 1" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "DEBUG 1" })).toBeInTheDocument();
@@ -291,11 +307,13 @@ describe("LogsView", () => {
 
   it("selects single/range rows and copies selected or visible raw lines", async () => {
     mockIpc({});
-    useLogs.getState().append(KEY, [
-      line(1, { raw: "raw one", message: "first" }),
-      line(2, { raw: "raw two", message: "second" }),
-      line(3, { raw: "raw three", message: "third" }),
-    ]);
+    useLogs
+      .getState()
+      .append(KEY, [
+        line(1, { raw: "raw one", message: "first" }),
+        line(2, { raw: "raw two", message: "second" }),
+        line(3, { raw: "raw three", message: "third" }),
+      ]);
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -349,24 +367,15 @@ describe("LogsView", () => {
     await screen.findByText("1 matches");
     await userEvent.click(screen.getByRole("button", { name: "Export" }));
     const exportDialog = screen.getByRole("dialog", { name: "Export logs" });
-    await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: "Format" }),
-      "jsonl",
-    );
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Format" }), "jsonl");
     await userEvent.click(screen.getByRole("button", { name: "Choose save location" }));
     await waitFor(() => expect(exportRequests).toHaveLength(1));
     expect(exportRequests[0]).toMatchObject({ lines: [sourceLines[0]], format: "jsonl" });
     expect(exportDialog).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Export" }));
-    await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: "Lines" }),
-      "all",
-    );
-    await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: "Format" }),
-      "log",
-    );
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Lines" }), "all");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Format" }), "log");
     await userEvent.click(screen.getByRole("button", { name: "Choose save location" }));
     await waitFor(() => expect(exportRequests).toHaveLength(2));
     expect(exportRequests[1]).toMatchObject({ lines: sourceLines, format: "log" });
@@ -432,7 +441,9 @@ describe("LogAutoStart", () => {
     expect(fn).not.toHaveBeenCalledWith("check_termux", expect.anything());
 
     rerender(<LogAutoStart enabled />);
-    await waitFor(() => expect(fn).toHaveBeenCalledWith("check_termux", { serial: device().serial }));
+    await waitFor(() =>
+      expect(fn).toHaveBeenCalledWith("check_termux", { serial: device().serial }),
+    );
     expect(fn).not.toHaveBeenCalledWith("start_log_stream", expect.anything());
   });
 });

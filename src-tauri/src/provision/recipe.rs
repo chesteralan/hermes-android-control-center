@@ -267,6 +267,11 @@ mod tests {
             recipes[1].hermes_install.apt_key_fingerprint.as_deref(),
             Some("C572 B5FD D1A2 9CCF A9A9 12B6 840B 0848 E139 156D")
         );
+        assert_eq!(
+            recipes[1].hermes_install.script_url.as_deref(),
+            Some("https://hermes-agent.nousresearch.com/install.sh"),
+            "the native recipe installs via the official script so the wizard needs no manual APT setup"
+        );
     }
 
     #[test]

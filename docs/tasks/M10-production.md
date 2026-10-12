@@ -69,6 +69,12 @@
 - An identical copy of the repository dependency policy still rejected the same six license expressions and unmaintained `proc-macro-error`. Compatibility success is not a clean security-policy result, and path-source treatment by a scanner is not proof of an advisory fix; the prior clean baseline/candidate tests provide the GLib source evidence.
 - **Outcome:** compile/test integration is verified for this isolated ARM64 Linux environment. Linux GUI launch, WebKit rendering, tray/dialog behavior, Wayland, real-phone workflows, other architectures, independent patch review, and source adoption are not certified. No compatibility override or policy exception has been adopted by the app.
 
+#### Dependency-policy resolution (2026-10-12)
+- **Decision:** the owner authorized a reviewed policy relaxation instead of dependency replacement. `deny.toml` now allows `MPL-2.0` (file-level copyleft; the rejected crates are unmodified transitive dependencies of Tauri's HTML-parser path and directory lookup) and `Apache-2.0 WITH LLVM-exception` (permissive; `target-lexicon` via GTK `system-deps`). `RUSTSEC-2024-0370` (`proc-macro-error` unmaintained) is ignored with a written justification: build-time-only, transitive via `glib-macros 0.18`, no compatible upgrade, no known vulnerability.
+- **Verified:** `cargo deny check` passes all four categories (advisories, bans, licenses, sources). `cargo audit` passes with the two allowed warnings (`RUSTSEC-2024-0370` ignored in deny, `RUSTSEC-2024-0429` glib unsoundness remains an open audit warning). `npm audit --omit=dev --audit-level=high` reports zero vulnerabilities. SECURITY.md §6 records the approved policy.
+- **CI fix:** the Security job's Gitleaks step failed because `actions/checkout@v4` used a shallow clone while gitleaks-action scanned a commit range (`fatal: unknown revision`). The security job now checks out with `fetch-depth: 0`; a local full-history `gitleaks detect` over all 66 commits found no leaks.
+- **Still open for T2:** built-app CSP review, full capability review, diagnostics archive review, and the `glib` unsoundness remediation path (GLib backport or bindings migration).
+
 ### [ ] M10-T3 Performance budgets (TESTING.md §6)
 - Cold start < 1.5 s to interactive; idle CPU < 1 %; idle RAM < 200 MB; log throughput target met.
 

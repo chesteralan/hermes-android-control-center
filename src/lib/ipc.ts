@@ -139,6 +139,7 @@ export const ipc = {
   getTermuxPublicKey: () => call<string>("get_termux_public_key"),
   checkTermux: (serial: string) => call<TermuxCheck>("check_termux", { serial }),
   forgetTermuxHostKey: (serial: string) => call<void>("forget_termux_host_key", { serial }),
+  repairTermuxSshBridge: (serial: string) => call<void>("repair_termux_ssh_bridge", { serial }),
   getHermesStatus: (serial: string) => call<HermesStatus>("get_hermes_status", { serial }),
   detectHermes: (serial: string) => call<HermesInstallReport>("detect_hermes", { serial }),
   hermesAction: (serial: string, action: HermesAction) =>

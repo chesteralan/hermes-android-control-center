@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ErrorPanel } from "../../components/ErrorPanel";
@@ -64,6 +64,7 @@ export function TermuxSetupCard({ device }: { device: AndroidDevice }) {
   const [error, setError] = useState<ErrorPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const ready = device.state === "device";
+  const autoVerified = useRef(false);
 
   useEffect(() => {
     ipc
@@ -71,6 +72,18 @@ export function TermuxSetupCard({ device }: { device: AndroidDevice }) {
       .then(setPublicKey)
       .catch((e: ErrorPayload) => setError(e));
   }, []);
+
+  useEffect(() => {
+    if (!ready || autoVerified.current) return;
+    autoVerified.current = true;
+    setBusy(true);
+    setError(null);
+    ipc
+      .checkTermux(device.serial)
+      .then(setCheck)
+      .catch((e) => setError(e as ErrorPayload))
+      .finally(() => setBusy(false));
+  }, [ready, device.serial]);
 
   async function verify() {
     setBusy(true);
@@ -86,6 +99,11 @@ export function TermuxSetupCard({ device }: { device: AndroidDevice }) {
 
   async function forget() {
     await ipc.forgetTermuxHostKey(device.serial);
+    await verify();
+  }
+
+  async function repair() {
+    await ipc.repairTermuxSshBridge(device.serial);
     await verify();
   }
 
@@ -135,6 +153,11 @@ export function TermuxSetupCard({ device }: { device: AndroidDevice }) {
       {sshFailed && (
         <Button variant="ghost" className="mt-2" onClick={forget}>
           Forget pinned host key (after reinstalling Termux)
+        </Button>
+      )}
+      {check && !check.ready && (
+        <Button variant="ghost" className="mt-2" onClick={repair} loading={busy} disabled={!ready}>
+          Reset host key & repair bridge (keep Termux open)
         </Button>
       )}
       {error && <ErrorPanel error={error} />}

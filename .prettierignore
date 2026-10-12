@@ -5,3 +5,7 @@ src-tauri/gen
 src/types/generated
 package-lock.json
 docs
+android/hermes-control/.venv
+android/hermes-control/schema
+.pytest_cache
+**/.pytest_cache
