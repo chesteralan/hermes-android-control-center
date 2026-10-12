@@ -72,7 +72,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [!] [M4-T5 — Optional bootstrap via RUN_COMMAND](tasks/M4-termux-bridge.md): Android denied the intent because the ADB-shell sender lacks `com.termux.permission.RUN_COMMAND`; manual SSH setup remains supported.
 - [!] M0-S3/S4 remaining fixture and provisioning acceptance: `adb devices -l` is empty; USB, unauthorized/offline, pairing failures, reset-phone install, and reboot captures require a connected Android phone.
 - [!] M11 phone acceptance: factory setup, rerun/idempotency, interruption recovery, Termux:Boot, permission prompts, and on-phone cleanup require a connected Android phone.
-- [!] M11 T2/T14 per-phone HermesConfig persistence: M9's device-profile boundary is not implemented; changing the global Hermes config would affect other phones.
+- [~] M11 T2/T14 per-phone HermesConfig persistence: M9-T2 DeviceProfile schema and IPC are implemented (config v3, effective_config merge, CRUD commands, profile editor UI); the M11 wizard handoff (saving recipe-derived HermesConfig into the phone's profile) remains open.
 - [!] M11 T2/T11 signed APT repository install: no verified repository URL exists, so the automated signed-repo flow (key URL + repo entry) remains unbundled. The wizard no longer blocks on this — the native recipe installs via the official `script_url` in Termux.
 - [!] M13-T1/T6 live compatibility checks: only Hermes v0.21.4 has been tested on-device; upstream lists v0.21.6, but setting a supported range and verifying gateway-created sessions requires a phone. Windows/Linux session and performance QA also requires those platforms.
 - [!] M14-T3/T4 Windows/Linux/Wayland tray and release QA: this workspace is on macOS; native runtime behavior cannot be certified without those desktop environments.
@@ -88,11 +88,11 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ### M9 — Multi-Device
 
-Task breakdown written 2026-10-12; no M9 implementation has started. Groundwork from earlier milestones (stable `device_id`, per-device host keys/secrets/registries) is noted in the task file.
+Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested.
 
 - [~] [M9-T1 — Backend isolation audit and completion](tasks/M9-multi-device.md)
-- [ ] [M9-T2 — DeviceProfile schema, persistence, and effective config](tasks/M9-multi-device.md)
-- [ ] [M9-T3 — Profile editor UI](tasks/M9-multi-device.md)
+- [~] [M9-T2 — DeviceProfile schema, persistence, and effective config](tasks/M9-multi-device.md)
+- [~] [M9-T3 — Profile editor UI](tasks/M9-multi-device.md)
 - [ ] [M9-T4 — Device tab bar](tasks/M9-multi-device.md)
 - [ ] [M9-T5 — Per-tab terminal and log isolation](tasks/M9-multi-device.md)
 - [ ] [M9-T6 — Overview view](tasks/M9-multi-device.md)

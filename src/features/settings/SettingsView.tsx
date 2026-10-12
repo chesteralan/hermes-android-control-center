@@ -17,6 +17,7 @@ import type {
   LogLevelSetting,
   StartMode,
 } from "../../types";
+import { DeviceProfilesSection } from "./DeviceProfilesSection";
 
 const input = "w-full rounded-md border border-border bg-bg px-2 py-1.5 font-mono";
 
@@ -694,6 +695,14 @@ export function SettingsView() {
             <Button onClick={() => setDiagnosticsDialogOpen(true)}>Export diagnostics</Button>
           </div>
         </Row>
+      </Card>
+
+      <Card title="Devices">
+        <p className="mb-3 text-muted text-sm">
+          Per-device aliases, colors, auto-connect, and Hermes/Termux overrides. Profiles are
+          created automatically when a device first connects.
+        </p>
+        <DeviceProfilesSection />
       </Card>
 
       {s.error && <ErrorPanel error={s.error} />}

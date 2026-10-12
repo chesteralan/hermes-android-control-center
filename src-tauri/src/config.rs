@@ -599,6 +599,185 @@ mod tests {
         let v2 = serde_json::json!({
             "version": 2,
             "knownAddresses": [
+                { "address": "192.0.2.10:5555", "autoConnect": true },
+                { "address": "192.0.2.20:5555", "autoConnect": false },
+            ]
+        });
+        let cfg = AppConfig::from_json(v2);
+        assert_eq!(cfg.version, CONFIG_VERSION);
+        // Both addresses must have become device profiles.
+        assert_eq!(cfg.devices.len(), 2);
+        let profile = cfg
+            .devices
+            .values()
+            .find(|p| p.last_address.as_deref() == Some("192.0.2.20:5555"))
+            .expect("missing profile for 192.0.2.20:5555");
+        assert!(!profile.auto_connect);
+        // knownAddresses are preserved (v3 keeps the list for ADB reconnect purposes).
+        assert_eq!(cfg.known_addresses.len(), 2);
+    }
+
+    #[test]
+    fn migrates_v2_does_not_overwrite_existing_profile() {
+        // If a device profile already exists (e.g. from a partial migration), migration must
+        // not silently replace it.
+        let mut cfg = AppConfig {
+            version: 2,
+            known_addresses: vec![KnownAddress {
+                address: "192.0.2.30:5555".into(),
+                auto_connect: false,
+            }],
+            ..Default::default()
+        };
+        let device_id =
+            crate::adb::parse::device_id_from_serial("192.0.2.30:5555").unwrap_or_else(|| "192.0.2.30:5555".into());
+        cfg.devices.insert(
+            device_id.clone(),
+            DeviceProfile {
+                device_id: device_id.clone(),
+                alias: Some("pre-existing".into()),
+                auto_connect: true,
+                ..Default::default()
+            },
+        );
+        migrate_v2_to_v3(&mut cfg);
+        // The pre-existing profile must be unchanged.
+        let profile = cfg.devices.get(&device_id).unwrap();
+        assert_eq!(profile.alias.as_deref(), Some("pre-existing"));
+        assert!(profile.auto_connect);
+    }
+
+    #[test]
+    fn effective_config_inherits_globals_when_no_override() {
+        let cfg = AppConfig::default();
+        let eff = cfg.effective_config("unknown-device");
+        assert_eq!(eff.hermes, cfg.hermes);
+        assert_eq!(eff.termux, cfg.termux);
+        assert_eq!(eff.log_command, cfg.hermes.log_command);
+        assert!(!eff.has_hermes_override);
+        assert!(!eff.has_termux_override);
+        assert!(!eff.has_log_command_override);
+        assert!(eff.auto_connect);
+    }
+
+    #[test]
+    fn effective_config_prefers_per_device_override() {
+        let mut cfg = AppConfig::default();
+        let mut override_hermes = cfg.hermes.clone();
+        override_hermes.gateway_command = "hermes gateway run --verbose".into();
+        let mut override_termux = cfg.termux.clone();
+        override_termux.ssh_port = 9022;
+        cfg.devices.insert(
+            "phone-a".into(),
+            DeviceProfile {
+                device_id: "phone-a".into(),
+                alias: Some("My Phone".into()),
+                color: Some("#ff0000".into()),
+                auto_connect: false,
+                hermes: Some(override_hermes.clone()),
+                termux: Some(override_termux.clone()),
+                log_command: Some("tail -n 100 /root/.hermes/logs/gateway.log".into()),
+                ..Default::default()
+            },
+        );
+        let eff = cfg.effective_config("phone-a");
+        assert_eq!(eff.hermes, override_hermes);
+        assert_eq!(eff.termux, override_termux);
+        assert_eq!(eff.log_command, "tail -n 100 /root/.hermes/logs/gateway.log");
+        assert!(eff.has_hermes_override);
+        assert!(eff.has_termux_override);
+        assert!(eff.has_log_command_override);
+        assert!(!eff.auto_connect);
+        assert_eq!(eff.alias.as_deref(), Some("My Phone"));
+        assert_eq!(eff.color.as_deref(), Some("#ff0000"));
+    }
+
+    #[test]
+    fn effective_config_falls_back_to_global_log_command() {
+        let mut cfg = AppConfig::default();
+        cfg.hermes.log_command = "tail -f /global.log".into();
+        cfg.devices.insert(
+            "phone-b".into(),
+            DeviceProfile {
+                device_id: "phone-b".into(),
+                // log_command is None → fall back to global
+                log_command: None,
+                ..Default::default()
+            },
+        );
+        let eff = cfg.effective_config("phone-b");
+        assert_eq!(eff.log_command, "tail -f /global.log");
+        assert!(!eff.has_log_command_override);
+    }
+
+    #[test]
+    fn apply_update_partial_fields_preserved() {
+        let mut profile = DeviceProfile {
+            device_id: "phone-c".into(),
+            alias: Some("Old name".into()),
+            color: Some("#blue".into()),
+            auto_connect: true,
+            ..Default::default()
+        };
+        // Only update alias; all other fields must stay.
+        profile.apply_update(DeviceProfileUpdate {
+            alias: Some(Some("New name".into())),
+            ..Default::default()
+        });
+        assert_eq!(profile.alias.as_deref(), Some("New name"));
+        assert_eq!(profile.color.as_deref(), Some("#blue"));
+        assert!(profile.auto_connect);
+    }
+
+    #[test]
+    fn apply_update_can_clear_optional_fields() {
+        let mut profile = DeviceProfile {
+            device_id: "phone-d".into(),
+            alias: Some("Will clear".into()),
+            color: Some("#green".into()),
+            ..Default::default()
+        };
+        profile.apply_update(DeviceProfileUpdate {
+            alias: Some(None),  // explicitly set to null
+            color: Some(None),
+            ..Default::default()
+        });
+        assert!(profile.alias.is_none());
+        assert!(profile.color.is_none());
+    }
+
+    #[test]
+    fn validation_rejects_empty_device_profile_id() {
+        let mut cfg = AppConfig::default();
+        cfg.devices.insert(
+            String::new(),
+            DeviceProfile {
+                device_id: String::new(),
+                ..Default::default()
+            },
+        );
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn validation_accepts_valid_device_profiles() {
+        let mut cfg = AppConfig::default();
+        cfg.devices.insert(
+            "valid-id".into(),
+            DeviceProfile {
+                device_id: "valid-id".into(),
+                alias: Some("Test Phone".into()),
+                ..Default::default()
+            },
+        );
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn migrates_v2_known_addresses_to_device_profiles_with_auto_connect() {
+        let v2 = serde_json::json!({
+            "version": 2,
+            "knownAddresses": [
                 { "address": "192.168.1.50:5555", "autoConnect": true },
                 { "address": "adb-R58M123456-suffix._adb-tls-connect._tcp", "autoConnect": false }
             ]

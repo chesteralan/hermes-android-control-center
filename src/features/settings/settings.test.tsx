@@ -54,6 +54,7 @@ describe("SettingsView", () => {
       restart_adb_server: () => pending,
       detect_adb: () => ({ path: "/fake/adb", version: "1.0.41" }),
       list_devices: () => [],
+      list_device_profiles: () => [],
     });
     render(<SettingsView />);
     const refresh = await screen.findByRole("button", { name: "Restart ADB server" });
@@ -91,6 +92,7 @@ describe("SettingsView", () => {
       restart_adb_server: () => {
         throw { kind: "adbFailed", message: "Could not start ADB server", details: "Port is busy" };
       },
+      list_device_profiles: () => [],
     });
     render(<SettingsView />);
     const refresh = await screen.findByRole("button", { name: "Restart ADB server" });
@@ -107,6 +109,7 @@ describe("SettingsView", () => {
       get_secret_storage_state: () => "native",
       unlock_secret_storage: () => undefined,
       lock_secret_storage: () => undefined,
+      list_device_profiles: () => [],
     });
     render(<SettingsView />);
     await screen.findByText("System credential store");
@@ -134,6 +137,7 @@ describe("SettingsView", () => {
     const fn = mockIpc({
       get_settings: () => cfg,
       update_settings: (args) => args?.config,
+      list_device_profiles: () => [],
     });
     render(<SettingsView />);
     const start = await screen.findByLabelText("Start override");
@@ -149,6 +153,7 @@ describe("SettingsView", () => {
     const fn = mockIpc({
       get_settings: () => cfg,
       update_settings: (args) => args?.config,
+      list_device_profiles: () => [],
     });
     render(<SettingsView />);
     const files = await screen.findByRole("textbox", { name: "Hermes log files" });
@@ -179,6 +184,7 @@ describe("SettingsView", () => {
       }),
       install_control_api: () => ({ stdout: "installed", stderr: "", exitCode: 0, durationMs: 1 }),
       test_control_api: () => "0.1.0",
+      list_device_profiles: () => [],
     });
     render(<SettingsView />);
     await userEvent.selectOptions(await screen.findByLabelText("Hermes transport"), "controlApi");
@@ -204,6 +210,7 @@ describe("SettingsView", () => {
       update_settings: () => {
         throw { kind: "config", message: "ADB path does not exist: /nope", details: null };
       },
+      list_device_profiles: () => [],
     });
     render(<SettingsView />);
     await userEvent.type(await screen.findByLabelText("ADB path"), "/nope");
@@ -222,6 +229,7 @@ describe("SettingsView", () => {
     useDevices.getState().setDevices([device()]);
     mockIpc({
       get_settings: () => cfg,
+      list_device_profiles: () => [],
       detect_hermes: () => ({
         candidates: [
           {
@@ -250,6 +258,7 @@ describe("SettingsView", () => {
   it("requires confirmation and exports diagnostics with IP redaction enabled", async () => {
     const fn = mockIpc({
       get_settings: () => cfg,
+      list_device_profiles: () => [],
       export_diagnostics: () => "/tmp/hermes-control-center-diagnostics.zip",
     });
     render(<SettingsView />);

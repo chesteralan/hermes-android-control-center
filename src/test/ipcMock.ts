@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { vi } from "vitest";
+import { useDeviceProfiles } from "../stores/deviceProfiles";
 import { useDevices } from "../stores/devices";
 import { useRoute } from "../stores/route";
 import { useSettings } from "../stores/settings";
@@ -30,4 +31,5 @@ export function resetStores() {
   useRoute.setState({ route: "dashboard" });
   useSettings.setState({ saved: null, draft: null, error: null, saving: false });
   useUi.setState({ pairTab: null });
+  useDeviceProfiles.setState({ profiles: {}, profileList: [], effective: {}, loading: false, error: null });
 }
