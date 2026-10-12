@@ -26,11 +26,11 @@ const CONFIRM_DELAYS: [u64; 4] = [1, 2, 3, 5];
 pub struct ActionLocks(Mutex<HashMap<String, Arc<Mutex<()>>>>);
 
 impl ActionLocks {
-    async fn for_device(&self, serial: &str) -> Arc<Mutex<()>> {
+    pub async fn for_device(&self, device_id: &str) -> Arc<Mutex<()>> {
         self.0
             .lock()
             .await
-            .entry(serial.to_string())
+            .entry(device_id.to_string())
             .or_default()
             .clone()
     }
@@ -158,7 +158,8 @@ pub async fn get_hermes_status(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<HermesStatus, AppError> {
-    let cfg = state.config.read().await.hermes.clone();
+    let device_id = state.device_id_for(&serial);
+    let cfg = state.config.read().await.effective_hermes_config(&device_id);
     fetch_status(&state, &serial, &cfg).await
 }
 
@@ -170,7 +171,8 @@ pub async fn detect_hermes(
     let t = state.termux_transport(&serial).await?;
     let out = t.execute(detect::SCRIPT, STATUS_TIMEOUT).await?;
     let mut report = detect::parse(&out.stdout);
-    let base = state.config.read().await.hermes.clone();
+    let device_id = state.device_id_for(&serial);
+    let base = state.config.read().await.effective_hermes_config(&device_id);
     for candidate in &mut report.candidates {
         let mut candidate_cfg = base.clone();
         candidate_cfg.environment = candidate.environment.clone();
@@ -237,9 +239,10 @@ pub async fn hermes_action(
     serial: String,
     action: HermesAction,
 ) -> Result<HermesActionResult, AppError> {
-    let lock = locks.for_device(&serial).await;
+    let device_id = state.device_id_for(&serial);
+    let lock = locks.for_device(&device_id).await;
     let _guard = lock.lock().await;
-    let cfg = state.config.read().await.hermes.clone();
+    let cfg = state.config.read().await.effective_hermes_config(&device_id);
     if cfg.transport == crate::config::HermesTransportKind::ControlApi {
         let api = match state.api_transport(&serial).await {
             Ok(api) => api,
@@ -379,9 +382,10 @@ pub async fn run_hermes_tool(
     serial: String,
     tool: HermesTool,
 ) -> Result<CommandResult, AppError> {
-    let lock = locks.for_device(&serial).await;
+    let device_id = state.device_id_for(&serial);
+    let lock = locks.for_device(&device_id).await;
     let _guard = lock.lock().await;
-    let cfg = state.config.read().await.hermes.clone();
+    let cfg = state.config.read().await.effective_hermes_config(&device_id);
     let configured = match tool {
         HermesTool::Doctor => &cfg.doctor_command,
         HermesTool::Update => &cfg.update_command,
@@ -659,5 +663,16 @@ mod tests {
         assert!(command.contains("kill -TERM"));
         assert!(command.contains("nohup setsid"));
         assert!(!command.contains("not supervised"));
+    }
+
+    #[tokio::test]
+    async fn action_locks_share_same_mutex_for_same_device_id() {
+        let locks = ActionLocks::default();
+        let lock_a = locks.for_device("phone-uuid-1").await;
+        let lock_b = locks.for_device("phone-uuid-1").await;
+        let lock_c = locks.for_device("phone-uuid-2").await;
+
+        assert!(Arc::ptr_eq(&lock_a, &lock_b));
+        assert!(!Arc::ptr_eq(&lock_a, &lock_c));
     }
 }

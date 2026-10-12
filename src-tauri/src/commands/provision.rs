@@ -750,7 +750,7 @@ pub async fn run_provision<R: Runtime>(
         }
     }
 
-    let (run_id, cancel) = state.streams.register(&serial, "provision");
+    let (run_id, cancel) = state.streams.register(&serial, &device_id, "provision");
     let executor = AndroidProvisionExecutor::new(app.clone(), serial.clone(), recipe.clone());
     let store = ProvisionProgressStore::new(state.data_dir.clone());
     let progress = match store.load(&device_id, &recipe.id) {

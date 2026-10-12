@@ -2,7 +2,7 @@
 import type { ConnectionType } from "./ConnectionType";
 import type { DeviceState } from "./DeviceState";
 
-export type AndroidDevice = { serial: string, 
+export type AndroidDevice = { serial: string,
 /**
  * Stable hardware identity (`ro.serialno`), when known.
  */

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -5,7 +6,7 @@ use ts_rs::TS;
 
 use crate::error::{AppError, AppResult};
 
-pub const CONFIG_VERSION: u32 = 2;
+pub const CONFIG_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
@@ -181,6 +182,113 @@ pub enum LogLevelSetting {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
+pub struct DeviceProfile {
+    pub device_id: String,
+    pub alias: Option<String>,
+    pub color: Option<String>,
+    pub last_address: Option<String>,
+    pub auto_connect: bool,
+    pub hermes: Option<HermesConfig>,
+    pub termux: Option<TermuxConfig>,
+    pub log_command: Option<String>,
+}
+
+impl Default for DeviceProfile {
+    fn default() -> Self {
+        Self {
+            device_id: String::new(),
+            alias: None,
+            color: None,
+            last_address: None,
+            auto_connect: true,
+            hermes: None,
+            termux: None,
+            log_command: None,
+        }
+    }
+}
+
+impl DeviceProfile {
+    pub fn apply_update(&mut self, update: DeviceProfileUpdate) {
+        if let Some(alias) = update.alias {
+            self.alias = alias;
+        }
+        if let Some(color) = update.color {
+            self.color = color;
+        }
+        if let Some(last_address) = update.last_address {
+            self.last_address = last_address;
+        }
+        if let Some(auto_connect) = update.auto_connect {
+            self.auto_connect = auto_connect;
+        }
+        if let Some(hermes) = update.hermes {
+            self.hermes = hermes;
+        }
+        if let Some(termux) = update.termux {
+            self.termux = termux;
+        }
+        if let Some(log_command) = update.log_command {
+            self.log_command = log_command;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct DeviceProfileUpdate {
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    #[ts(type = "string | null | undefined")]
+    pub alias: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    #[ts(type = "string | null | undefined")]
+    pub color: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    #[ts(type = "string | null | undefined")]
+    pub last_address: Option<Option<String>>,
+    #[ts(type = "boolean | undefined")]
+    pub auto_connect: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub hermes: Option<Option<HermesConfig>>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub termux: Option<Option<TermuxConfig>>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    #[ts(type = "string | null | undefined")]
+    pub log_command: Option<Option<String>>,
+}
+
+fn deserialize_double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct EffectiveDeviceConfig {
+    pub device_id: String,
+    #[ts(type = "string | null")]
+    pub alias: Option<String>,
+    #[ts(type = "string | null")]
+    pub color: Option<String>,
+    #[ts(type = "string | null")]
+    pub last_address: Option<String>,
+    pub auto_connect: bool,
+    pub hermes: HermesConfig,
+    pub termux: TermuxConfig,
+    pub log_command: String,
+    pub has_hermes_override: bool,
+    pub has_termux_override: bool,
+    pub has_log_command_override: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
 pub struct AppConfig {
     pub version: u32,
     #[ts(type = "string | null")]
@@ -192,6 +300,7 @@ pub struct AppConfig {
     pub termux: TermuxConfig,
     pub api_port: u16,
     pub log_level: LogLevelSetting,
+    pub devices: HashMap<String, DeviceProfile>,
 }
 
 impl Default for AppConfig {
@@ -206,8 +315,27 @@ impl Default for AppConfig {
             termux: TermuxConfig::default(),
             api_port: 8765,
             log_level: LogLevelSetting::Info,
+            devices: HashMap::new(),
         }
     }
+}
+
+fn validate_hermes_config(hermes: &HermesConfig) -> AppResult<()> {
+    if let HermesEnvironment::ProotDistro { distro } = &hermes.environment {
+        let ok = !distro.is_empty()
+            && distro
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if !ok {
+            return Err(AppError::Config(format!("Invalid distro name: {distro:?}")));
+        }
+    }
+    if hermes.process_match.trim().is_empty() || hermes.gateway_command.trim().is_empty() {
+        return Err(AppError::Config(
+            "Hermes process match and gateway command are required.".into(),
+        ));
+    }
+    Ok(())
 }
 
 impl AppConfig {
@@ -223,27 +351,15 @@ impl AppConfig {
         if version < 2 && cfg.hermes.process_match == "hermes-agent/hermes" {
             cfg.hermes.process_match = HermesConfig::default().process_match;
         }
+        if version < 3 {
+            migrate_v2_to_v3(&mut cfg);
+        }
         cfg.version = CONFIG_VERSION;
         cfg
     }
 
     pub fn validate(&self) -> AppResult<()> {
-        if let HermesEnvironment::ProotDistro { distro } = &self.hermes.environment {
-            let ok = !distro.is_empty()
-                && distro
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-            if !ok {
-                return Err(AppError::Config(format!("Invalid distro name: {distro:?}")));
-            }
-        }
-        if self.hermes.process_match.trim().is_empty()
-            || self.hermes.gateway_command.trim().is_empty()
-        {
-            return Err(AppError::Config(
-                "Hermes process match and gateway command are required.".into(),
-            ));
-        }
+        validate_hermes_config(&self.hermes)?;
         if self.api_port == 0 {
             return Err(AppError::Config(
                 "API port must be between 1 and 65535.".into(),
@@ -265,7 +381,68 @@ impl AppConfig {
         for k in &self.known_addresses {
             crate::adb::address::validate_address(&k.address)?;
         }
+        for (id, profile) in &self.devices {
+            if id.trim().is_empty() {
+                return Err(AppError::Config("Device profile ID cannot be empty.".into()));
+            }
+            if let Some(hermes) = &profile.hermes {
+                validate_hermes_config(hermes)?;
+            }
+            if let Some(addr) = &profile.last_address {
+                crate::adb::address::validate_address(addr)?;
+            }
+        }
         Ok(())
+    }
+
+    pub fn effective_config(&self, device_id: &str) -> EffectiveDeviceConfig {
+        let profile = self.devices.get(device_id);
+        let alias = profile.and_then(|p| p.alias.clone());
+        let color = profile.and_then(|p| p.color.clone());
+        let last_address = profile.and_then(|p| p.last_address.clone());
+        let auto_connect = profile.map(|p| p.auto_connect).unwrap_or(true);
+        let has_hermes_override = profile.and_then(|p| p.hermes.as_ref()).is_some();
+        let has_termux_override = profile.and_then(|p| p.termux.as_ref()).is_some();
+        let has_log_command_override = profile.and_then(|p| p.log_command.as_ref()).is_some();
+
+        let hermes = profile
+            .and_then(|p| p.hermes.clone())
+            .unwrap_or_else(|| self.hermes.clone());
+        let termux = profile
+            .and_then(|p| p.termux.clone())
+            .unwrap_or_else(|| self.termux.clone());
+        let log_command = profile
+            .and_then(|p| p.log_command.clone())
+            .filter(|cmd| !cmd.trim().is_empty())
+            .unwrap_or_else(|| self.hermes.log_command.clone());
+
+        EffectiveDeviceConfig {
+            device_id: device_id.to_string(),
+            alias,
+            color,
+            last_address,
+            auto_connect,
+            hermes,
+            termux,
+            log_command,
+            has_hermes_override,
+            has_termux_override,
+            has_log_command_override,
+        }
+    }
+
+    pub fn effective_hermes_config(&self, device_id: &str) -> HermesConfig {
+        self.devices
+            .get(device_id)
+            .and_then(|p| p.hermes.clone())
+            .unwrap_or_else(|| self.hermes.clone())
+    }
+
+    pub fn effective_termux_config(&self, device_id: &str) -> TermuxConfig {
+        self.devices
+            .get(device_id)
+            .and_then(|p| p.termux.clone())
+            .unwrap_or_else(|| self.termux.clone())
     }
 
     pub fn remember_address(&mut self, address: &str) {
@@ -274,6 +451,39 @@ impl AppConfig {
                 address: address.to_string(),
                 auto_connect: true,
             });
+        }
+        let device_id = crate::adb::parse::device_id_from_serial(address)
+            .unwrap_or_else(|| address.to_string());
+        let profile = self
+            .devices
+            .entry(device_id.clone())
+            .or_insert_with(|| DeviceProfile {
+                device_id,
+                ..Default::default()
+            });
+        profile.last_address = Some(address.to_string());
+    }
+}
+
+/// v2 migrated knownAddresses into per-device profiles in v3.
+fn migrate_v2_to_v3(cfg: &mut AppConfig) {
+    for known in &cfg.known_addresses {
+        let device_id = crate::adb::parse::device_id_from_serial(&known.address)
+            .unwrap_or_else(|| known.address.clone());
+        if !cfg.devices.contains_key(&device_id) {
+            cfg.devices.insert(
+                device_id.clone(),
+                DeviceProfile {
+                    device_id,
+                    alias: None,
+                    color: None,
+                    last_address: Some(known.address.clone()),
+                    auto_connect: known.auto_connect,
+                    hermes: None,
+                    termux: None,
+                    log_command: None,
+                },
+            );
         }
     }
 }
@@ -381,5 +591,138 @@ mod tests {
         cfg.remember_address("192.0.2.1:5555");
         cfg.remember_address("192.0.2.1:5555");
         assert_eq!(cfg.known_addresses.len(), 1);
+        assert_eq!(cfg.devices.len(), 1);
+    }
+
+    #[test]
+    fn migrates_v2_known_addresses_to_device_profiles() {
+        let v2 = serde_json::json!({
+            "version": 2,
+            "knownAddresses": [
+                { "address": "192.168.1.50:5555", "autoConnect": true },
+                { "address": "adb-R58M123456-suffix._adb-tls-connect._tcp", "autoConnect": false }
+            ]
+        });
+        let cfg = AppConfig::from_json(v2);
+        assert_eq!(cfg.version, CONFIG_VERSION);
+        assert_eq!(cfg.devices.len(), 2);
+
+        let p1 = cfg.devices.get("192.168.1.50:5555").unwrap();
+        assert_eq!(p1.last_address.as_deref(), Some("192.168.1.50:5555"));
+        assert!(p1.auto_connect);
+
+        let p2 = cfg.devices.get("R58M123456").unwrap();
+        assert_eq!(
+            p2.last_address.as_deref(),
+            Some("adb-R58M123456-suffix._adb-tls-connect._tcp")
+        );
+        assert!(!p2.auto_connect);
+    }
+
+    #[test]
+    fn effective_config_merge_precedence() {
+        let mut cfg = AppConfig::default();
+        cfg.hermes.gateway_command = "global gateway".into();
+        cfg.termux.ssh_port = 8022;
+        cfg.hermes.log_command = "global log".into();
+
+        // Unknown device gets global defaults
+        let eff = cfg.effective_config("unknown-dev");
+        assert_eq!(eff.device_id, "unknown-dev");
+        assert_eq!(eff.hermes.gateway_command, "global gateway");
+        assert_eq!(eff.termux.ssh_port, 8022);
+        assert_eq!(eff.log_command, "global log");
+        assert!(!eff.has_hermes_override);
+        assert!(!eff.has_termux_override);
+        assert!(!eff.has_log_command_override);
+
+        // Device with overrides
+        let mut profile = DeviceProfile {
+            device_id: "phone-1".into(),
+            alias: Some("Pixel 7".into()),
+            color: Some("#ff0000".into()),
+            last_address: Some("192.168.1.99:5555".into()),
+            auto_connect: false,
+            hermes: Some(HermesConfig {
+                gateway_command: "override gateway".into(),
+                ..Default::default()
+            }),
+            termux: Some(TermuxConfig {
+                ssh_port: 9022,
+                ..Default::default()
+            }),
+            log_command: Some("override log".into()),
+        };
+        cfg.devices.insert("phone-1".into(), profile.clone());
+
+        let eff = cfg.effective_config("phone-1");
+        assert_eq!(eff.alias.as_deref(), Some("Pixel 7"));
+        assert_eq!(eff.color.as_deref(), Some("#ff0000"));
+        assert_eq!(eff.last_address.as_deref(), Some("192.168.1.99:5555"));
+        assert!(!eff.auto_connect);
+        assert_eq!(eff.hermes.gateway_command, "override gateway");
+        assert_eq!(eff.termux.ssh_port, 9022);
+        assert_eq!(eff.log_command, "override log");
+        assert!(eff.has_hermes_override);
+        assert!(eff.has_termux_override);
+        assert!(eff.has_log_command_override);
+
+        // Clear overrides back to None
+        profile.hermes = None;
+        profile.termux = None;
+        profile.log_command = None;
+        cfg.devices.insert("phone-1".into(), profile);
+
+        let eff = cfg.effective_config("phone-1");
+        assert_eq!(eff.hermes.gateway_command, "global gateway");
+        assert_eq!(eff.termux.ssh_port, 8022);
+        assert_eq!(eff.log_command, "global log");
+        assert!(!eff.has_hermes_override);
+        assert!(!eff.has_termux_override);
+        assert!(!eff.has_log_command_override);
+    }
+
+    #[test]
+    fn partial_update_preserves_unrelated_fields() {
+        let mut profile = DeviceProfile {
+            device_id: "dev-abc".into(),
+            alias: Some("Old Alias".into()),
+            color: Some("#112233".into()),
+            last_address: Some("192.168.1.2:5555".into()),
+            auto_connect: true,
+            hermes: Some(HermesConfig::default()),
+            termux: None,
+            log_command: Some("tail log".into()),
+        };
+
+        // Partial update: only change alias and color
+        let update_json = serde_json::json!({
+            "alias": "New Alias",
+            "color": "#445566"
+        });
+        let update: DeviceProfileUpdate = serde_json::from_value(update_json).unwrap();
+        profile.apply_update(update);
+
+        assert_eq!(profile.alias.as_deref(), Some("New Alias"));
+        assert_eq!(profile.color.as_deref(), Some("#445566"));
+        // Unrelated fields preserved
+        assert_eq!(profile.last_address.as_deref(), Some("192.168.1.2:5555"));
+        assert!(profile.auto_connect);
+        assert!(profile.hermes.is_some());
+        assert_eq!(profile.log_command.as_deref(), Some("tail log"));
+
+        // Partial update: explicitly clear alias and hermes override
+        let clear_json = serde_json::json!({
+            "alias": null,
+            "hermes": null
+        });
+        let clear_update: DeviceProfileUpdate = serde_json::from_value(clear_json).unwrap();
+        profile.apply_update(clear_update);
+
+        assert_eq!(profile.alias, None);
+        assert_eq!(profile.hermes, None);
+        // Color and others still preserved
+        assert_eq!(profile.color.as_deref(), Some("#445566"));
+        assert_eq!(profile.log_command.as_deref(), Some("tail log"));
     }
 }

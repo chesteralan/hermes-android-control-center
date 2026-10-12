@@ -100,7 +100,8 @@ pub async fn stream_command(
     validate_command(&command)?;
     tracing::debug!(%serial, ?transport_kind, "stream_command");
     let t = transport(&state, &serial, transport_kind).await?;
-    let (id, cancel) = state.streams.register(&serial, "cmd");
+    let device_id = state.device_id_for(&serial);
+    let (id, cancel) = state.streams.register(&serial, &device_id, "cmd");
     let mut rx = match t.stream(&command, cancel).await {
         Ok(rx) => rx,
         Err(e) => {
@@ -140,7 +141,8 @@ pub async fn start_terminal_pty(
     let transport = state.termux_transport(&serial).await?;
     let (mut output, control) = transport.open_pty(columns, rows).await?;
     let sessions = state.pty_sessions.clone();
-    let session_id = sessions.insert(&serial, control);
+    let device_id = state.device_id_for(&serial);
+    let session_id = sessions.insert(&serial, &device_id, control);
     let task_sessions = sessions.clone();
     let task_session_id = session_id.clone();
     tauri::async_runtime::spawn(async move {

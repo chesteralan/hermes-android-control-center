@@ -24,6 +24,7 @@ use crate::transport::DeviceTransport;
 
 struct PtySessionEntry {
     serial: String,
+    device_id: String,
     control: PtySessionControl,
 }
 
@@ -34,12 +35,13 @@ pub struct PtySessionRegistry {
 }
 
 impl PtySessionRegistry {
-    pub fn insert(&self, serial: &str, control: PtySessionControl) -> String {
+    pub fn insert(&self, serial: &str, device_id: &str, control: PtySessionControl) -> String {
         let id = format!("pty-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
         self.sessions.lock().unwrap().insert(
             id.clone(),
             PtySessionEntry {
                 serial: serial.to_string(),
+                device_id: device_id.to_string(),
                 control,
             },
         );
@@ -64,13 +66,13 @@ impl PtySessionRegistry {
         }
     }
 
-    pub async fn close_device(&self, serial: &str) {
+    pub async fn close_device(&self, target: &str) {
         let ids = self
             .sessions
             .lock()
             .unwrap()
             .iter()
-            .filter(|(_, entry)| entry.serial == serial)
+            .filter(|(_, entry)| entry.serial == target || entry.device_id == target)
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
         for id in ids {
@@ -195,13 +197,15 @@ impl AppState {
         self.devices
             .get(serial)
             .and_then(|d| d.device_id)
+            .or_else(|| self.devices.id_for(serial))
             .or_else(|| device_id_from_serial(serial))
             .unwrap_or_else(|| serial.to_string())
     }
 
     pub async fn termux_transport(&self, serial: &str) -> AppResult<TermuxSshTransport> {
         let client = self.adb_client().await?;
-        let cfg = self.config.read().await.termux.clone();
+        let device_id = self.device_id_for(serial);
+        let cfg = self.config.read().await.effective_termux_config(&device_id);
         let handle = self
             .ssh
             .get_or_connect(serial, || async {
@@ -212,7 +216,7 @@ impl AppState {
                     &cfg.ssh_user,
                     key,
                     &self.known_hosts,
-                    &self.device_id_for(serial),
+                    &device_id,
                 )
                 .await
             })
@@ -263,7 +267,8 @@ impl AppState {
         &self,
         serial: &str,
     ) -> AppResult<Arc<dyn DeviceTransport>> {
-        let transport = self.config.read().await.hermes.transport;
+        let device_id = self.device_id_for(serial);
+        let transport = self.config.read().await.effective_hermes_config(&device_id).transport;
         match transport {
             HermesTransportKind::TermuxSsh => Ok(Arc::new(self.termux_transport(serial).await?)),
             HermesTransportKind::ControlApi => Ok(Arc::new(self.api_transport(serial).await?)),

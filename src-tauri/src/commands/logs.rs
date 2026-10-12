@@ -145,7 +145,10 @@ pub async fn start_log_stream(
     source: LogSourceKind,
     on_batch: Channel<Vec<LogLine>>,
 ) -> Result<StreamId, AppError> {
-    let config = state.config.read().await.clone();
+    let device_id = state.device_id_for(&serial);
+    let mut config = state.config.read().await.clone();
+    config.hermes = config.effective_hermes_config(&device_id);
+    config.termux = config.effective_termux_config(&device_id);
     let src: Box<dyn LogSource> = match source {
         LogSourceKind::Logcat => {
             let client = state.adb_client().await?;
@@ -197,7 +200,7 @@ pub async fn start_log_stream(
             }
         }
     };
-    let (id, cancel) = state.streams.register(&serial, "logs");
+    let (id, cancel) = state.streams.register(&serial, &device_id, "logs");
     let rx = match src.stream(cancel).await {
         Ok(rx) => rx,
         Err(e) => {

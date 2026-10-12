@@ -4,15 +4,15 @@ import type { HermesProcess } from "./HermesProcess";
 import type { PlatformStatus } from "./PlatformStatus";
 import type { SupervisorStatus } from "./SupervisorStatus";
 
-export type HermesStatus = { gateway: ComponentStatus, gatewayPid: number | null, uptimeSecs: number | null, pythonVersion: string | null, processes: Array<HermesProcess>, 
+export type HermesStatus = { gateway: ComponentStatus, gatewayPid: number | null, uptimeSecs: number | null, pythonVersion: string | null, processes: Array<HermesProcess>,
 /**
  * Only reported when the state file belongs to the running gateway.
  */
-platforms: Array<PlatformStatus>, supervisor: SupervisorStatus, warnings: Array<string>, 
+platforms: Array<PlatformStatus>, supervisor: SupervisorStatus, warnings: Array<string>,
 /**
  * Optional output from the user's configured status command.
  */
-rawStatusOutput: string | null, 
+rawStatusOutput: string | null,
 /**
  * "termuxSsh", "api", or "adb" (limited).
  */

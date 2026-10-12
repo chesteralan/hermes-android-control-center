@@ -39,7 +39,13 @@ pub async fn check_termux(
         );
     }
 
-    let port = state.config.read().await.termux.ssh_port;
+    let device_id = state.device_id_for(&serial);
+    let port = state
+        .config
+        .read()
+        .await
+        .effective_termux_config(&device_id)
+        .ssh_port;
     if !c.has_failed() {
         match state.forwards.ensure(&client, &serial, port).await {
             Ok(local) => c.ok(

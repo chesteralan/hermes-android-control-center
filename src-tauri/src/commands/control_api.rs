@@ -160,7 +160,8 @@ pub async fn install_control_api(
     let token = state.api_token(&serial)?.unwrap_or_else(new_token);
     state.set_api_token(&serial, &token)?;
     tracing::info!(%serial, "stored Control API token in Keychain");
-    let hermes_config = state.config.read().await.hermes.clone();
+    let device_id = state.device_id_for(&serial);
+    let hermes_config = state.config.read().await.effective_hermes_config(&device_id);
     let overlay = action_overlay(&hermes_config);
     let actions_json =
         serde_json::to_string(&overlay).map_err(|error| AppError::Io(error.to_string()))?;

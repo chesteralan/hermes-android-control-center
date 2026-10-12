@@ -138,6 +138,15 @@ impl DeviceRegistry {
         self.lock_inner().devices.get(serial).cloned()
     }
 
+    pub fn id_for(&self, serial: &str) -> Option<String> {
+        let g = self.lock_inner();
+        g.ids
+            .get(serial)
+            .cloned()
+            .or_else(|| g.devices.get(serial).and_then(|d| d.device_id.clone()))
+            .or_else(|| g.last_seen.get(serial).and_then(|d| d.device_id.clone()))
+    }
+
     pub fn set_device_id(&self, serial: &str, id: &str) -> bool {
         let mut g = self.lock_inner();
         g.ids.insert(serial.to_string(), id.to_string());
