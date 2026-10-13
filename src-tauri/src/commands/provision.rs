@@ -408,6 +408,8 @@ fn hermes_setup_env_assignments(input: &HermesSetupInput) -> AppResult<Vec<(Stri
             // Custom OpenAI-compatible endpoints often run without auth; when a
             // key is supplied it is stored in config.yaml instead of .env.
         } else {
+            // provider was validated against HERMES_PROVIDER_ENV_KEYS above,
+            // so the find always succeeds.
             let env_key = HERMES_PROVIDER_ENV_KEYS
                 .iter()
                 .find(|(name, _)| *name == provider)

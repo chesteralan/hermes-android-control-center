@@ -37,6 +37,7 @@ pub struct PtySessionRegistry {
 impl PtySessionRegistry {
     pub fn insert(&self, serial: &str, device_id: &str, control: PtySessionControl) -> String {
         let id = format!("pty-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
+        // Infallible: lock body is a pure HashMap insert; no I/O or panics inside.
         self.sessions.lock().unwrap().insert(
             id.clone(),
             PtySessionEntry {
@@ -51,12 +52,15 @@ impl PtySessionRegistry {
     pub fn control(&self, id: &str) -> Option<PtySessionControl> {
         self.sessions
             .lock()
+            // Infallible: lock body is a pure HashMap lookup.
             .unwrap()
             .get(id)
             .map(|entry| entry.control.clone())
     }
 
     pub async fn close(&self, id: &str) -> bool {
+        // Infallible: lock body is a pure HashMap remove; the resulting channel
+        // send is performed after the lock is released.
         let entry = self.sessions.lock().unwrap().remove(id);
         if let Some(entry) = entry {
             let _ = entry.control.send(PtyInput::Close).await;
@@ -67,6 +71,7 @@ impl PtySessionRegistry {
     }
 
     pub async fn close_device(&self, target: &str) {
+        // Infallible: lock body collects IDs only; no panics inside.
         let ids = self
             .sessions
             .lock()
@@ -81,6 +86,7 @@ impl PtySessionRegistry {
     }
 
     pub async fn close_all(&self) {
+        // Infallible: lock body collects keys only; no panics inside.
         let ids = self
             .sessions
             .lock()

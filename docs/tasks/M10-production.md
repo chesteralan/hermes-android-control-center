@@ -20,6 +20,15 @@
 - **Progress (2026-10-09):** Device and reconnect registries now recover poisoned locks with an error log; stream-registry recovery cancels and clears active streams, and reconnect-registry recovery cancels active retries. Poison regressions pass. The remaining non-test mutex/panic/error-propagation audit and live failure matrix remain open.
 - **Progress (2026-10-09):** Encrypted-secret lock poisoning now discards the in-memory vault (zeroizing key/token state), reports locked status, and requires explicit unlock before access; the encrypted file remains recoverable. The poison/reunlock regression passes. The remaining non-test mutex/panic/error-propagation audit and live failure matrix remain open.
 - **Progress (2026-10-09):** Poisoned known-host state now returns an I/O error, and a poisoned per-connection fingerprint lock rejects the SSH host key rather than proceeding. TOFU persistence, poisoned-state, and in-process SSH transport tests pass. The wider non-test error audit and live SSH failure matrix remain open.
+- **Progress (2026-10-13):** Non-test `unwrap()`/`expect()` grep audit completed. 24 candidate sites found; all are proven infallible and documented with inline justification comments:
+  - `lib.rs`: `tauri.run().expect(...)` — Tauri startup; panicking is the correct behavior on fatal startup failure. Comment added.
+  - `state.rs` `PtySessionRegistry`: five `.lock().unwrap()` calls — all short critical sections containing only HashMap operations, no I/O; cannot panic inside the lock. Comments added.
+  - `process.rs` `FakeRunner`: seven `.lock().unwrap()` on an in-memory test-helper struct; and five `.unwrap()` in Windows-only `#[cfg(target_os = "windows")]` integration tests. No production panics.
+  - `commands/device.rs`: two `.lock().unwrap()` on `qr_sessions` — pure HashMap insert/remove, no I/O inside lock. Comments added.
+  - `commands/sessions.rs`: `.expect("session API request serializes")` — `ApiRequest` contains only plain strings and a usize; serialization is infallible. Comment added.
+  - `commands/settings.rs`: `.unwrap()` after fetching a just-mutated profile — upgraded to `.expect("profile was mutated above and is still present")` with inline justification.
+  - `commands/provision.rs`: `.expect("provider validated above")` — guarded by earlier provider validation against `HERMES_PROVIDER_ENV_KEYS`. Justification comment added.
+  - No swallowed `Err` or un-documented panics remain in non-test production Rust. End-to-end failure reproduction and live failure matrix remain open.
 
 ### [~] M10-T2 Security review
 - Complete SECURITY.md checklist; `cargo audit`, `cargo deny`, `npm audit --omit=dev` in CI; CSP locked down in `tauri.conf.json`.

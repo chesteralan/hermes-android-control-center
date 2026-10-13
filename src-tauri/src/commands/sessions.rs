@@ -202,6 +202,7 @@ struct ApiRequest<'a> {
 }
 
 fn build_api_command(cfg: &HermesConfig, path: &str, max_bytes: usize) -> String {
+    // ApiRequest contains only plain strings and a usize; serialization is infallible.
     let request = serde_json::to_string(&ApiRequest {
         path,
         port: DASHBOARD_PORT,

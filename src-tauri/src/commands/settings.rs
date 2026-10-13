@@ -103,7 +103,12 @@ pub async fn set_device_profile<R: Runtime>(
     config.validate()?;
     config_store::save(&app, &config)?;
     tracing::info!(device_id = %device_id, "updated device profile");
-    let updated_profile = config.devices.get(&device_id).cloned().unwrap();
+    // The profile was fetched via get_mut above and `apply_update` does not remove it.
+    let updated_profile = config
+        .devices
+        .get(&device_id)
+        .cloned()
+        .expect("profile was mutated above and is still present");
     *state.config.write().await = config;
     Ok(updated_profile)
 }

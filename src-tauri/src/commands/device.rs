@@ -151,6 +151,7 @@ pub async fn start_qr_pairing(
     let svg = qr_pair::render_svg(&qr_pair::qr_payload(&creds))?;
     let session_id = creds.service_name.clone();
     let cancel = state.shutdown.child_token();
+    // Infallible: lock body is a pure HashMap insert; no I/O inside.
     state
         .qr_sessions
         .lock()
@@ -176,6 +177,7 @@ pub async fn cancel_qr_pairing(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), AppError> {
+    // Infallible: lock body is a pure HashMap remove; no I/O inside.
     if let Some(t) = state.qr_sessions.lock().unwrap().remove(&session_id) {
         t.cancel();
     }

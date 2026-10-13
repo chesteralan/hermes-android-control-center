@@ -144,5 +144,7 @@ pub fn run() {
             commands::hermes::run_hermes_tool,
         ])
         .run(tauri::generate_context!())
+        // Tauri's run() returns only on a fatal startup error; there is no
+        // recoverable alternative, so a panic is the correct response here.
         .expect("error while running Hermes Control Center");
 }
