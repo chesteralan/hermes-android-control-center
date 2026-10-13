@@ -267,9 +267,14 @@ describe("ProvisioningWizard", () => {
     const configureRow = configureLabel.closest("li");
     if (!configureRow) throw new Error("Configure Hermes step was not rendered.");
     await userEvent.click(within(configureRow).getByRole("button", { name: "Run step" }));
+    // The raw terminal handoff is demoted behind the manual fallback.
     expect(
-      await screen.findAllByText("Finish setup in the interactive terminal, then resume."),
-    ).toHaveLength(2);
+      screen.queryByText("Finish setup in the interactive terminal, then resume."),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Run manually instead" }));
+    expect(
+      screen.getByText("Finish setup in the interactive terminal, then resume."),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Resume" }));
 
     expect(await screen.findByText("Configure Hermes: Done")).toBeInTheDocument();
@@ -410,11 +415,15 @@ describe("ProvisioningWizard", () => {
     if (!configureRow) throw new Error("Configure Hermes step was not rendered.");
     await userEvent.click(within(configureRow).getByRole("button", { name: "Run step" }));
 
-    expect(await screen.findByRole("note", { name: "Hermes setup guidance" })).toBeVisible();
-    expect(screen.getByText(/there is no systemd/)).toBeInTheDocument();
-    expect(screen.getByText(/choose No/)).toBeInTheDocument();
-    expect(screen.getByText(/allow-listed or pairing-protected/)).toBeInTheDocument();
+    // Safety guidance stays visible in the automatic panel.
+    expect(await screen.findByText(/Inside proot-distro there is no systemd/)).toBeInTheDocument();
+    expect(screen.getByText(/keep direct messages allow-listed/i)).toBeInTheDocument();
 
+    // Interactive/portal handoff moves behind the manual fallback.
+    await userEvent.click(screen.getByRole("button", { name: "Run manually instead" }));
+    expect(
+      screen.getByText("Complete Hermes setup in the interactive terminal."),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Open setup portal" }));
     const portalCommand = useTerminal.getState().pendingInteractiveLaunch?.command ?? "";
     expect(portalCommand).toContain("hermes setup --portal && hermes gateway setup");
@@ -506,5 +515,178 @@ describe("ProvisioningWizard", () => {
       minimumFreeGib: 4,
       termuxPackages: ["openssh", "git"],
     });
+  });
+
+  function configureHermesFixture() {
+    const configurePlan: ProvisionPlan = {
+      ...plan,
+      steps: [
+        plan.steps[0]!,
+        {
+          id: "configureHermes",
+          title: "Configure Hermes",
+          state: "todo",
+          detail: null,
+          phoneAction: null,
+          consent: null,
+        },
+      ],
+    };
+    const manualMessage =
+      "In the interactive Termux terminal run `proot-distro login debian -- bash` to enter the Linux environment, then run: hermes setup; hermes gateway setup. Then resume this step.";
+    return { configurePlan, manualMessage };
+  }
+
+  it("offers automatic Hermes configuration instead of the manual terminal handoff", async () => {
+    const { configurePlan, manualMessage } = configureHermesFixture();
+    let runCount = 0;
+    mockIpc({
+      list_provision_recipes: () => [recipe],
+      get_provision_plan: () => configurePlan,
+      run_provision: (args) => {
+        runCount += 1;
+        const channel = args?.onEvent as { onmessage: (event: ProvisionEvent) => void };
+        const event: ProvisionEvent =
+          runCount === 1
+            ? { type: "phoneActionNeeded", step: "configureHermes", message: manualMessage }
+            : { type: "stepDone", step: "configureHermes" };
+        window.setTimeout(() => channel.onmessage(event));
+        return `provision-${runCount}`;
+      },
+    });
+    render(<ProvisioningWizard serial={plan.serial} />);
+
+    const configureLabel = await screen.findByText("Configure Hermes: To do");
+    const configureRow = configureLabel.closest("li");
+    if (!configureRow) throw new Error("Configure Hermes step was not rendered.");
+    await userEvent.click(within(configureRow).getByRole("button", { name: "Run step" }));
+
+    expect(await screen.findByText("Configure Hermes automatically")).toBeInTheDocument();
+    expect(screen.getByLabelText("Model provider")).toBeInTheDocument();
+    expect(screen.getByLabelText("Provider API key")).toBeInTheDocument();
+    // The raw terminal handoff is demoted behind the manual disclosure.
+    expect(screen.queryByText(manualMessage)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run manually instead" })).toBeInTheDocument();
+  });
+
+  it("applies setup over SSH and resumes the step automatically", async () => {
+    const { configurePlan, manualMessage } = configureHermesFixture();
+    let runCount = 0;
+    const invoke = mockIpc({
+      list_provision_recipes: () => [recipe],
+      get_provision_plan: () => configurePlan,
+      apply_hermes_setup: () => null,
+      run_provision: (args) => {
+        runCount += 1;
+        const channel = args?.onEvent as { onmessage: (event: ProvisionEvent) => void };
+        const event: ProvisionEvent =
+          runCount === 1
+            ? { type: "phoneActionNeeded", step: "configureHermes", message: manualMessage }
+            : { type: "stepDone", step: "configureHermes" };
+        window.setTimeout(() => channel.onmessage(event));
+        return `provision-${runCount}`;
+      },
+    });
+    render(<ProvisioningWizard serial={plan.serial} />);
+
+    const configureLabel = await screen.findByText("Configure Hermes: To do");
+    const configureRow = configureLabel.closest("li");
+    if (!configureRow) throw new Error("Configure Hermes step was not rendered.");
+    await userEvent.click(within(configureRow).getByRole("button", { name: "Run step" }));
+
+    await screen.findByText("Configure Hermes automatically");
+    await userEvent.selectOptions(screen.getByLabelText("Model provider"), "openrouter");
+    await userEvent.type(screen.getByLabelText("Model name"), "some-model");
+    await userEvent.type(screen.getByLabelText("Provider API key"), "sk-test");
+    await userEvent.click(screen.getByRole("button", { name: "Apply setup" }));
+
+    expect(invoke).toHaveBeenCalledWith("apply_hermes_setup", {
+      serial: plan.serial,
+      recipeId: recipe.id,
+      input: expect.objectContaining({
+        modelProvider: "openrouter",
+        modelName: "some-model",
+        providerApiKey: "sk-test",
+      }),
+    });
+    expect(await screen.findByText("Configure Hermes: Done")).toBeInTheDocument();
+    expect(runCount).toBe(2);
+    expect(invoke).toHaveBeenLastCalledWith(
+      "run_provision",
+      expect.objectContaining({ fromStep: "configureHermes", onlyStep: true }),
+    );
+  });
+
+  it("validates the setup form before calling the backend", async () => {
+    const { configurePlan, manualMessage } = configureHermesFixture();
+    const invoke = mockIpc({
+      list_provision_recipes: () => [recipe],
+      get_provision_plan: () => configurePlan,
+      apply_hermes_setup: () => null,
+      run_provision: (args) => {
+        const channel = args?.onEvent as { onmessage: (event: ProvisionEvent) => void };
+        window.setTimeout(() =>
+          channel.onmessage({
+            type: "phoneActionNeeded",
+            step: "configureHermes",
+            message: manualMessage,
+          }),
+        );
+        return "provision-1";
+      },
+    });
+    render(<ProvisioningWizard serial={plan.serial} />);
+
+    const configureLabel = await screen.findByText("Configure Hermes: To do");
+    const configureRow = configureLabel.closest("li");
+    if (!configureRow) throw new Error("Configure Hermes step was not rendered.");
+    await userEvent.click(within(configureRow).getByRole("button", { name: "Run step" }));
+
+    await screen.findByText("Configure Hermes automatically");
+    await userEvent.click(screen.getByRole("button", { name: "Apply setup" }));
+
+    expect(await screen.findByText(/Enter a model provider with its API key/i)).toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith("apply_hermes_setup", expect.anything());
+  });
+
+  it("keeps the step paused and offers the manual path when applying fails", async () => {
+    const { configurePlan, manualMessage } = configureHermesFixture();
+    let runCount = 0;
+    mockIpc({
+      list_provision_recipes: () => [recipe],
+      get_provision_plan: () => configurePlan,
+      apply_hermes_setup: () => {
+        throw { kind: "config", message: "Hermes setup could not be applied.", details: null };
+      },
+      run_provision: (args) => {
+        runCount += 1;
+        const channel = args?.onEvent as { onmessage: (event: ProvisionEvent) => void };
+        const event: ProvisionEvent =
+          runCount === 1
+            ? { type: "phoneActionNeeded", step: "configureHermes", message: manualMessage }
+            : { type: "stepDone", step: "configureHermes" };
+        window.setTimeout(() => channel.onmessage(event));
+        return `provision-${runCount}`;
+      },
+    });
+    render(<ProvisioningWizard serial={plan.serial} />);
+
+    const configureLabel = await screen.findByText("Configure Hermes: To do");
+    const configureRow = configureLabel.closest("li");
+    if (!configureRow) throw new Error("Configure Hermes step was not rendered.");
+    await userEvent.click(within(configureRow).getByRole("button", { name: "Run step" }));
+
+    await screen.findByText("Configure Hermes automatically");
+    await userEvent.selectOptions(screen.getByLabelText("Model provider"), "openrouter");
+    await userEvent.type(screen.getByLabelText("Provider API key"), "sk-test");
+    await userEvent.click(screen.getByRole("button", { name: "Apply setup" }));
+
+    expect(await screen.findByText("Hermes setup could not be applied.")).toBeInTheDocument();
+    expect(runCount).toBe(1);
+    // Manual fallback remains available and resumes the step.
+    await userEvent.click(screen.getByRole("button", { name: "Run manually instead" }));
+    expect(screen.getAllByText(manualMessage).length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole("button", { name: "Resume" }));
+    expect(await screen.findByText("Configure Hermes: Done")).toBeInTheDocument();
   });
 });
