@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
@@ -9,10 +11,14 @@ use crate::adb::{
 };
 use crate::error::{AppError, AppResult};
 use crate::provision::{
-    build_plan, bundled_recipes, run_plan, AndroidProvisionExecutor, ProvisionEvent, ProvisionPlan,
-    ProvisionProgressStore, ProvisionRecipe, ProvisionStepId, ProvisionStepState, MIN_FREE_BYTES,
+    build_plan, bundled_recipes, run_plan, AndroidProvisionExecutor, HermesSetupInput,
+    ProvisionEvent, ProvisionPlan, ProvisionProgressStore, ProvisionRecipe, ProvisionStepId,
+    ProvisionStepState,
 };
 use crate::state::AppState;
+use crate::transport::DeviceTransport;
+
+const MAX_HERMES_CONFIG_BYTES: usize = 1024 * 1024;
 
 #[tauri::command]
 pub fn list_provision_recipes(state: State<'_, AppState>) -> AppResult<Vec<ProvisionRecipe>> {
@@ -21,6 +27,34 @@ pub fn list_provision_recipes(state: State<'_, AppState>) -> AppResult<Vec<Provi
 
 fn recipe_directory(data_dir: &Path) -> PathBuf {
     data_dir.join("provision-recipes")
+}
+
+const TERMUX_UNINSTALL_CONFIRMATION: &str = "UNINSTALL TERMUX";
+
+fn validate_termux_uninstall_confirmation(confirmation: &str) -> AppResult<()> {
+    if confirmation == TERMUX_UNINSTALL_CONFIRMATION {
+        Ok(())
+    } else {
+        Err(AppError::Config(
+            "Type UNINSTALL TERMUX exactly to confirm deleting Termux and its data.".into(),
+        ))
+    }
+}
+
+fn lock_provisioning_runs(
+    runs: &Mutex<std::collections::HashSet<String>>,
+) -> AppResult<MutexGuard<'_, std::collections::HashSet<String>>> {
+    runs.lock().map_err(|_| {
+        AppError::Config("Provisioning state is unavailable after a previous failure.".into())
+    })
+}
+
+fn remove_active_provisioning_run(
+    runs: &Mutex<std::collections::HashSet<String>>,
+    device_id: &str,
+) -> AppResult<()> {
+    lock_provisioning_runs(runs)?.remove(device_id);
+    Ok(())
 }
 
 fn save_user_recipe(data_dir: &Path, source: &str) -> AppResult<ProvisionRecipe> {
@@ -64,8 +98,11 @@ fn preflight_failure(
         return Some("The phone's CPU ABI could not be detected.".into());
     }
     match &info.storage {
-        Some(storage) if storage.free_bytes < MIN_FREE_BYTES => {
-            return Some("Free at least 2 GB on the phone before provisioning.".into());
+        Some(storage) if storage.free_bytes < recipe.minimum_free_bytes() => {
+            return Some(format!(
+                "Free at least {} GiB on the phone before provisioning.",
+                recipe.minimum_free_gib
+            ));
         }
         None => {
             return Some(
@@ -74,25 +111,28 @@ fn preflight_failure(
         }
         _ => {}
     }
-    if let Some(termux) = &info.termux {
-        if termux.installed {
-            let compatible = match recipe.termux_source {
-                crate::provision::ProvisionTermuxSource::Fdroid => {
-                    termux.source == InstalledTermuxSource::FDroid
-                }
-                crate::provision::ProvisionTermuxSource::Github => {
-                    termux.source == InstalledTermuxSource::Sideloaded
-                }
-            };
-            if !compatible {
-                return Some(format!(
-                    "Installed Termux source ({:?}) does not match recipe source ({:?}); replacing Termux deletes its data.",
-                    termux.source, recipe.termux_source
-                ));
-            }
-        }
+    if let Some(reason) = termux_source_mismatch(info, recipe) {
+        return Some(reason);
     }
     None
+}
+
+fn termux_source_mismatch(info: &DeviceInfo, recipe: &ProvisionRecipe) -> Option<String> {
+    let termux = info.termux.as_ref().filter(|termux| termux.installed)?;
+    let compatible = match recipe.termux_source {
+        crate::provision::ProvisionTermuxSource::Fdroid => {
+            termux.source == InstalledTermuxSource::FDroid
+        }
+        crate::provision::ProvisionTermuxSource::Github => {
+            termux.source == InstalledTermuxSource::Sideloaded
+        }
+    };
+    (!compatible).then(|| {
+        format!(
+            "Installed Termux source ({:?}) does not match recipe source ({:?}); replacing Termux deletes its data.",
+            termux.source, recipe.termux_source
+        )
+    })
 }
 
 fn recipe_by_id(data_dir: &Path, recipe_id: &str) -> AppResult<ProvisionRecipe> {
@@ -143,6 +183,372 @@ pub fn get_provision_recipe_source(
         return Ok(std::fs::read_to_string(user_path)?);
     }
     toml::to_string_pretty(&recipe).map_err(|error| AppError::Io(error.to_string()))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn hermes_config_command(recipe: &ProvisionRecipe, command: &str) -> String {
+    if recipe.distro.is_empty() {
+        command.to_string()
+    } else {
+        format!(
+            "proot-distro login {} -- bash -lc {}",
+            shell_quote(&recipe.distro),
+            shell_quote(command)
+        )
+    }
+}
+
+fn write_hermes_config_command(source: &str) -> String {
+    format!(
+        "set -eu; config_dir=\"$HOME/.hermes\"; mkdir -p \"$config_dir\"; \
+         tmp=\"$(mktemp \"$config_dir/.config.yaml.XXXXXX\")\"; \
+         trap 'rm -f \"$tmp\"' EXIT; chmod 600 \"$tmp\"; \
+         printf %s {} > \"$tmp\"; mv -f \"$tmp\" \"$config_dir/config.yaml\"; trap - EXIT",
+        shell_quote(source)
+    )
+}
+
+async fn execute_hermes_config_command(
+    state: &AppState,
+    serial: &str,
+    recipe_id: &str,
+    command: &str,
+) -> AppResult<crate::transport::CommandResult> {
+    let recipe = recipe_by_id(&state.data_dir, recipe_id)?;
+    let transport = state.termux_transport(serial).await?;
+    transport
+        .execute(
+            &hermes_config_command(&recipe, command),
+            Duration::from_secs(20),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn get_hermes_config(
+    state: State<'_, AppState>,
+    serial: String,
+    recipe_id: String,
+) -> AppResult<String> {
+    let result = execute_hermes_config_command(
+        &state,
+        &serial,
+        &recipe_id,
+        "config=\"$HOME/.hermes/config.yaml\"; \
+                 if [ -f \"$config\" ]; then \
+                     size=$(wc -c < \"$config\"); \
+                     [ \"$size\" -le 1048576 ] || exit 45; \
+                     cat \"$config\"; \
+                 else exit 44; fi",
+    )
+    .await?;
+    match result.exit_code {
+        Some(0) if result.stdout.len() <= MAX_HERMES_CONFIG_BYTES => Ok(result.stdout),
+        Some(0) => Err(AppError::Config(
+            "Hermes config.yaml exceeds the 1 MiB editor limit.".into(),
+        )),
+        Some(44) => Err(AppError::Config(
+            "Hermes config.yaml was not found. Run Hermes setup first.".into(),
+        )),
+        Some(45) => Err(AppError::Config(
+            "Hermes config.yaml exceeds the 1 MiB editor limit.".into(),
+        )),
+        _ => Err(AppError::Config(
+            "Hermes config.yaml could not be read. Check the phone connection and try again."
+                .into(),
+        )),
+    }
+}
+
+#[tauri::command]
+pub async fn save_hermes_config(
+    state: State<'_, AppState>,
+    serial: String,
+    recipe_id: String,
+    source: String,
+) -> AppResult<()> {
+    if source.trim().is_empty() {
+        return Err(AppError::Config(
+            "Hermes config.yaml cannot be empty.".into(),
+        ));
+    }
+    if source.len() > MAX_HERMES_CONFIG_BYTES {
+        return Err(AppError::Config(
+            "Hermes config.yaml exceeds the 1 MiB editor limit.".into(),
+        ));
+    }
+    let result = execute_hermes_config_command(
+        &state,
+        &serial,
+        &recipe_id,
+        &write_hermes_config_command(&source),
+    )
+    .await?;
+    if result.exit_code == Some(0) {
+        Ok(())
+    } else {
+        Err(AppError::Config(
+            "Hermes config.yaml could not be saved atomically. Check the phone connection and try again."
+                .into(),
+        ))
+    }
+}
+
+#[tauri::command]
+pub async fn apply_hermes_setup(
+    state: State<'_, AppState>,
+    serial: String,
+    recipe_id: String,
+    input: HermesSetupInput,
+) -> AppResult<()> {
+    let command = hermes_setup_apply_command(&input)?;
+    let result = execute_hermes_config_command(&state, &serial, &recipe_id, &command).await?;
+    if result.exit_code == Some(0) {
+        Ok(())
+    } else {
+        let detail = [result.stderr.trim(), result.stdout.trim()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        Err(AppError::Config(if detail.is_empty() {
+            "Hermes setup could not be applied. Check the phone connection and try again.".into()
+        } else {
+            format!("Hermes setup could not be applied:\n{detail}")
+        }))
+    }
+}
+
+fn non_empty(value: &Option<String>) -> Option<&str> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+const HERMES_PROVIDER_ENV_KEYS: &[(&str, &str)] = &[
+    ("openrouter", "OPENROUTER_API_KEY"),
+    ("openai", "OPENAI_API_KEY"),
+    ("anthropic", "ANTHROPIC_API_KEY"),
+    ("gemini", "GEMINI_API_KEY"),
+    ("nous-api", "NOUS_API_KEY"),
+    ("kimi-coding", "KIMI_API_KEY"),
+    ("minimax", "MINIMAX_API_KEY"),
+    ("zai", "GLM_API_KEY"),
+    ("ollama-cloud", "OLLAMA_API_KEY"),
+    ("fireworks", "FIREWORKS_API_KEY"),
+];
+
+const HERMES_SETUP_ENV_KEY_PATTERN: &str =
+    "^(OPENROUTER|OPENAI|ANTHROPIC|GOOGLE|GEMINI|NOUS|GLM|KIMI|MINIMAX|FIREWORKS|OLLAMA|HF|DEEPINFRA|XIAOMI|ARCEEAI|OPENCODE_ZEN|OPENCODE_GO|NOVITA|UPSTAGE|NEBIUS|TOKENHUB|TOKENPLAN|RAMP_ROUTER|GROQ|NVIDIA)_[A-Z0-9_]*=[^[:space:]#]";
+
+fn hermes_setup_values(input: &HermesSetupInput) -> AppResult<Vec<(String, &str)>> {
+    let mut assignments = Vec::new();
+    for (label, value) in [
+        ("the model provider", non_empty(&input.model_provider)),
+        ("the model name", non_empty(&input.model_name)),
+        ("the model base URL", non_empty(&input.model_base_url)),
+        ("the provider API key", non_empty(&input.provider_api_key)),
+        (
+            "the Telegram bot token",
+            non_empty(&input.telegram_bot_token),
+        ),
+        (
+            "the Telegram allowed users",
+            non_empty(&input.telegram_allowed_users),
+        ),
+        ("the Discord bot token", non_empty(&input.discord_bot_token)),
+        (
+            "the Discord allowed users",
+            non_empty(&input.discord_allowed_users),
+        ),
+        ("the Slack bot token", non_empty(&input.slack_bot_token)),
+        ("the Slack app token", non_empty(&input.slack_app_token)),
+        (
+            "the Slack allowed users",
+            non_empty(&input.slack_allowed_users),
+        ),
+    ] {
+        if let Some(value) = value {
+            if value.contains(['\n', '\r', '\0']) {
+                return Err(AppError::Config(format!("{label} must be a single line.")));
+            }
+            assignments.push((label.to_string(), value));
+        }
+    }
+    Ok(assignments)
+}
+
+fn hermes_setup_env_assignments(input: &HermesSetupInput) -> AppResult<Vec<(String, String)>> {
+    hermes_setup_values(input)?;
+    let provider = non_empty(&input.model_provider);
+    let api_key = non_empty(&input.provider_api_key);
+    let mut assignments = Vec::new();
+
+    if let Some(provider) = provider {
+        if provider != "custom"
+            && !HERMES_PROVIDER_ENV_KEYS
+                .iter()
+                .any(|(name, _)| *name == provider)
+        {
+            return Err(AppError::Config(format!(
+                "Unknown model provider \"{provider}\". Pick a provider from the list or use \"custom\"."
+            )));
+        }
+    }
+    if provider.is_some() && api_key.is_none() && provider != Some("custom") {
+        return Err(AppError::Config(
+            "Enter the API key for the selected model provider (a custom provider may omit it for a local, no-auth endpoint).".into(),
+        ));
+    }
+    if api_key.is_some() && provider.is_none() {
+        return Err(AppError::Config(
+            "Select the model provider for the API key.".into(),
+        ));
+    }
+    if let (Some(provider), Some(api_key)) = (provider, api_key) {
+        if provider == "custom" {
+            // Custom OpenAI-compatible endpoints often run without auth; when a
+            // key is supplied it is stored in config.yaml instead of .env.
+        } else {
+            // provider was validated against HERMES_PROVIDER_ENV_KEYS above,
+            // so the find always succeeds.
+            let env_key = HERMES_PROVIDER_ENV_KEYS
+                .iter()
+                .find(|(name, _)| *name == provider)
+                .map(|(_, key)| *key)
+                .expect("provider validated above");
+            assignments.push((env_key.to_string(), api_key.to_string()));
+        }
+    }
+
+    for (token_label, token, users_label, users) in [
+        (
+            "the Telegram bot token",
+            non_empty(&input.telegram_bot_token),
+            "the Telegram allowed users",
+            non_empty(&input.telegram_allowed_users),
+        ),
+        (
+            "the Discord bot token",
+            non_empty(&input.discord_bot_token),
+            "the Discord allowed users",
+            non_empty(&input.discord_allowed_users),
+        ),
+        (
+            "the Slack bot token",
+            non_empty(&input.slack_bot_token),
+            "the Slack allowed users",
+            non_empty(&input.slack_allowed_users),
+        ),
+    ] {
+        if token.is_some() != users.is_some() {
+            return Err(AppError::Config(format!(
+                "Enter {token_label} together with {users_label} so the gateway stays allow-listed."
+            )));
+        }
+    }
+
+    for (key, value) in [
+        ("TELEGRAM_BOT_TOKEN", non_empty(&input.telegram_bot_token)),
+        (
+            "TELEGRAM_ALLOWED_USERS",
+            non_empty(&input.telegram_allowed_users),
+        ),
+        ("DISCORD_BOT_TOKEN", non_empty(&input.discord_bot_token)),
+        (
+            "DISCORD_ALLOWED_USERS",
+            non_empty(&input.discord_allowed_users),
+        ),
+        ("SLACK_BOT_TOKEN", non_empty(&input.slack_bot_token)),
+        ("SLACK_APP_TOKEN", non_empty(&input.slack_app_token)),
+        ("SLACK_ALLOWED_USERS", non_empty(&input.slack_allowed_users)),
+    ] {
+        if let Some(value) = value {
+            assignments.push((key.to_string(), value.to_string()));
+        }
+    }
+    Ok(assignments)
+}
+
+fn hermes_env_update_command(assignments: &[(String, String)]) -> String {
+    let mut script = String::from(
+        "set -eu\nmkdir -p \"$HOME/.hermes\"\nf=\"$HOME/.hermes/.env\"\n[ -f \"$f\" ] || : > \"$f\"\nchmod 600 \"$f\"\nhermes_set_env() {\n  key=$1\n  val=$2\n  tmp=$(mktemp \"$HOME/.hermes/.env.XXXXXX\")\n  chmod 600 \"$tmp\"\n  grep -v \"^#*${key}=\" \"$f\" > \"$tmp\" || true\n  printf '%s=%s\\n' \"$key\" \"$val\" >> \"$tmp\"\n  mv -f \"$tmp\" \"$f\"\n}\n",
+    );
+    for (key, value) in assignments {
+        let file_value = value.replace('\'', "\\'");
+        script.push_str(&format!(
+            "hermes_set_env {} {}\n",
+            shell_quote(key),
+            shell_quote(&file_value)
+        ));
+    }
+    script
+}
+
+fn hermes_setup_config_set_command(input: &HermesSetupInput) -> Option<String> {
+    let mut sets = Vec::new();
+    if let Some(provider) = non_empty(&input.model_provider) {
+        sets.push(format!(
+            "hermes config set model.provider {}",
+            shell_quote(provider)
+        ));
+    }
+    if let Some(model) = non_empty(&input.model_name) {
+        sets.push(format!(
+            "hermes config set model.default {}",
+            shell_quote(model)
+        ));
+    }
+    if let Some(base_url) = non_empty(&input.model_base_url) {
+        sets.push(format!(
+            "hermes config set model.base_url {}",
+            shell_quote(base_url)
+        ));
+    }
+    if non_empty(&input.model_provider) == Some("custom") {
+        if let Some(api_key) = non_empty(&input.provider_api_key) {
+            sets.push(format!(
+                "hermes config set model.api_key {}",
+                shell_quote(api_key)
+            ));
+        }
+    }
+    if sets.is_empty() {
+        None
+    } else {
+        Some(sets.join(" && "))
+    }
+}
+
+fn hermes_setup_apply_command(input: &HermesSetupInput) -> AppResult<String> {
+    hermes_setup_values(input)?;
+    let assignments = hermes_setup_env_assignments(input)?;
+    let config_sets = hermes_setup_config_set_command(input);
+    if assignments.is_empty() && config_sets.is_none() {
+        return Err(AppError::Config(
+            "Enter at least a model provider with its API key, or a messaging platform token with its allow-list.".into(),
+        ));
+    }
+    let mut script = hermes_env_update_command(&assignments);
+    if let Some(config_sets) = config_sets {
+        script.push_str(&config_sets);
+        script.push('\n');
+    }
+    Ok(script)
+}
+
+pub(crate) fn hermes_configured_check_command() -> String {
+    format!(
+        "envf=\"$HOME/.hermes/.env\"\n\
+         cfg=\"$HOME/.hermes/config.yaml\"\n\
+         if [ -f \"$cfg\" ] && ! grep -Eq '^[[:space:]]*provider:[[:space:]]*\"?auto\"?[[:space:]]*$' \"$cfg\"; then exit 0; fi\n\
+         if [ -f \"$envf\" ] && grep -Eq '{HERMES_SETUP_ENV_KEY_PATTERN}' \"$envf\"; then exit 0; fi\n\
+         exit 1"
+    )
 }
 
 #[tauri::command]
@@ -262,6 +668,63 @@ pub async fn get_provision_plan(
 }
 
 #[tauri::command]
+pub async fn uninstall_incompatible_termux(
+    state: State<'_, AppState>,
+    serial: String,
+    recipe_id: String,
+    confirmation: String,
+) -> AppResult<()> {
+    validate_termux_uninstall_confirmation(&confirmation)?;
+    let recipe = recipe_by_id(&state.data_dir, &recipe_id)?;
+    let device = state
+        .devices
+        .get(&serial)
+        .ok_or_else(|| AppError::DeviceNotFound {
+            serial: serial.clone(),
+        })?;
+    if device.state != DeviceState::Device {
+        return Err(AppError::Config(
+            "Connect and authorize this phone before uninstalling Termux.".into(),
+        ));
+    }
+    if device.connection == ConnectionType::Usb {
+        return Err(AppError::Config(
+            "Termux replacement requires a Wireless ADB connection.".into(),
+        ));
+    }
+
+    let client = state.adb_client().await?;
+    let device_id = state.device_id_for(&serial);
+    let mut info = client.device_info(&serial).await?;
+    if let Some(installed) = info.termux.as_mut() {
+        crate::provision::apk::apply_termux_install_receipt(
+            &client,
+            &serial,
+            &state.data_dir,
+            &device_id,
+            installed,
+        )
+        .await?;
+    }
+
+    let mismatch = termux_source_mismatch(&info, &recipe).ok_or_else(|| {
+        AppError::Config(
+            "Termux can only be removed when its source conflicts with this recipe.".into(),
+        )
+    })?;
+    if let Some(blocker) = preflight_failure(&device, &info, &recipe) {
+        if blocker != mismatch {
+            return Err(AppError::Config(blocker));
+        }
+    }
+
+    client.uninstall_termux(&serial).await?;
+    state.ssh.drop_device(&serial).await;
+    state.known_hosts.forget(&device_id)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn reset_provision_progress(
     state: State<'_, AppState>,
     serial: String,
@@ -287,7 +750,7 @@ pub async fn run_provision<R: Runtime>(
     let recipe = recipe_by_id(&state.data_dir, &recipe_id)?;
     let device_id = state.device_id_for(&serial);
     {
-        let mut active = state.provisioning_runs.lock().unwrap();
+        let mut active = lock_provisioning_runs(&state.provisioning_runs)?;
         if !active.insert(device_id.clone()) {
             return Err(AppError::Config(
                 "Provisioning is already running for this phone.".into(),
@@ -295,14 +758,18 @@ pub async fn run_provision<R: Runtime>(
         }
     }
 
-    let (run_id, cancel) = state.streams.register(&serial, "provision");
+    let (run_id, cancel) = state.streams.register(&serial, &device_id, "provision");
     let executor = AndroidProvisionExecutor::new(app.clone(), serial.clone(), recipe.clone());
     let store = ProvisionProgressStore::new(state.data_dir.clone());
     let progress = match store.load(&device_id, &recipe.id) {
         Ok(progress) => progress,
         Err(error) => {
             state.streams.finish(&run_id);
-            state.provisioning_runs.lock().unwrap().remove(&device_id);
+            if let Err(lock_error) =
+                remove_active_provisioning_run(&state.provisioning_runs, &device_id)
+            {
+                tracing::error!(error = %lock_error, "failed to release provisioning run after progress load failure");
+            }
             return Err(error);
         }
     };
@@ -338,11 +805,12 @@ pub async fn run_provision<R: Runtime>(
         }
         forwarder.await.ok();
         app.state::<AppState>().streams.finish(&stream_id);
-        app.state::<AppState>()
-            .provisioning_runs
-            .lock()
-            .unwrap()
-            .remove(&active_device_id);
+        if let Err(error) = remove_active_provisioning_run(
+            &app.state::<AppState>().provisioning_runs,
+            &active_device_id,
+        ) {
+            tracing::error!(device_id = %active_device_id, error = %error, "failed to release completed provisioning run");
+        }
     });
     Ok(run_id)
 }
@@ -357,12 +825,163 @@ mod tests {
     use super::*;
     use crate::adb::{BatteryInfo, CpuInfo, MemoryInfo, StorageInfo};
 
+    #[test]
+    fn poisoned_provisioning_run_lock_returns_error() {
+        let runs = std::sync::Arc::new(Mutex::new(std::collections::HashSet::new()));
+        let poison = runs.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison.lock().unwrap();
+            panic!("poison provisioning runs");
+        })
+        .join();
+
+        let error = lock_provisioning_runs(&runs).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Provisioning state is unavailable"));
+    }
+
     fn bundled(id: &str) -> ProvisionRecipe {
         bundled_recipes()
             .unwrap()
             .into_iter()
             .find(|recipe| recipe.id == id)
             .unwrap()
+    }
+
+    #[test]
+    fn termux_uninstall_requires_exact_confirmation_phrase() {
+        assert!(validate_termux_uninstall_confirmation("UNINSTALL TERMUX").is_ok());
+        assert!(validate_termux_uninstall_confirmation("uninstall termux").is_err());
+        assert!(validate_termux_uninstall_confirmation("UNINSTALL TERMUX ").is_err());
+    }
+
+    #[test]
+    fn hermes_config_write_is_quoted_atomic_and_private() {
+        let source = "api_key: \"a'b\"\n";
+        let command = write_hermes_config_command(source);
+        assert!(command.contains("mktemp"));
+        assert!(command.contains("chmod 600"));
+        assert!(command.contains("mv -f"));
+        assert!(command.contains("'api_key: \"a'\\''b\"\n'"));
+    }
+
+    #[test]
+    fn hermes_config_command_runs_inside_selected_distro() {
+        let recipe = bundled("debian-official");
+        let command = hermes_config_command(&recipe, "cat ~/.hermes/config.yaml");
+        assert!(command.starts_with("proot-distro login 'debian' -- bash -lc "));
+        assert!(command.contains("cat ~/.hermes/config.yaml"));
+    }
+
+    #[test]
+    fn hermes_env_update_command_is_private_atomic_and_quotes_values() {
+        let command =
+            hermes_env_update_command(&[("OPENROUTER_API_KEY".into(), "sk-or-v1:abc".into())]);
+        assert!(command.contains("chmod 600"));
+        assert!(command.contains("mktemp"));
+        assert!(command.contains("mv -f"));
+        assert!(command.contains("grep -v \"^#*${key}=\""));
+        assert!(command.contains("hermes_set_env 'OPENROUTER_API_KEY' 'sk-or-v1:abc'"));
+
+        let quoted = hermes_env_update_command(&[("TELEGRAM_ALLOWED_USERS".into(), "a'b".into())]);
+        assert!(quoted.contains("hermes_set_env 'TELEGRAM_ALLOWED_USERS' 'a\\'\\''b'"));
+    }
+
+    #[test]
+    fn hermes_setup_env_assignments_maps_provider_keys_and_requires_allowlists() {
+        let input = HermesSetupInput {
+            model_provider: Some("openrouter".into()),
+            provider_api_key: Some("sk-or".into()),
+            telegram_bot_token: Some("token".into()),
+            telegram_allowed_users: Some("111,222".into()),
+            ..HermesSetupInput::default()
+        };
+        let assignments = hermes_setup_env_assignments(&input).unwrap();
+        assert!(assignments.contains(&("OPENROUTER_API_KEY".into(), "sk-or".into())));
+        assert!(assignments.contains(&("TELEGRAM_BOT_TOKEN".into(), "token".into())));
+        assert!(assignments.contains(&("TELEGRAM_ALLOWED_USERS".into(), "111,222".into())));
+
+        let token_without_users = HermesSetupInput {
+            telegram_bot_token: Some("token".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&token_without_users).is_err());
+
+        let key_without_provider = HermesSetupInput {
+            provider_api_key: Some("sk-or".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&key_without_provider).is_err());
+
+        let provider_without_key = HermesSetupInput {
+            model_provider: Some("openai".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&provider_without_key).is_err());
+
+        let custom_without_key = HermesSetupInput {
+            model_provider: Some("custom".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&custom_without_key).is_ok());
+
+        let unknown_provider = HermesSetupInput {
+            model_provider: Some("contoso".into()),
+            provider_api_key: Some("sk".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&unknown_provider).is_err());
+
+        let multiline = HermesSetupInput {
+            model_provider: Some("openai".into()),
+            provider_api_key: Some("sk\ninjected".into()),
+            ..HermesSetupInput::default()
+        };
+        assert!(hermes_setup_env_assignments(&multiline).is_err());
+    }
+
+    #[test]
+    fn hermes_setup_apply_command_requires_content_and_builds_config_sets() {
+        assert!(hermes_setup_apply_command(&HermesSetupInput::default()).is_err());
+
+        let custom = HermesSetupInput {
+            model_provider: Some("custom".into()),
+            model_name: Some("qwen3".into()),
+            model_base_url: Some("http://127.0.0.1:11434/v1".into()),
+            ..HermesSetupInput::default()
+        };
+        let command = hermes_setup_apply_command(&custom).unwrap();
+        assert!(command.contains("hermes config set model.provider 'custom'"));
+        assert!(command.contains("hermes config set model.default 'qwen3'"));
+        assert!(command.contains("hermes config set model.base_url 'http://127.0.0.1:11434/v1'"));
+        assert!(!command.contains("model.api_key"));
+
+        let custom_with_key = HermesSetupInput {
+            provider_api_key: Some("local-key".into()),
+            ..custom
+        };
+        assert!(hermes_setup_apply_command(&custom_with_key)
+            .unwrap()
+            .contains("hermes config set model.api_key 'local-key'"));
+
+        let openrouter = HermesSetupInput {
+            model_provider: Some("openrouter".into()),
+            provider_api_key: Some("sk-or".into()),
+            ..HermesSetupInput::default()
+        };
+        let command = hermes_setup_apply_command(&openrouter).unwrap();
+        assert!(command.contains("hermes_set_env 'OPENROUTER_API_KEY' 'sk-or'"));
+        assert!(command.contains("hermes config set model.provider 'openrouter'"));
+    }
+
+    #[test]
+    fn hermes_configured_check_command_accepts_provider_or_env_credentials() {
+        let command = hermes_configured_check_command();
+        assert!(command.contains("provider:[[:space:]]*\"?auto\"?"));
+        assert!(command.contains("OPENROUTER"));
+        assert!(command.contains("GEMINI"));
+        assert!(command.trim().ends_with("exit 1"));
     }
 
     fn temp_data_dir() -> PathBuf {
@@ -462,11 +1081,11 @@ mod tests {
         );
 
         let mut low_storage = info();
-        low_storage.storage.as_mut().unwrap().free_bytes = MIN_FREE_BYTES - 1;
+        low_storage.storage.as_mut().unwrap().free_bytes = recipe.minimum_free_bytes() - 1;
         assert!(
             preflight_failure(&device(ConnectionType::WirelessIp), &low_storage, &recipe)
                 .unwrap()
-                .contains("2 GB")
+                .contains("2 GiB")
         );
 
         let mut unknown_storage = info();
@@ -521,6 +1140,22 @@ mod tests {
         });
         assert_eq!(
             preflight_failure(&device(ConnectionType::WirelessIp), &ready, &recipe),
+            None
+        );
+    }
+
+    #[test]
+    fn preflight_uses_recipe_storage_threshold() {
+        let mut recipe = bundled("debian-official");
+        recipe.minimum_free_gib = 64;
+        assert_eq!(
+            preflight_failure(&device(ConnectionType::WirelessIp), &info(), &recipe),
+            Some("Free at least 64 GiB on the phone before provisioning.".into())
+        );
+
+        recipe.minimum_free_gib = 32;
+        assert_eq!(
+            preflight_failure(&device(ConnectionType::WirelessIp), &info(), &recipe),
             None
         );
     }

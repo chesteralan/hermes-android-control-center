@@ -50,6 +50,18 @@ export function deviceTitle(d: AndroidDevice): string {
   return d.model?.replace(/_/g, " ") ?? d.deviceId ?? d.serial;
 }
 
+/**
+ * "Alias (Model · 192.0.2.10:5555)" for destructive confirmations (M9-T8).
+ * Falls back to the serial when no address or model is known.
+ */
+export function deviceIdentity(d: AndroidDevice, alias?: string | null): string {
+  const name = alias ? alias.replace(/_/g, " ") : deviceTitle(d);
+  const details: string[] = [];
+  if (alias && d.model) details.push(d.model.replace(/_/g, " "));
+  details.push(d.ipAddress ?? d.serial);
+  return `${name} (${details.join(" · ")})`;
+}
+
 export function connectionLabel(d: AndroidDevice): string {
   switch (d.connection) {
     case "usb":

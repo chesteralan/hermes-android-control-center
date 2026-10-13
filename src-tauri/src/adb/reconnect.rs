@@ -263,4 +263,109 @@ mod tests {
         assert!(!run(&client, target(), &[1_000], cancel, |_| {}).await);
         assert!(f.calls().is_empty());
     }
+
+    #[tokio::test(start_paused = true)]
+    async fn give_up_on_one_phone_leaves_the_other_retrying() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        // Phone A: one attempt, then gives up.
+        let fa = FakeRunner::new();
+        fa.on(
+            "devices -l",
+            Ok(RawOutput::ok("List of devices attached\n\n")),
+        );
+        fa.on(
+            "connect 192.0.2.10:5555",
+            Ok(RawOutput::ok(
+                "failed to connect to '192.0.2.10:5555': Connection refused",
+            )),
+        );
+        fa.on(
+            "mdns services",
+            Ok(RawOutput::ok("List of discovered mdns services\n")),
+        );
+        let client_a = AdbClient::new("/adb", Arc::new(fa));
+
+        // Phone B: stays offline for the first five probes, returns on the sixth.
+        let fb = FakeRunner::new();
+        for _ in 0..5 {
+            fb.on(
+                "devices -l",
+                Ok(RawOutput::ok("List of devices attached\n\n")),
+            );
+        }
+        fb.on(
+            "devices -l",
+            Ok(RawOutput::ok(
+                "List of devices attached\n192.0.2.20:5555 device\n",
+            )),
+        );
+        fb.on(
+            "connect 192.0.2.20:5555",
+            Ok(RawOutput::ok("connected to 192.0.2.20:5555")),
+        );
+        fb.on(
+            "mdns services",
+            Ok(RawOutput::ok("List of discovered mdns services\n")),
+        );
+        let client_b = AdbClient::new("/adb", Arc::new(fb));
+
+        let target_b = ReconnectTarget {
+            serial: "192.0.2.20:5555".into(),
+            device_id: Some("SER2".into()),
+            connection: ConnectionType::WirelessIp,
+            address: Some("192.0.2.20:5555".into()),
+            ip: Some("192.0.2.20".into()),
+        };
+
+        let events_a = Arc::new(Mutex::new(Vec::new()));
+        let events_b = Arc::new(Mutex::new(Vec::new()));
+        let b_connected = Arc::new(AtomicBool::new(false));
+        let (ok_a, ok_b) = {
+            let ea = events_a.clone();
+            let eb = events_b.clone();
+            let flag_a = b_connected.clone();
+            let flag_b = b_connected.clone();
+            tokio::join!(
+                run(
+                    &client_a,
+                    target(),
+                    &[1_000],
+                    CancellationToken::new(),
+                    move |s| {
+                        if s.phase == ReconnectPhase::GaveUp {
+                            assert!(
+                                !flag_a.load(Ordering::SeqCst),
+                                "B must still be retrying when A gives up"
+                            );
+                        }
+                        ea.lock().unwrap().push(s);
+                    },
+                ),
+                run(
+                    &client_b,
+                    target_b,
+                    &[1_000, 2_000, 5_000],
+                    CancellationToken::new(),
+                    move |s| {
+                        if s.phase == ReconnectPhase::Connected {
+                            flag_b.store(true, Ordering::SeqCst);
+                        }
+                        eb.lock().unwrap().push(s);
+                    },
+                ),
+            )
+        };
+
+        assert!(!ok_a);
+        assert!(ok_b);
+        let a = events_a.lock().unwrap();
+        let b = events_b.lock().unwrap();
+        assert_eq!(a.last().unwrap().phase, ReconnectPhase::GaveUp);
+        assert_eq!(b.last().unwrap().phase, ReconnectPhase::Connected);
+        assert_eq!(b.last().unwrap().attempt, 3);
+        // Events stay attributed to their own phone.
+        assert!(a.iter().all(|e| e.device_id.as_deref() == Some("SER1")));
+        assert!(b.iter().all(|e| e.device_id.as_deref() == Some("SER2")));
+    }
 }

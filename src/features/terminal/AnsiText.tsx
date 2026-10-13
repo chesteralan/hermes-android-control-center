@@ -83,7 +83,11 @@ function applySgr(current: CSSProperties, parameters: string): CSSProperties {
       }
       index += 2;
     } else if ((code === 38 || code === 48) && codes[index + 1] === 2) {
-      const color = rgbColor(codes[index + 2] ?? -1, codes[index + 3] ?? -1, codes[index + 4] ?? -1);
+      const color = rgbColor(
+        codes[index + 2] ?? -1,
+        codes[index + 3] ?? -1,
+        codes[index + 4] ?? -1,
+      );
       if (color) {
         if (code === 38) style.color = color;
         else style.backgroundColor = color;
@@ -101,7 +105,12 @@ function appendText(nodes: ReactNode[], text: string, style: CSSProperties): voi
     .replace(/\u001b/g, "");
   if (!safeText) return;
   if (Object.keys(style).length === 0) nodes.push(safeText);
-  else nodes.push(<span key={`ansi-${nodes.length}`} style={style}>{safeText}</span>);
+  else
+    nodes.push(
+      <span key={`ansi-${nodes.length}`} style={style}>
+        {safeText}
+      </span>,
+    );
 }
 
 export function AnsiText({ text }: AnsiTextProps): ReactNode {

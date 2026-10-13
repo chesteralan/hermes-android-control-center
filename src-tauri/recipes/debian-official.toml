@@ -2,6 +2,7 @@ id = "debian-official"
 name = "Debian (proot) + official Hermes installer"
 termux_source = "fdroid"
 distro = "debian"
+minimum_free_gib = 2
 minimum_termux_version = "0.118.0"
 termux_packages = ["openssh", "termux-services", "util-linux", "proot-distro"]
 distro_packages = ["curl", "ca-certificates", "git"]

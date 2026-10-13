@@ -11,7 +11,9 @@ use crate::state::AppState;
 use crate::streams::StreamId;
 use crate::termux::ssh::PtyInput;
 use crate::transport::adb_shell::AdbShellTransport;
-use crate::transport::{CommandResult, DeviceTransport, StreamEvent, TransportKind};
+use crate::transport::{
+    validate_command, CommandResult, DeviceTransport, StreamEvent, TransportKind,
+};
 
 const EXECUTE_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -48,8 +50,7 @@ pub async fn export_terminal_text(
     let path = file_path
         .into_path()
         .map_err(|error| AppError::Io(error.to_string()))?;
-    std::fs::write(&path, text).map_err(|error| AppError::Io(error.to_string()))?;
-    Ok(Some(path.to_string_lossy().into_owned()))
+    Ok(Some(super::write_export_file(&path, text.as_bytes())?))
 }
 
 async fn transport(
@@ -79,6 +80,7 @@ pub async fn execute_command(
     command: String,
     transport_kind: Option<TransportKind>,
 ) -> Result<CommandResult, AppError> {
+    validate_command(&command)?;
     tracing::debug!(%serial, ?transport_kind, "execute_command");
     transport(&state, &serial, transport_kind)
         .await?
@@ -95,9 +97,11 @@ pub async fn stream_command(
     transport_kind: Option<TransportKind>,
     on_event: Channel<StreamEvent>,
 ) -> Result<StreamId, AppError> {
+    validate_command(&command)?;
     tracing::debug!(%serial, ?transport_kind, "stream_command");
     let t = transport(&state, &serial, transport_kind).await?;
-    let (id, cancel) = state.streams.register(&serial, "cmd");
+    let device_id = state.device_id_for(&serial);
+    let (id, cancel) = state.streams.register(&serial, &device_id, "cmd");
     let mut rx = match t.stream(&command, cancel).await {
         Ok(rx) => rx,
         Err(e) => {
@@ -137,7 +141,8 @@ pub async fn start_terminal_pty(
     let transport = state.termux_transport(&serial).await?;
     let (mut output, control) = transport.open_pty(columns, rows).await?;
     let sessions = state.pty_sessions.clone();
-    let session_id = sessions.insert(&serial, control);
+    let device_id = state.device_id_for(&serial);
+    let session_id = sessions.insert(&serial, &device_id, control);
     let task_sessions = sessions.clone();
     let task_session_id = session_id.clone();
     tauri::async_runtime::spawn(async move {

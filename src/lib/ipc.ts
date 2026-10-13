@@ -8,6 +8,9 @@ import type {
   CommandResult,
   ControlApiInstallPreview,
   DeviceInfo,
+  DeviceProfile,
+  DeviceProfileUpdate,
+  EffectiveDeviceConfig,
   ErrorPayload,
   HermesAction,
   HermesActionResult,
@@ -69,6 +72,13 @@ export const ipc = {
   restartAdbServer: () => call<void>("restart_adb_server"),
   getSettings: () => call<AppConfig>("get_settings"),
   updateSettings: (config: AppConfig) => call<AppConfig>("update_settings", { config }),
+  listDeviceProfiles: () => call<DeviceProfile[]>("list_device_profiles"),
+  getDeviceProfile: (deviceId: string) => call<DeviceProfile>("get_device_profile", { deviceId }),
+  setDeviceProfile: (deviceId: string, update: Partial<DeviceProfileUpdate>) =>
+    call<DeviceProfile>("set_device_profile", { deviceId, update }),
+  deleteDeviceProfile: (deviceId: string) => call<void>("delete_device_profile", { deviceId }),
+  getEffectiveDeviceConfig: (deviceId: string) =>
+    call<EffectiveDeviceConfig>("get_effective_device_config", { deviceId }),
   previewControlApiInstall: (serial: string) =>
     call<ControlApiInstallPreview>("preview_control_api_install", { serial }),
   installControlApi: (serial: string) => call<CommandResult>("install_control_api", { serial }),
@@ -78,11 +88,17 @@ export const ipc = {
     call<string>("get_provision_recipe_source", { recipeId }),
   saveProvisionRecipe: (source: string) =>
     call<ProvisionRecipe>("save_provision_recipe", { source }),
+  getHermesConfig: (serial: string, recipeId: string) =>
+    call<string>("get_hermes_config", { serial, recipeId }),
+  saveHermesConfig: (serial: string, recipeId: string, source: string) =>
+    call<void>("save_hermes_config", { serial, recipeId, source }),
   importProvisionRecipe: () => call<ProvisionRecipe | null>("import_provision_recipe"),
   exportProvisionRecipe: (recipeId: string) =>
     call<string | null>("export_provision_recipe", { recipeId }),
   getProvisionPlan: (serial: string, recipeId: string) =>
     call<ProvisionPlan>("get_provision_plan", { serial, recipeId }),
+  uninstallIncompatibleTermux: (serial: string, recipeId: string, confirmation: string) =>
+    call<void>("uninstall_incompatible_termux", { serial, recipeId, confirmation }),
   resetProvisionProgress: (serial: string, recipeId: string) =>
     call<void>("reset_provision_progress", { serial, recipeId }),
   runProvision: (
@@ -133,6 +149,7 @@ export const ipc = {
   getTermuxPublicKey: () => call<string>("get_termux_public_key"),
   checkTermux: (serial: string) => call<TermuxCheck>("check_termux", { serial }),
   forgetTermuxHostKey: (serial: string) => call<void>("forget_termux_host_key", { serial }),
+  repairTermuxSshBridge: (serial: string) => call<void>("repair_termux_ssh_bridge", { serial }),
   getHermesStatus: (serial: string) => call<HermesStatus>("get_hermes_status", { serial }),
   detectHermes: (serial: string) => call<HermesInstallReport>("detect_hermes", { serial }),
   hermesAction: (serial: string, action: HermesAction) =>

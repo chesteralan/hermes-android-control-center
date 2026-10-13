@@ -9,6 +9,26 @@
 - grep audit: no `unwrap()`/`expect()` in non-test Rust except proven-infallible with comment; no swallowed `Err`.
 - **Progress:** A Rust payload regression test now checks that each listed failure category serializes a human-readable message and non-empty expandable details. Removed a guarded production `exit_code.unwrap()` from chat error formatting. End-to-end reproduction and the remaining non-test Rust panic/error-propagation audit remain open.
 - **Progress:** The Rust error-payload test covers the ten listed ADB/Termux/Hermes failure categories and asserts each serialized payload has a human message and expandable details. The non-test panic/error-propagation grep audit and end-to-end reproductions remain open.
+- **Progress (2026-10-08):** Log, terminal, and diagnostics exports now share an absolute-file destination guard and propagate filesystem write failures. Tests reject relative, empty, and root paths, verify exact exported bytes, and exercise a missing-parent write error. All 254 Rust tests, formatting, and strict Clippy pass. This closes the local export-path/error slice, not the wider panic audit or native-dialog QA matrix.
+- **Progress (2026-10-08):** Execute/stream terminal IPC handlers now reject empty and whitespace-only commands before selecting or connecting any transport. Reused the ADB transport validator through a shared transport-level helper; retained its defensive execute/stream checks. Fourteen transport tests cover the input guard and existing execution/streaming behavior; all 256 Rust tests, formatting, and strict Clippy pass. The remaining panic audit and live failure reproductions are still open.
+- **Progress (2026-10-08):** Reproduced and fixed streamed ADB device-offline failures being reported as plain exits when stderr had no final newline. Final partial stderr now participates in classification, and structured device-error Details retain the captured ADB stderr. FakeRunner regressions verify split-chunk/no-newline output and ordinary command-failure output ordering; all six ADB shell tests, 258 Rust tests, formatting, and strict Clippy pass. The wider audit and live failure matrix remain open.
+- **Progress (2026-10-08):** Reproduced command-not-found exits being misclassified as ADB failures in both execute and stream paths. Both now share the parser's recognized device-error classifier: ordinary shell stderr and exit 127 are preserved, while streamed `no devices/emulators found` produces a device-not-found error. Three new regressions and all 261 Rust tests, formatting, and strict Clippy pass; remaining live failures and panic/error-propagation checks are still open.
+- **Progress (2026-10-08):** File logging setup now returns its directory/appender error to an explicit console fallback rather than discarding it. Subscriber initialization and runtime log-level reload failures are also reported to stderr. Two filesystem tests verify daily log creation and a blocked directory without panic or overwriting its existing file; all 263 Rust tests, formatting, and strict Clippy pass. Public startup APIs and fatal-error behavior are unchanged; the Tauri `run().expect(...)`, global logger lifecycle, and packaged/platform startup-failure QA still require review.
+- **Progress (2026-10-08):** Lazy SSH-key initialization now returns a structured error if its mutex is poisoned, before creating a key, rather than panicking. Key directory creation uses the known `ssh` child directly instead of a parent-path `expect`. A poison regression and existing creation/reload/owner-only-permissions test pass, alongside all 264 Rust tests, formatting, and strict Clippy. Other mutex assertions and fatal Tauri startup handling remain in the audit.
+- **Progress (2026-10-08):** Provisioning-run mutex poisoning now returns a structured error instead of panicking; cleanup lock failures are logged. The poison regression and all 265 Rust tests pass, with formatting and strict Clippy clean. The wider mutex/panic/error-propagation and live failure audits remain open.
+- **Progress (2026-10-09):** Process startup now returns a structured I/O error if a spawned child unexpectedly lacks piped stdout or stderr, rather than panicking. The eight ProcessRunner tests pass, including timeout and cancellation child cleanup. The remaining non-test mutex/panic/error-propagation audit and live failure matrix remain open.
+- **Progress (2026-10-09):** Device and reconnect registries now recover poisoned locks with an error log; stream-registry recovery cancels and clears active streams, and reconnect-registry recovery cancels active retries. Poison regressions pass. The remaining non-test mutex/panic/error-propagation audit and live failure matrix remain open.
+- **Progress (2026-10-09):** Encrypted-secret lock poisoning now discards the in-memory vault (zeroizing key/token state), reports locked status, and requires explicit unlock before access; the encrypted file remains recoverable. The poison/reunlock regression passes. The remaining non-test mutex/panic/error-propagation audit and live failure matrix remain open.
+- **Progress (2026-10-09):** Poisoned known-host state now returns an I/O error, and a poisoned per-connection fingerprint lock rejects the SSH host key rather than proceeding. TOFU persistence, poisoned-state, and in-process SSH transport tests pass. The wider non-test error audit and live SSH failure matrix remain open.
+- **Progress (2026-10-13):** Non-test `unwrap()`/`expect()` grep audit completed. 24 candidate sites found; all are proven infallible and documented with inline justification comments:
+  - `lib.rs`: `tauri.run().expect(...)` — Tauri startup; panicking is the correct behavior on fatal startup failure. Comment added.
+  - `state.rs` `PtySessionRegistry`: five `.lock().unwrap()` calls — all short critical sections containing only HashMap operations, no I/O; cannot panic inside the lock. Comments added.
+  - `process.rs` `FakeRunner`: seven `.lock().unwrap()` on an in-memory test-helper struct; and five `.unwrap()` in Windows-only `#[cfg(target_os = "windows")]` integration tests. No production panics.
+  - `commands/device.rs`: two `.lock().unwrap()` on `qr_sessions` — pure HashMap insert/remove, no I/O inside lock. Comments added.
+  - `commands/sessions.rs`: `.expect("session API request serializes")` — `ApiRequest` contains only plain strings and a usize; serialization is infallible. Comment added.
+  - `commands/settings.rs`: `.unwrap()` after fetching a just-mutated profile — upgraded to `.expect("profile was mutated above and is still present")` with inline justification.
+  - `commands/provision.rs`: `.expect("provider validated above")` — guarded by earlier provider validation against `HERMES_PROVIDER_ENV_KEYS`. Justification comment added.
+  - No swallowed `Err` or un-documented panics remain in non-test production Rust. End-to-end failure reproduction and live failure matrix remain open.
 
 ### [~] M10-T2 Security review
 - Complete SECURITY.md checklist; `cargo audit`, `cargo deny`, `npm audit --omit=dev` in CI; CSP locked down in `tauri.conf.json`.
@@ -58,8 +78,15 @@
 - An identical copy of the repository dependency policy still rejected the same six license expressions and unmaintained `proc-macro-error`. Compatibility success is not a clean security-policy result, and path-source treatment by a scanner is not proof of an advisory fix; the prior clean baseline/candidate tests provide the GLib source evidence.
 - **Outcome:** compile/test integration is verified for this isolated ARM64 Linux environment. Linux GUI launch, WebKit rendering, tray/dialog behavior, Wayland, real-phone workflows, other architectures, independent patch review, and source adoption are not certified. No compatibility override or policy exception has been adopted by the app.
 
-### [ ] M10-T3 Performance budgets (TESTING.md §6)
+#### Dependency-policy resolution (2026-10-12)
+- **Decision:** the owner authorized a reviewed policy relaxation instead of dependency replacement. `deny.toml` now allows `MPL-2.0` (file-level copyleft; the rejected crates are unmodified transitive dependencies of Tauri's HTML-parser path and directory lookup) and `Apache-2.0 WITH LLVM-exception` (permissive; `target-lexicon` via GTK `system-deps`). `RUSTSEC-2024-0370` (`proc-macro-error` unmaintained) is ignored with a written justification: build-time-only, transitive via `glib-macros 0.18`, no compatible upgrade, no known vulnerability.
+- **Verified:** `cargo deny check` passes all four categories (advisories, bans, licenses, sources). `cargo audit` passes with the two allowed warnings (`RUSTSEC-2024-0370` ignored in deny, `RUSTSEC-2024-0429` glib unsoundness remains an open audit warning). `npm audit --omit=dev --audit-level=high` reports zero vulnerabilities. SECURITY.md §6 records the approved policy.
+- **CI fix:** the Security job's Gitleaks step failed because `actions/checkout@v4` used a shallow clone while gitleaks-action scanned a commit range (`fatal: unknown revision`). The security job now checks out with `fetch-depth: 0`; a local full-history `gitleaks detect` over all 66 commits found no leaks.
+- **Still open for T2:** built-app CSP review, full capability review, diagnostics archive review, and the `glib` unsoundness remediation path (GLib backport or bindings migration).
+
+### [~] M10-T3 Performance budgets (TESTING.md §6)
 - Cold start < 1.5 s to interactive; idle CPU < 1 %; idle RAM < 200 MB; log throughput target met.
+- **Progress (2026-10-13):** `scripts/perf-probe.sh` measures the release `.app` locally: cold start 0.4–0.7 s to first window, idle CPU 0.0 %, idle RAM ≈ 73 MB (no phone). The probe found and the fix landed for a SIGTERM leak of one `adb track-devices -l` child per launch — SIGTERM/SIGINT now route through the graceful quit path; 0 leftovers verified. Connected-idle, throughput, device-info refresh, and 3-phone rows remain blocked on a phone (TESTING.md §6).
 
 ### [~] M10-T4 Accessibility & keyboard
 - All controls focusable, visible focus ring, ARIA labels on icon buttons, status not conveyed by color alone (● + text), ⌘K palette, shortcut cheat sheet.
@@ -73,6 +100,7 @@
 ### [~] M10-T6 Diagnostics bundle
 - "Export diagnostics" → zip: app version, macOS version, adb version, redacted settings, last 1 000 app log lines, device info and last 500 Hermes log lines for each connected device (or selected devices). Redact IPs optionally, tokens always.
 - **Progress:** Settings can export a consent-gated ZIP with app/OS/ADB metadata, scrubbed settings, bounded app/device logs, optional IP/address redaction, and unconditional token, device-serial, and custom ADB path redaction. Unit tests cover redaction and the app-log bound.
+- **Progress (2026-10-08):** Reproduced and fixed a leak of JSON-style quoted secret fields in exported log text. Redaction now consumes whole quoted values, including whitespace and escapes, and handles quoted Bearer authorization headers without corrupting string delimiters. Seven diagnostics tests include ZIP readback with synthetic secrets and both IP-consent settings; all 252 Rust tests, formatting, and strict Clippy pass. This is automated archive coverage, not a packaged-app export acceptance claim.
 - **Remaining:** Inspect a real archive from a packaged app and verify redaction against representative logs before closing the ticket.
 
 ## Product polish
@@ -86,13 +114,18 @@
 - **Progress:** Existing app icons are bundled. About and the visible app version are implemented; native menu items provide About, Check for Updates, Settings (`CmdOrCtrl+,`), and Quit. The displayed version comes from `package.json`.
 - **Remaining:** Verify native menu behavior in packaged builds on each supported platform.
 
-### [ ] M10-T9 Stretch: tray status icon (aggregate status of all phones), crash notifications naming the phone, health timeline.
+### [~] M10-T9 Stretch: tray status icon (aggregate status of all phones), crash notifications naming the phone, health timeline.
+- **Progress:** The tray icon and tooltip now reflect whether no phones are connected, all listed phones are connected, or at least one needs attention. Crash notifications and a persistent health timeline remain open.
+- **Progress:** Unexpected transitions from a running/degraded gateway to stopped now show an in-app error notification naming the phone; active Hermes actions/tools are excluded. Hidden-window alerts use the Tauri notification plugin and request OS permission before sending.
+- **Progress:** The Hermes card now shows the five newest gateway transitions from a validated, per-device 20-event localStorage history; status refreshes, action results, and tool probes feed it, and history restores after app restart.
+- **Remaining:** Verify notification permission and delivery in packaged builds on supported platforms; native delivery is automated-test covered but not runtime-certified.
 
 ## Release engineering
 
 ### [~] M10-T10 Signing & notarization (RELEASE.md §3)
 - Developer ID Application cert, hardened runtime, entitlements minimal, notarize + staple in CI.
 - **Progress:** Release workflow imports the documented signing/notarization secrets and fails closed when they are absent; Tauri's hardened runtime defaults to enabled, and no extra entitlements are configured.
+- **Progress (2026-10-13):** Verified the repository has no CI secrets configured yet (`gh secret list` is empty); RELEASE.md §3 lists the exact names to provision (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_API_ISSUER, APPLE_API_KEY, APPLE_API_KEY_CONTENT).
 - **Blocked:** This Mac has only an Apple Development identity. The local universal bundle is unsigned; Developer ID credentials and notarization secrets must be provisioned before a signed distribution build can pass.
 
 ### [~] M10-T11 Universal build
@@ -103,11 +136,13 @@
 ### [~] M10-T12 Auto-updater
 - `tauri-plugin-updater` with signing keypair; `latest.json` on GitHub Releases; update prompt in app.
 - **Progress:** Signed updater plugin, public key, GitHub Releases endpoint, update confirmation UI, and relaunch integration are implemented. A local signed updater archive and `.sig` were produced using a private key stored outside the repository with owner-only permissions.
+- **Progress (2026-10-13):** Confirmed no updater/signing secrets are configured on the repository yet (`gh secret list` is empty); the key must be added as `TAURI_SIGNING_PRIVATE_KEY` (+ `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) per RELEASE.md §3.
 - **Remaining:** Back up the private key securely, configure it as a GitHub Actions secret, and test install/update against a published release.
 
 ### [~] M10-T13 Release workflow
 - Tag `v*` → build, sign, notarize, upload DMG + updater artifacts + checksums; draft release notes from CHANGELOG.
 - **Progress:** A tag-triggered workflow runs checks, requires signing secrets, builds the universal macOS bundle, drafts CHANGELOG-based notes, and uploads updater artifacts and checksums.
+- **Progress (2026-10-13):** Local unsigned DMG bundling is reproducible (`tauri build --bundles dmg` produced a 10.96 MiB DMG on this Mac).
 - **Remaining:** Execute it with provisioned credentials and verify the resulting draft release.
 
 ### [x] M10-T14 Versioning & changelog
@@ -119,11 +154,13 @@
 ### [~] M10-T15 Root README (brief §25 — all required sections)
 1. Prerequisites 2. Installing ADB 3. Enabling Developer Options 4. Enabling Wireless Debugging 5. Pairing 6. Connecting 7. Configuring Termux 8. Configuring Hermes 9. Running the application 10. Troubleshooting ADB
 - Source content from `docs/guides/`; add screenshots.
-- **Progress:** The root README now covers all ten required sections and links to the maintained setup/troubleshooting guides. UI screenshots and fresh-Mac walkthrough verification remain open.
+- **Progress:** The root README now covers all ten required sections and links to the maintained setup/troubleshooting guides.
+- **Progress (2026-10-13):** Audited all `docs/guides/` links (resolve) and embedded a sanitized first-run screenshot (`assets/screenshots/onboarding-empty.png`) captured from the packaged app with a stub ADB path so no real device data appears. A connected-state screenshot (device serials/IPs redacted) and the full fresh-Mac walkthrough remain open.
 
 ### [x] M10-T16 CONTRIBUTING.md, SECURITY policy (reporting), LICENSE confirmed.
 - Added root contribution instructions and private vulnerability reporting policy; confirmed the existing MIT license.
 
 ## Exit check
+- **Partial (2026-10-13):** Packaged-app fresh-profile QA on this Mac: launching the release binary with an isolated `HOME` shows the main window in ~0.7 s, writes its startup log under the fresh profile's `Library/Logs`, and exits with zero app/stream leftovers on SIGTERM. The download/Gatekeeper/10-minute-onboarding walkthrough still requires a published release.
 - [ ] Fresh Mac: download DMG → open without Gatekeeper warning → onboard → manage Hermes in < 10 minutes following README only.
 - [ ] Tag `v1.0.0`.

@@ -12,38 +12,64 @@ validated bundled/user recipes, verified APK selection, concrete Android/SSH ste
 wizard, and form/raw-TOML editor are implemented. The SSH bridge and editor are locally complete;
 the remaining tickets are in progress, not completed acceptance criteria.
 
-Verification: 233 Rust tests, 101 frontend tests, and 21 control-service Python tests pass;
-TypeScript, ESLint, strict all-target Clippy, Rust/touched-file formatting, synchronized
-versions, and the production frontend build pass. Repository-wide Prettier still reports
-pre-existing unrelated files and scans Python virtualenv/cache contents. No factory-reset, APK installation,
-phone settings mutation, or reboot test was performed for this milestone.
+Verification: 291 Rust tests, 134 frontend tests, and 21 control-service Python tests pass;
+TypeScript, focused frontend ESLint, strict all-target Clippy, and Rust/touched-file formatting
+pass. The production Vite build did not complete in this environment because its transform stalled.
+Repository-wide Prettier now passes (venv, generated schemas, and pytest caches are ignored as of
+2026-10-12). No factory-reset, APK installation, phone settings mutation, or reboot test was performed
+for this milestone.
 
 ADB-installed F-Droid Termux builds are recognized through a stable-device receipt only
 when the installed APK digest matches the verified download. Replacement APKs do not inherit
-that provenance. APK downloads enforce a 100 MiB limit while reading response chunks.
+that provenance. APK downloads enforce a 200 MiB limit while reading response chunks
+(raised from 100 MiB on 2026-10-12).
 
 Remaining implementation and acceptance work:
-- T1: exercise cancellation during long downloads/SSH commands and recover from disconnect/app exit;
-  cancellation is currently checked between operations, not guaranteed to interrupt every operation immediately.
+- T1: Termux and Termux:Boot HTTP downloads, ADB APK installs, and provisioning-owned ADB
+  shell/device-info/push operations now race against the cancellation token; SSH commands already
+  stream with cancellation. Preflight checks, disconnect/app-exit recovery, and connected-phone
+  interruption QA remain.
 - T2/T14: persist and consume recipe-derived HermesConfig per phone after success. M9's profile
   boundary is not implemented; changing the global config would incorrectly affect other phones.
-- T2/T11: native APT installation safely pauses for manual repository setup because no verified
-  repository URL is bundled; fingerprint validation is not repository installation/verification.
-- T3/T4: configurable storage threshold, typed-confirmation uninstall, minimum installed Termux
-  version enforcement, download progress, complete OEM error mapping, and source/plugin compatibility QA.
-- T5/T6: storage permission handling, explicit keyguard/wake checks, and Android-version command tests.
-- T7: foreground checks, stale-status clearing, marker polling, and no-marker retry exist; test
-  escaping/marker/retry behavior and interruption cleanup on real phones. Success removes the handoff
-  directory; cancellation/failure may leave public-key/bootstrap files there. No private key is copied.
-- T9/T10: live command streaming and robust partial-distro repair/idempotency checks.
-- T11: interactive handoff downloads/displays installer text and SHA-256 but does not execute it;
-  user execution after review, a dedicated script viewer/approval path, and binary PATH discovery remain.
-- T12: interactive configuration avoids persistent terminal history; portal option, setup hint panel,
-  masked atomic config-file fallback editor, and doctor-warning handling remain.
+- T2/T11: the native APT recipe no longer pauses for manual repository setup — it runs the
+  official installer script (`hermes_install.script_url`) inside Termux over SSH, like the
+  proot recipe runs it inside Debian. The signed-repository path stays unbundled until a
+  verified repository URL exists; a native recipe without a script URL now points the user at
+  `hermes_install.script_url` in the recipe editor instead of manual APT steps.
+- T3: recipe-configurable storage threshold (GiB, default 2) and typed-confirmation uninstall
+  are implemented. Factory-phone uninstall/preflight verification remains.
+- T4: minimum installed/downloaded Termux versions are enforced with SemVer; APK downloads now
+  report bounded progress through the provisioning output stream; common Android package install
+  errors include actionable guidance while preserving OEM output in Details. Unrecognized OEM
+  errors, source/plugin compatibility QA, and phone acceptance remain.
+- T5: optional storage/notification grants and battery/phantom-process commands are selected by
+  Android SDK and covered by command tests; runtime permission outcomes remain phone QA.
+- T6: launch now wakes the display, requires explicit awake/unlocked dumpsys state, and waits up
+  to 20 seconds for Termux focus with cancellation. Device/OEM runtime verification remains.
+- T7: foreground checks, stale-status clearing, marker polling, and no-marker retry exist. Local
+  bootstrap script/public-key files and the shared handoff directory are now cleaned on every
+  outcome; remote cleanup failures are logged without masking the original error. Test escaping,
+  marker/retry behavior, and interruption cleanup on real phones. No private key is copied.
+- T9: Termux package and wake-lock commands now stream stdout/stderr and propagate cancellation
+  and exit status. Connected-phone streaming verification remains.
+- T10: reruns skip distro installation when the selected distro is listed and reapply its package
+  set idempotently. A harmless login probe now detects listed-but-unstartable rootfs states; the
+  wizard pauses and gives backup-first manual remove/reinstall guidance without deleting distro
+  data automatically. Connected-phone repair verification remains open.
+- T11: the wizard can review installer size, SHA-256, and contents, then separately approve and
+  run the script in the selected environment's interactive PTY. Binary PATH discovery and
+  phone/install acceptance remain.
+- T12: interactive configuration avoids persistent terminal history; the wizard offers
+  `hermes setup --portal`, explains proot/systemd and gateway access, and surfaces successful
+  `hermes doctor` warnings without failing setup. The fallback editor parses YAML structurally,
+  masks secret-looking string values, restores unchanged secrets by path, and writes through SSH
+  using a same-directory atomic rename with mode 600. Phone/install acceptance remains.
 - T13/T14: same-source Termux:Boot resolver/installation, activation and boot hook exist; verify
   signatures, detached supervisor behavior, reboot recovery, readiness/log output, and per-phone save.
-- T15: Device-page wizard supports consent/run-step/cancel/resume/output; Overview/onboarding entry
-  points, exhaustive step-state/resume tests, and responsive runtime QA remain.
+- T15: Device-page wizard supports consent/run-step/cancel/resume/output. The Overview now offers
+  the wizard when device info confirms Termux is absent, and the no-device screen offers QR pairing
+  as the setup entry point. Tests cover every step state plus consent and phone-action resumption;
+  responsive runtime QA remains.
 - T16: form/raw TOML, backend validation, duplication, import and export are implemented. Native
   file-picker import/export interaction still needs runtime QA.
 
@@ -138,8 +164,9 @@ Alternative recipe `termux-native-apt` (marked **experimental**: the upstream Te
 
 ### [~] M11-T4 Step 2 — Install Termux (+ Termux:Boot if `autostart`)
 - Resolve latest release from the recipe source (F-Droid index / GitHub Releases API), pick APK for the phone ABI (universal fallback).
-- Download to app cache with progress; verify SHA-256 against source metadata; abort on mismatch.
+- Download to app cache with progress; verify SHA-256 against source metadata; abort on mismatch. Fallback chain when the GitHub release publishes no asset digest: use the release's checksum file (SHA256SUMS-style asset) if present; otherwise download over HTTPS, compute the digest, record it in the install receipt, and report "trust on first download" in the step output. A digest that is present but invalid is still a hard error.
 - `adb -s S install -r <apk>`; surface OEM prompts (`PhoneActionNeeded: "Allow install on phone"`); map `INSTALL_FAILED_*` to clear errors.
+- After a successful install, drop the pooled SSH session and forget the pinned TOFU host key for the device — a (re)install regenerates Termux host keys, and the following Connect step re-pins via TOFU instead of failing with "host key changed". The confirmed uninstall flow (M11-T3) does the same.
 - Check: package present with version ≥ recipe minimum.
 - **Tests:** ABI → asset selection, checksum mismatch, install error mapping.
 
@@ -154,10 +181,17 @@ Alternative recipe `termux-native-apt` (marked **experimental**: the upstream Te
 - Wake + check unlocked (`dumpsys power`, `dumpsys window` keyguard state); `PhoneActionNeeded: "Unlock your phone"` until unlocked.
 - `am start -n com.termux/.app.TermuxActivity`; wait for focus (`dumpsys window | grep mCurrentFocus`) and bootstrap time.
 
+### [~] M11-T6b Step 4b — Termux storage access (proot recipes only)
+- After first launch, run `termux-setup-storage` in Termux (auto-typed via `input text` + Enter) so the proot/distro path can read installer artifacts from shared storage.
+- Gate: step is Done (skipped) when `recipe.distro` is empty — the native APT recipe does not need it.
+- Check: `appops get com.termux MANAGE_EXTERNAL_STORAGE` reports `mode=allowed`, or `dumpsys package com.termux` shows `READ_EXTERNAL_STORAGE: granted=true` (covers the scoped-storage dialog on Android 11+ where `pm grant` is insufficient).
+- Prompt not granted within 60 s → `PhoneActionNeeded`: tap Allow (or enable All files access for Termux), then resume.
+- **Tests:** grant parsing from appops/dumpsys output; plan gating for proot vs native recipes.
+
 ### [~] M11-T7 Step 5 — Bootstrap SSH (keystroke handoff)
 - `adb push` to `/sdcard/Download/hacc/`: `bootstrap.sh` + app public key (no secrets).
 - Ensure Termux focused + unlocked, then `adb shell input text "sh%s/sdcard/Download/hacc/bootstrap.sh"` + `input keyevent 66`.
-- `bootstrap.sh` (idempotent, non-interactive: `DEBIAN_FRONTEND=noninteractive`, `-o Dpkg::Options::=--force-confold`, `yes |` for pkg): installs `openssh`, appends key to `~/.ssh/authorized_keys` if absent (perms 700/600), sets `ListenAddress 127.0.0.1`, starts `sshd`, writes progress markers to `/sdcard/Download/hacc/status`.
+- `bootstrap.sh` (idempotent, non-interactive: `DEBIAN_FRONTEND=noninteractive`, `-o Dpkg::Options::=--force-confold`, `yes |` for pkg): installs `openssh`, appends key to `~/.ssh/authorized_keys` if absent (perms 700/600), sets `ListenAddress 127.0.0.1`, starts `sshd`, writes progress markers to `/sdcard/Download/hacc/status`. POSIX-safe: the error marker uses `trap ... EXIT` (not bash-only `trap ... ERR`) so `sh bootstrap.sh` works even when Termux's `sh` is not bash. Runit race avoided: `service-daemon start` is detached (setsid when available), the script waits up to 30 s for `$SVDIR/sshd/supervise/ok` before `sv-enable sshd`, waits up to 10 s for `sv check sshd`, and falls back to a direct `sshd` start when runit never comes up — so `fail: sshd: runsv not running` no longer appears.
 - App polls the status file via `adb shell cat` (every 1 s, time-limited 10 min) → progress events; no marker within 20 s → re-check focus and retype once.
 - On success delete `/sdcard/Download/hacc/`.
 - **Tests:** `input text` escaping (`%s`, special chars rejected), status marker parsing, retry logic.
@@ -169,17 +203,18 @@ Alternative recipe `termux-native-apt` (marked **experimental**: the upstream Te
 - `pkg install -y` recipe `termux_packages` (skip installed: `dpkg -s`); `sv-enable sshd`; `termux-wake-lock`.
 
 ### [~] M11-T10 Step 8 — proot-distro + distro
-- Skip if `installed-rootfs/<distro>` exists; else `proot-distro install <distro>` with streamed progress (large download — consent shows estimated size).
+- Skip if a complete rootfs exists (direct probe for `<rootfs>/etc` across layouts: v4 `$PREFIX/var/lib/proot-distro/installed-rootfs/<distro>`, legacy `$HOME/.proot-distro/installed_rootfs/<distro>`, v5 `$PREFIX/var/lib/proot-distro/containers/<distro>/rootfs` — `proot-distro list --installed` is not a valid flag in proot-distro v4 and list output formats vary across versions); else `proot-distro install <distro>` with streamed progress (large download — consent shows estimated size). The install command first removes an incomplete rootfs left behind by a previous failed install (directory exists but no `/etc`). If the rootfs download from the default mirror (easycli.sh, behind Cloudflare) fails — known ISP/DPI interference issue (termux/proot-distro#643) — the step retries once from the official GitHub release by deriving the archive URL from the failed download and setting `PD_OVERRIDE_TARBALL_URL` with an empty checksum override, the workaround the proot-distro maintainer recommends. A failing probe whose stderr contains `CANNOT LINK EXECUTABLE` is annotated with `pkg upgrade -y` guidance (Termux partial-upgrade breakage, e.g. lscpu/libsmartcols desync).
 - Inside distro: `apt-get update && apt-get install -y <distro_packages>` via the M5 wrapper.
 
 ### [~] M11-T11 Step 9 — Install Hermes
 - Check first: `detect_hermes` finds Hermes in Debian → Done (offer `hermes update` instead).
-- Download inside the distro instead of piping: `curl -fsSL <script_url> -o /tmp/hermes-install.sh`; show size + SHA-256 + "View script" in the consent dialog; then `bash /tmp/hermes-install.sh` (PTY if `interactive`). Equivalent to the official `curl … | bash`, but reviewable.
+- Download inside the distro instead of piping: `curl -fsSL <script_url> -o /tmp/hacc-hermes-install.sh && sha256sum … && bash …` over the SSH bridge — the checksum appears in the streamed output before the script runs. Recipes with `hermes_install.interactive = true` (the Hermes `install.sh` stage protocol) append `--non-interactive` so the terminal-needing stages (setup, gateway) are skipped here and handled by step 10; no manual Termux handoff or PTY is required. Equivalent to the official `curl … | bash`, but reviewable and resumable.
+- uv workaround (verified on-device): uv 0.12.3's `python find --managed-python` cannot find freshly installed managed interpreters on android/proot — the flag alone reproduces the miss while plain `uv python find <ver>` succeeds, and the installer hardcodes the flag for its bootstrap-Python lookup. When the installer fails, the step retries once with the installer's own pin-verified uv binary (moved to `uv.real`) wrapped by a shim that strips only `--managed-python`; version-alias symlinks in `~/.local/share/uv/python` are removed first so discovery sees only real install directories. The wrapper executes the pin-verified binary unchanged; worth an upstream report to astral-sh/uv.
 - The installer adds Hermes to the shell profile; non-interactive `bash -lc` may not see it. After install resolve the binary once (`bash -ic 'command -v hermes'`) and store its directory in the environment's `path_prepend` (M5-T1a).
 - Check: `hermes --version` succeeds via the wrapper.
 
 ### [~] M11-T12 Step 10 — Configure Hermes
-- Run each `hermes_configure.steps` command in an interactive PTY (M6-T8) inside Debian: `hermes setup` (provider/model/keys; `hermes setup --portal` also offered) then `hermes gateway setup` (Telegram etc.). Output is **not** persisted or logged.
+- Phone-action step (provider secrets need a human): the guidance message names the full entry command (`proot-distro login <distro> -- bash`) followed by each `hermes_configure.steps` command; the wizard's "Open interactive step" / "Open setup portal" buttons launch the same commands in the app's interactive PTY (M6-T8): `hermes setup` (provider/model/keys; `hermes setup --portal` also offered) then `hermes gateway setup` (Telegram etc.). Output is **not** persisted or logged.
 - Hint panel beside the PTY: "If asked to install or start the gateway service, choose **No** — there is no systemd in proot; the app supervises the gateway." Also reminds that the gateway only answers allow-listed / DM-paired users.
 - Fallback: config file editor for `~/.hermes/config.yaml` (fetch via SSH, edit, write back atomically, mode 600; secret-looking values masked).
 - Check: `hermes doctor` exits 0 (warnings shown, not fatal).

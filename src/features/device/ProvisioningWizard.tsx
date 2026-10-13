@@ -6,9 +6,14 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Dialog } from "../../components/Dialog";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { StatusDot } from "../../components/StatusDot";
+import { maskHermesConfig, restoreHermesConfigSecrets } from "./hermesConfigDraft";
+import type { MaskedHermesSecrets } from "./hermesConfigDraft";
 import { ipc, toErrorPayload } from "../../lib/ipc";
+import { useDevices } from "../../stores/devices";
+import { useDeviceProfiles } from "../../stores/deviceProfiles";
 import { useRoute } from "../../stores/route";
 import { useTerminal } from "../../stores/terminal";
+import { deviceIdentity } from "./deviceStatus";
 import type {
   ErrorPayload,
   ProvisionConsent,
@@ -34,6 +39,8 @@ interface PhoneAction {
   message: string;
   onlyStep: boolean;
 }
+
+const TERMUX_UNINSTALL_CONFIRMATION = "UNINSTALL TERMUX";
 
 const stepLabel: Record<ProvisionStepState, string> = {
   done: "Done",
@@ -73,6 +80,10 @@ function parseRecipeDraft(source: string): Record<string, unknown> | null {
   }
 }
 
+function isTermuxSourceMismatch(detail: string | null): boolean {
+  return detail?.startsWith("Installed Termux source (") === true;
+}
+
 function setRecipeDraftValue(source: string, path: string[], value: unknown): string | null {
   const draft = parseRecipeDraft(source);
   if (!draft) return null;
@@ -100,20 +111,19 @@ function shellQuote(value: string): string {
 function interactiveCommandForStep(
   recipe: ProvisionRecipe | undefined,
   step: ProvisionStepId,
+  usePortal = false,
 ): string | null {
   if (!recipe) return null;
-  if (step === "installHermes" && recipe.hermesInstall.scriptUrl) {
-    const url = shellQuote(recipe.hermesInstall.scriptUrl);
-    const review = `curl -fsSL ${url} -o /tmp/hacc-hermes-install.sh && sha256sum /tmp/hacc-hermes-install.sh && cat /tmp/hacc-hermes-install.sh`;
-    return recipe.distro
-      ? `proot-distro login ${shellQuote(recipe.distro)} -- bash -lc ${shellQuote(review)}`
-      : review;
-  }
   if (step === "configureHermes") {
-    const commands = recipe.hermesConfigure.steps.join(" && ");
+    const commands = [...recipe.hermesConfigure.steps];
+    if (usePortal) {
+      if (commands[0]?.trim() !== "hermes setup") return null;
+      commands[0] = "hermes setup --portal";
+    }
+    const command = commands.join(" && ");
     return recipe.distro
-      ? `proot-distro login ${shellQuote(recipe.distro)} -- bash -lc ${shellQuote(commands)}`
-      : commands;
+      ? `proot-distro login ${shellQuote(recipe.distro)} -- bash -lc ${shellQuote(command)}`
+      : command;
   }
   return null;
 }
@@ -121,6 +131,14 @@ function interactiveCommandForStep(
 export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
   const go = useRoute((state) => state.go);
   const requestInteractiveLaunch = useTerminal((state) => state.requestInteractiveLaunch);
+  const device = useDevices(
+    (s) => Object.values(s.devices).find((d) => d.serial === serial) ?? null,
+  );
+  const deviceAlias = useDeviceProfiles((s) =>
+    device?.deviceId ? (s.profiles[device.deviceId]?.alias ?? null) : null,
+  );
+  // Confirmations name the target phone (M9-T8).
+  const deviceLabel = device ? deviceIdentity(device, deviceAlias) : serial;
   const [recipes, setRecipes] = useState<ProvisionRecipe[]>([]);
   const [recipeId, setRecipeId] = useState("");
   const [plan, setPlan] = useState<ProvisionPlan | null>(null);
@@ -129,15 +147,23 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
   const [consentPrompt, setConsentPrompt] = useState<ConsentPrompt | null>(null);
   const [phoneAction, setPhoneAction] = useState<PhoneAction | null>(null);
   const [resetPromptOpen, setResetPromptOpen] = useState(false);
+  const [termuxUninstallOpen, setTermuxUninstallOpen] = useState(false);
+  const [termuxUninstallConfirmation, setTermuxUninstallConfirmation] = useState("");
+  const [uninstallingTermux, setUninstallingTermux] = useState(false);
   const [recipeEditorOpen, setRecipeEditorOpen] = useState(false);
   const [recipeEditorSource, setRecipeEditorSource] = useState("");
   const [recipeEditorBusy, setRecipeEditorBusy] = useState(false);
+  const [hermesConfigEditorOpen, setHermesConfigEditorOpen] = useState(false);
+  const [hermesConfigSource, setHermesConfigSource] = useState("");
+  const [hermesConfigSecrets, setHermesConfigSecrets] = useState<MaskedHermesSecrets>({});
+  const [hermesConfigBusy, setHermesConfigBusy] = useState(false);
+  const [hermesConfigError, setHermesConfigError] = useState<ErrorPayload | null>(null);
   const [error, setError] = useState<ErrorPayload | null>(null);
   const [output, setOutput] = useState<string[]>([]);
   const loading = Boolean(
     recipeId && (!plan || plan.recipeId !== recipeId || plan.serial !== serial) && !error,
   );
-  const busy = loading || starting || runId !== null;
+  const busy = loading || starting || runId !== null || uninstallingTermux || hermesConfigBusy;
 
   useEffect(() => {
     let active = true;
@@ -306,6 +332,24 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
     }
   }
 
+  async function uninstallIncompatibleTermux(): Promise<void> {
+    if (termuxUninstallConfirmation !== TERMUX_UNINSTALL_CONFIRMATION) return;
+    setUninstallingTermux(true);
+    setError(null);
+    try {
+      await ipc.uninstallIncompatibleTermux(serial, recipeId, termuxUninstallConfirmation);
+      setTermuxUninstallOpen(false);
+      setTermuxUninstallConfirmation("");
+      setPhoneAction(null);
+      setOutput([]);
+      setPlan(await ipc.getProvisionPlan(serial, recipeId));
+    } catch (cause) {
+      setError(toErrorPayload(cause));
+    } finally {
+      setUninstallingTermux(false);
+    }
+  }
+
   async function openRecipeEditor(duplicate: boolean): Promise<void> {
     if (!recipeId) return;
     setRecipeEditorBusy(true);
@@ -348,6 +392,47 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
     }
   }
 
+  async function openHermesConfigEditor(): Promise<void> {
+    if (!recipeId) return;
+    setHermesConfigBusy(true);
+    setHermesConfigError(null);
+    setError(null);
+    try {
+      const masked = maskHermesConfig(await ipc.getHermesConfig(serial, recipeId));
+      setHermesConfigSource(masked.source);
+      setHermesConfigSecrets(masked.secrets);
+      setHermesConfigEditorOpen(true);
+    } catch (cause) {
+      setError(toErrorPayload(cause));
+    } finally {
+      setHermesConfigBusy(false);
+    }
+  }
+
+  async function saveHermesConfigEditor(): Promise<void> {
+    setHermesConfigBusy(true);
+    setHermesConfigError(null);
+    try {
+      const source = restoreHermesConfigSecrets(hermesConfigSource, hermesConfigSecrets);
+      await ipc.saveHermesConfig(serial, recipeId, source);
+      setHermesConfigEditorOpen(false);
+      setHermesConfigSource("");
+      setHermesConfigSecrets({});
+    } catch (cause) {
+      setHermesConfigError(toErrorPayload(cause));
+    } finally {
+      setHermesConfigBusy(false);
+    }
+  }
+
+  function closeHermesConfigEditor(): void {
+    if (hermesConfigBusy) return;
+    setHermesConfigEditorOpen(false);
+    setHermesConfigSource("");
+    setHermesConfigSecrets({});
+    setHermesConfigError(null);
+  }
+
   async function importRecipe(): Promise<void> {
     setError(null);
     try {
@@ -368,8 +453,8 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
     }
   }
 
-  function openInteractiveStep(step: ProvisionStepId): void {
-    const command = interactiveCommandForStep(activeRecipe, step);
+  function openInteractiveStep(step: ProvisionStepId, usePortal = false): void {
+    const command = interactiveCommandForStep(activeRecipe, step, usePortal);
     if (!command) return;
     requestInteractiveLaunch(serial, command);
     go("terminal");
@@ -457,10 +542,40 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                   label={`${step.title}: ${stepLabel[step.state]}`}
                 />
                 {step.detail && <span className="text-warning">{step.detail}</span>}
+                {step.id === "preflight" &&
+                  step.state === "blocked" &&
+                  isTermuxSourceMismatch(step.detail) && (
+                    <Button
+                      variant="danger"
+                      disabled={busy}
+                      onClick={() => {
+                        setTermuxUninstallConfirmation("");
+                        setTermuxUninstallOpen(true);
+                      }}
+                    >
+                      Uninstall incompatible Termux
+                    </Button>
+                  )}
                 {phoneAction?.step === step.id && (
                   <span role="status" className="w-full pl-4 text-warning">
                     {phoneAction.message}
                   </span>
+                )}
+                {phoneAction?.step === "configureHermes" && step.id === "configureHermes" && (
+                  <aside
+                    role="note"
+                    aria-label="Hermes setup guidance"
+                    className="w-full rounded-md border border-warning/30 bg-warning/5 p-3 text-[12px]"
+                  >
+                    <p>
+                      In proot-distro there is no systemd. If setup asks to install or start a
+                      gateway service, choose No; this app supervises the gateway.
+                    </p>
+                    <p className="mt-2 text-muted">
+                      Keep the gateway restricted to users you trust; direct messages should remain
+                      allow-listed or pairing-protected.
+                    </p>
+                  </aside>
                 )}
                 <span className="ml-auto flex gap-2">
                   {phoneAction?.step === step.id ? (
@@ -480,6 +595,16 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                           Open interactive step
                         </Button>
                       )}
+                      {step.id === "configureHermes" &&
+                        interactiveCommandForStep(activeRecipe, step.id, true) && (
+                          <Button
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() => openInteractiveStep(step.id, true)}
+                          >
+                            Open setup portal
+                          </Button>
+                        )}
                     </>
                   ) : (
                     <Button
@@ -491,9 +616,18 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                     </Button>
                   )}
                   {step.id === "configureHermes" && (
-                    <Button variant="ghost" onClick={() => go("terminal")}>
-                      Open terminal
-                    </Button>
+                    <>
+                      <Button
+                        variant="ghost"
+                        disabled={busy || !activeRecipe}
+                        onClick={() => void openHermesConfigEditor()}
+                      >
+                        Edit Hermes config
+                      </Button>
+                      <Button variant="ghost" disabled={busy} onClick={() => go("terminal")}>
+                        Open terminal
+                      </Button>
+                    </>
                   )}
                 </span>
               </li>
@@ -527,7 +661,9 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
       >
         {consentPrompt && (
           <>
-            <p className="mb-2">Review the commands and changes for this phone:</p>
+            <p className="mb-2">
+              Review the commands and changes for <b>{deviceLabel}</b>:
+            </p>
             <ul className="list-disc space-y-1 pl-5 font-mono text-[12px]">
               {consentPrompt.consent.commands.map((command) => (
                 <li key={command}>{command}</li>
@@ -549,10 +685,96 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
         onCancel={() => setResetPromptOpen(false)}
       >
         <p>
-          This clears the saved checklist for this phone and recipe. It does not undo changes
-          already made on the phone.
+          This clears the saved checklist for <b>{deviceLabel}</b> and recipe. It does not undo
+          changes already made on the phone.
         </p>
       </ConfirmDialog>
+
+      <Dialog
+        open={termuxUninstallOpen}
+        title={`Uninstall Termux from ${deviceLabel}?`}
+        onClose={() => {
+          if (uninstallingTermux) return;
+          setTermuxUninstallOpen(false);
+          setTermuxUninstallConfirmation("");
+        }}
+        footer={
+          <>
+            <Button
+              disabled={uninstallingTermux}
+              onClick={() => {
+                setTermuxUninstallOpen(false);
+                setTermuxUninstallConfirmation("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={uninstallingTermux}
+              disabled={termuxUninstallConfirmation !== TERMUX_UNINSTALL_CONFIRMATION}
+              onClick={() => void uninstallIncompatibleTermux()}
+            >
+              Uninstall Termux
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-3 text-danger">
+          This permanently removes Termux and deletes all of its data from <b>{deviceLabel}</b>.
+          Provisioning will continue only after the phone passes preflight again.
+        </p>
+        <label className="flex flex-col gap-1">
+          <span className="text-muted">Type UNINSTALL TERMUX to confirm</span>
+          <input
+            aria-label="Type UNINSTALL TERMUX to confirm"
+            autoComplete="off"
+            className="rounded-md border border-border bg-bg px-2 py-1.5"
+            value={termuxUninstallConfirmation}
+            onChange={(event) => setTermuxUninstallConfirmation(event.target.value)}
+          />
+        </label>
+      </Dialog>
+
+      <Dialog
+        open={hermesConfigEditorOpen}
+        title={`Hermes config.yaml on ${serial}`}
+        onClose={closeHermesConfigEditor}
+        footer={
+          <>
+            <Button disabled={hermesConfigBusy} onClick={closeHermesConfigEditor}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              loading={hermesConfigBusy}
+              onClick={() => void saveHermesConfigEditor()}
+            >
+              Save config
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-2 text-muted">
+          Secret values are masked. Leave ******** unchanged to preserve the saved value, or replace
+          or remove it.
+        </p>
+        <label className="flex flex-col gap-1">
+          <span className="text-muted">YAML</span>
+          <textarea
+            aria-label="Hermes config YAML"
+            className="min-h-80 rounded-md border border-border bg-bg p-3 font-mono text-[12px]"
+            spellCheck={false}
+            value={hermesConfigSource}
+            onChange={(event) => setHermesConfigSource(event.target.value)}
+          />
+        </label>
+        {hermesConfigError && (
+          <p role="alert" className="mt-3 text-danger">
+            {hermesConfigError.message}
+          </p>
+        )}
+      </Dialog>
 
       <Dialog
         open={recipeEditorOpen}
@@ -636,6 +858,18 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                     "Minimum Termux version",
                     draft.minimumTermuxVersion,
                   )}
+                  <label className="flex flex-col gap-1">
+                    <span className="text-muted">Minimum free storage (GiB)</span>
+                    <input
+                      aria-label="Minimum free storage (GiB)"
+                      className="rounded-md border border-border bg-bg px-2 py-1.5"
+                      min={1}
+                      step={1}
+                      type="number"
+                      value={Number(draft.minimumFreeGib ?? 2)}
+                      onChange={(event) => setField(["minimumFreeGib"], Number(event.target.value))}
+                    />
+                  </label>
                   <label className="flex flex-col gap-1">
                     <span className="text-muted">Termux source</span>
                     <select

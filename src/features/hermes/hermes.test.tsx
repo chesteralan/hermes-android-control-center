@@ -1,12 +1,19 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
-import { useDevices } from "../../stores/devices";
-import { useHermes } from "../../stores/hermes";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { deviceKey, useDevices } from "../../stores/devices";
+import { EMPTY_HERMES, useHermes } from "../../stores/hermes";
+import { useToasts } from "../../stores/toast";
 import { device } from "../../test/fixtures";
 import { mockIpc, resetStores } from "../../test/ipcMock";
-import type { HermesActionResult, HermesStatus } from "../../types";
+import type { ErrorPayload, HermesActionResult, HermesStatus } from "../../types";
 import { HermesStatusCard } from "./HermesStatusCard";
+
+const notificationMocks = vi.hoisted(() => ({
+  notifyWhenWindowHidden: vi.fn<(title: string, body: string) => Promise<boolean>>(),
+}));
+
+vi.mock("../../lib/nativeNotifications", () => notificationMocks);
 
 const status: HermesStatus = {
   gateway: "running",
@@ -38,8 +45,214 @@ const actionResult: HermesActionResult = {
 describe("HermesStatusCard", () => {
   beforeEach(() => {
     resetStores();
+    localStorage.clear();
     useHermes.setState({ byDevice: {} });
+    useToasts.setState({ toasts: [] });
+    notificationMocks.notifyWhenWindowHidden.mockResolvedValue(false);
     useDevices.getState().setDevices([device()]);
+  });
+
+  it("notifies by phone name when a running gateway stops unexpectedly", async () => {
+    let polledStatus = status;
+    mockIpc({ get_hermes_status: () => polledStatus });
+    const key = deviceKey(device());
+    const store = useHermes.getState();
+
+    await store.refresh(key, device().serial);
+    expect(useToasts.getState().toasts).toHaveLength(0);
+
+    polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+    await store.refresh(key, device().serial);
+    await waitFor(() => expect(useToasts.getState().toasts).toHaveLength(1));
+    expect(useToasts.getState().toasts.map((toast) => toast.text)).toEqual([
+      "Hermes gateway stopped unexpectedly on CPH2239",
+    ]);
+    expect(notificationMocks.notifyWhenWindowHidden).toHaveBeenCalledWith(
+      "Hermes gateway stopped",
+      "Hermes gateway stopped unexpectedly on CPH2239",
+    );
+
+    await store.refresh(key, device().serial);
+    expect(useToasts.getState().toasts).toHaveLength(1);
+  });
+
+  it("does not enqueue an in-app duplicate when the native notification is sent", async () => {
+    let polledStatus = status;
+    mockIpc({ get_hermes_status: () => polledStatus });
+    notificationMocks.notifyWhenWindowHidden.mockResolvedValue(true);
+    const key = deviceKey(device());
+    const store = useHermes.getState();
+
+    await store.refresh(key, device().serial);
+    polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+    await store.refresh(key, device().serial);
+    await waitFor(() =>
+      expect(notificationMocks.notifyWhenWindowHidden).toHaveBeenCalledWith(
+        "Hermes gateway stopped",
+        "Hermes gateway stopped unexpectedly on CPH2239",
+      ),
+    );
+
+    expect(useToasts.getState().toasts).toHaveLength(0);
+  });
+
+  it.each(["stop", "restart", "restartNow"] as const)(
+    "does not notify during an active %s action",
+    async (action) => {
+      let polledStatus = status;
+      mockIpc({ get_hermes_status: () => polledStatus });
+      const key = deviceKey(device());
+      const store = useHermes.getState();
+
+      await store.refresh(key, device().serial);
+      useHermes.setState((state) => ({
+        byDevice: {
+          ...state.byDevice,
+          [key]: { ...EMPTY_HERMES, ...state.byDevice[key], action },
+        },
+      }));
+      polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+
+      await store.refresh(key, device().serial);
+      expect(useToasts.getState().toasts).toHaveLength(0);
+    },
+  );
+
+  it("does not notify during an active Hermes tool", async () => {
+    let polledStatus = status;
+    mockIpc({ get_hermes_status: () => polledStatus });
+    const key = deviceKey(device());
+    const store = useHermes.getState();
+
+    await store.refresh(key, device().serial);
+    useHermes.setState((state) => ({
+      byDevice: {
+        ...state.byDevice,
+        [key]: { ...EMPTY_HERMES, ...state.byDevice[key], tool: "update" },
+      },
+    }));
+    polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+
+    await store.refresh(key, device().serial);
+    expect(useToasts.getState().toasts).toHaveLength(0);
+  });
+
+  it("shows recent gateway transitions in the status card", async () => {
+    let polledStatus = status;
+    mockIpc({ get_hermes_status: () => polledStatus });
+    render(<HermesStatusCard />);
+    expect(await screen.findByText("running")).toBeInTheDocument();
+
+    polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByRole("region", { name: "Recent gateway history" })).toBeVisible();
+    expect(screen.getByText("Gateway running")).toBeInTheDocument();
+    expect(screen.getByText("Gateway stopped")).toBeInTheDocument();
+  });
+
+  it("persists gateway history per device and restores it after store reset", async () => {
+    let polledStatus = status;
+    mockIpc({ get_hermes_status: () => polledStatus });
+    const key = deviceKey(device());
+    const store = useHermes.getState();
+
+    await store.refresh(key, device().serial);
+    polledStatus = { ...status, gateway: "stopped", gatewayPid: null, uptimeSecs: null };
+    await store.refresh(key, device().serial);
+
+    const storageKey = `hacc:hermes:health-history:${encodeURIComponent(key)}`;
+    const persisted = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+    expect(persisted).toHaveLength(2);
+
+    useHermes.setState({ byDevice: {} });
+    await store.refresh(key, device().serial);
+    expect(useHermes.getState().byDevice[key]?.healthHistory).toEqual(persisted);
+  });
+
+  it("preserves detection errors across successful and failed status polls", async () => {
+    const detectionError = {
+      kind: "termuxUnavailable",
+      message: "SSH key rejected",
+      details: null,
+    };
+    const pollError = { kind: "io", message: "Status temporarily unavailable", details: null };
+    let pollFails = false;
+    mockIpc({
+      get_hermes_status: () => {
+        if (pollFails) throw pollError;
+        return status;
+      },
+      detect_hermes: () => {
+        throw detectionError;
+      },
+    });
+    const store = useHermes.getState();
+    await store.detect("phone", device().serial);
+    await store.refresh("phone", device().serial);
+    expect(useHermes.getState().byDevice.phone?.error).toEqual(detectionError);
+    pollFails = true;
+    await store.refresh("phone", device().serial);
+    expect(useHermes.getState().byDevice.phone?.error).toEqual(detectionError);
+    expect(useHermes.getState().byDevice.phone?.statusError).toEqual(pollError);
+    pollFails = false;
+    await store.refresh("phone", device().serial);
+    expect(useHermes.getState().byDevice.phone?.statusError).toBeNull();
+    expect(useHermes.getState().byDevice.phone?.error).toEqual(detectionError);
+    store.clearError("phone");
+    expect(useHermes.getState().byDevice.phone?.error).toBeNull();
+  });
+
+  it("shows status polling errors and clears them when polling recovers", async () => {
+    let pollFails = true;
+    mockIpc({
+      get_hermes_status: () => {
+        if (pollFails) throw { kind: "io", message: "Status unavailable", details: null };
+        return status;
+      },
+    });
+    render(<HermesStatusCard />);
+    expect(await screen.findByText("Status unavailable")).toBeInTheDocument();
+    pollFails = false;
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("running")).toBeInTheDocument();
+    expect(screen.queryByText("Status unavailable")).not.toBeInTheDocument();
+  });
+
+  it("preserves action and tool failures during polling and clears stale poll errors after success", async () => {
+    const failure: ErrorPayload = { kind: "io", message: "Command failed", details: null };
+    let failOperation = true;
+    mockIpc({
+      get_hermes_status: () => status,
+      hermes_action: () => {
+        if (failOperation) throw failure;
+        return actionResult;
+      },
+      run_hermes_tool: () => {
+        if (failOperation) throw failure;
+        return { stdout: "doctor passed", stderr: "", exitCode: 0, durationMs: 1 };
+      },
+    });
+    const store = useHermes.getState();
+    for (const operation of [
+      () => store.runAction("phone", device().serial, "start"),
+      () => store.runTool("phone", device().serial, "doctor"),
+    ]) {
+      failOperation = true;
+      await operation();
+      await store.refresh("phone", device().serial);
+      expect(useHermes.getState().byDevice.phone?.error).toEqual(failure);
+      useHermes.setState((state) => ({
+        byDevice: {
+          ...state.byDevice,
+          phone: { ...state.byDevice.phone!, statusError: failure },
+        },
+      }));
+      failOperation = false;
+      await operation();
+      expect(useHermes.getState().byDevice.phone?.error).toBeNull();
+      expect(useHermes.getState().byDevice.phone?.statusError).toBeNull();
+    }
   });
 
   it("renders real status, process and platform data and can detect installation", async () => {
@@ -81,7 +294,9 @@ describe("HermesStatusCard", () => {
     await screen.findByText("running");
     await userEvent.click(screen.getByRole("button", { name: "Stop" }));
     expect(fn).not.toHaveBeenCalledWith("hermes_action", expect.anything());
-    expect(screen.getByRole("dialog", { name: /Stop Hermes on CPH2239/ })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: /Stop Hermes on CPH2239/ });
+    // Confirmations name the phone's address, not just the model (M9-T8).
+    expect(dialog).toHaveTextContent(device().serial);
     await userEvent.click(screen.getByRole("button", { name: "Stop Hermes" }));
     expect(fn).toHaveBeenCalledWith("hermes_action", { serial: device().serial, action: "stop" });
     expect(await screen.findByText("Action confirmed")).toBeInTheDocument();
@@ -123,7 +338,10 @@ describe("HermesStatusCard", () => {
 
   it("shows configured status output in expandable details", async () => {
     mockIpc({
-      get_hermes_status: () => ({ ...status, rawStatusOutput: "Hermes: running\\nGateway: healthy" }),
+      get_hermes_status: () => ({
+        ...status,
+        rawStatusOutput: "Hermes: running\\nGateway: healthy",
+      }),
     });
     render(<HermesStatusCard />);
     await screen.findByText("running");

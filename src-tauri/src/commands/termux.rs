@@ -39,7 +39,13 @@ pub async fn check_termux(
         );
     }
 
-    let port = state.config.read().await.termux.ssh_port;
+    let device_id = state.device_id_for(&serial);
+    let port = state
+        .config
+        .read()
+        .await
+        .effective_termux_config(&device_id)
+        .ssh_port;
     if !c.has_failed() {
         match state.forwards.ensure(&client, &serial, port).await {
             Ok(local) => c.ok(
@@ -127,4 +133,27 @@ pub async fn forget_termux_host_key(
 ) -> Result<(), AppError> {
     state.ssh.drop_device(&serial).await;
     state.known_hosts.forget(&state.device_id_for(&serial))
+}
+
+/// Resets the pinned SSH host key and repairs the Termux bridge in one step:
+/// drops the pooled session, forgets the pin, then re-runs the bootstrap
+/// handoff (`pkg install openssh`, authorize the app key, start sshd).
+/// Termux must be unlocked and in the foreground.
+#[tauri::command]
+pub async fn repair_termux_ssh_bridge(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<(), AppError> {
+    let device_id = state.device_id_for(&serial);
+    state.ssh.drop_device(&serial).await;
+    state.known_hosts.forget(&device_id)?;
+    let (events, _receiver) = tokio::sync::mpsc::channel(8);
+    crate::provision::executor::bootstrap_ssh_with_cleanup(
+        &app,
+        &serial,
+        tokio_util::sync::CancellationToken::new(),
+        &events,
+    )
+    .await
 }

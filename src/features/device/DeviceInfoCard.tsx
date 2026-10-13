@@ -59,7 +59,7 @@ export function infoRows(d: AndroidDevice, info: DeviceInfo | null): Array<[stri
 export function DeviceInfoCard({ device }: { device: AndroidDevice }) {
   const key = deviceKey(device);
   const entry = useDevices((s) => s.info[key]);
-  const reconnect = useDevices((s) => s.reconnect[device.serial]);
+  const reconnect = useDevices((s) => s.reconnect[key]);
   const loadInfo = useDevices((s) => s.loadInfo);
   const ready = device.state === "device";
 

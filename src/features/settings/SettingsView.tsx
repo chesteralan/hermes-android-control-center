@@ -5,8 +5,10 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { ipc, toErrorPayload } from "../../lib/ipc";
 import { useDevices } from "../../stores/devices";
+import { useDeviceProfiles } from "../../stores/deviceProfiles";
 import { isDirty, useSettings } from "../../stores/settings";
 import { useToasts } from "../../stores/toast";
+import { deviceIdentity } from "../device/deviceStatus";
 import type {
   AppConfig,
   ControlApiInstallPreview,
@@ -17,6 +19,7 @@ import type {
   LogLevelSetting,
   StartMode,
 } from "../../types";
+import { DeviceProfilesSection } from "./DeviceProfilesSection";
 
 const input = "w-full rounded-md border border-border bg-bg px-2 py-1.5 font-mono";
 
@@ -69,6 +72,12 @@ export function SettingsView() {
   const detect = useDevices((st) => st.detectAdb);
   const activeSerial = useDevices((st) =>
     st.activeKey ? (st.devices[st.activeKey]?.serial ?? null) : null,
+  );
+  const activeDevice = useDevices((st) =>
+    st.activeKey ? (st.devices[st.activeKey] ?? null) : null,
+  );
+  const activeAlias = useDeviceProfiles((st) =>
+    activeDevice?.deviceId ? (st.profiles[activeDevice.deviceId]?.alias ?? null) : null,
   );
   const toast = useToasts((t) => t.push);
   const { load } = s;
@@ -696,6 +705,14 @@ export function SettingsView() {
         </Row>
       </Card>
 
+      <Card title="Devices">
+        <p className="mb-3 text-muted text-sm">
+          Per-device aliases, colors, auto-connect, and Hermes/Termux overrides. Profiles are
+          created automatically when a device first connects.
+        </p>
+        <DeviceProfilesSection />
+      </Card>
+
       {s.error && <ErrorPanel error={s.error} />}
 
       <ConfirmDialog
@@ -727,6 +744,11 @@ export function SettingsView() {
             Version: {controlApiPreview.installedVersion ?? "Not installed"} to{" "}
             {controlApiPreview.targetVersion}
           </p>
+          {activeDevice && (
+            <p>
+              Installs on <b>{deviceIdentity(activeDevice, activeAlias)}</b>.
+            </p>
+          )}
           <p className="mt-3">Files to update:</p>
           <ul className="mt-1 max-h-48 overflow-y-auto font-mono text-[12px]">
             {controlApiPreview.filesToUpdate.map((file) => (

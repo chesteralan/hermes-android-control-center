@@ -4,4 +4,4 @@ import type { HermesInstallRecipe } from "./HermesInstallRecipe";
 import type { HermesRuntimeRecipe } from "./HermesRuntimeRecipe";
 import type { ProvisionTermuxSource } from "./ProvisionTermuxSource";
 
-export type ProvisionRecipe = { id: string, name: string, termuxSource: ProvisionTermuxSource, distro: string, minimumTermuxVersion: string | null, termuxPackages: Array<string>, distroPackages: Array<string>, hermesInstall: HermesInstallRecipe, hermesConfigure: HermesConfigureRecipe, hermesRuntime: HermesRuntimeRecipe, autostart: boolean, experimental: boolean, };
+export type ProvisionRecipe = { id: string, name: string, termuxSource: ProvisionTermuxSource, distro: string, minimumFreeGib: number, minimumTermuxVersion: string | null, termuxPackages: Array<string>, distroPackages: Array<string>, hermesInstall: HermesInstallRecipe, hermesConfigure: HermesConfigureRecipe, hermesRuntime: HermesRuntimeRecipe, autostart: boolean, experimental: boolean, };

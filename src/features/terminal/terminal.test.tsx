@@ -1,7 +1,8 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { deviceKey, useDevices } from "../../stores/devices";
+import { useToasts } from "../../stores/toast";
 import {
   MAX_COMMAND_HISTORY,
   MAX_TERMINAL_LINES,
@@ -231,10 +232,7 @@ describe("TerminalView", () => {
       error: null,
     });
 
-    const blocks = trimTerminalBlocks([
-      makeBlock(1, "old", 9_000),
-      makeBlock(2, "new", 1_001),
-    ]);
+    const blocks = trimTerminalBlocks([makeBlock(1, "old", 9_000), makeBlock(2, "new", 1_001)]);
 
     expect(blocks.reduce((total, block) => total + block.lines.length, 0)).toBe(MAX_TERMINAL_LINES);
     expect(blocks[0]?.lines).toHaveLength(8_999);
@@ -254,18 +252,14 @@ describe("TerminalView", () => {
       });
       const currentDevice = device();
       const key = deviceKey(currentDevice);
-      await useTerminal
-        .getState()
-        .run(key, currentDevice.serial, "stream-benchmark", "adbShell");
+      await useTerminal.getState().run(key, currentDevice.serial, "stream-benchmark", "adbShell");
       const sessionId = useTerminal.getState().activeSessionByDevice[key];
       if (!sessionId || !channel) throw new Error("Terminal stream did not start");
       const sessionKey = terminalSessionKey(key, sessionId);
       let lineUpdates = 0;
       const unsubscribe = useTerminal.subscribe((state, previous) => {
-        const currentCount =
-          state.sessions[sessionKey]?.blocks[0]?.lines.length ?? 0;
-        const previousCount =
-          previous.sessions[sessionKey]?.blocks[0]?.lines.length ?? 0;
+        const currentCount = state.sessions[sessionKey]?.blocks[0]?.lines.length ?? 0;
+        const previousCount = previous.sessions[sessionKey]?.blocks[0]?.lines.length ?? 0;
         if (currentCount > previousCount) lineUpdates += 1;
       });
 
@@ -282,10 +276,10 @@ describe("TerminalView", () => {
       unsubscribe();
 
       const lines = useTerminal.getState().sessions[sessionKey]?.blocks[0]?.lines ?? [];
-  expect(lines).toHaveLength(1008);
+      expect(lines).toHaveLength(1008);
       expect(lines[0]?.text).toBe("line 0");
-  expect(lines.at(-1)?.text).toBe("line 1007");
-  expect(lineUpdates).toBe(63);
+      expect(lines.at(-1)?.text).toBe("line 1007");
+      expect(lineUpdates).toBe(63);
     } finally {
       vi.useRealTimers();
     }
@@ -433,7 +427,10 @@ describe("TerminalView", () => {
     await userEvent.click(screen.getByRole("button", { name: "Close session" }));
     expect(fn).toHaveBeenCalledWith("cancel_stream", { streamId: "running-tab-stream" });
     expect(screen.queryByRole("tab", { name: "Terminal 1" })).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Terminal 2" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Terminal 2" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   it("saves snippets and requires confirmation before running the exact command", async () => {
@@ -555,7 +552,9 @@ describe("TerminalView", () => {
 
   it("renders ANSI colors as styled text and strips other escape sequences", () => {
     const { container } = render(
-      <AnsiText text={'\u001b[31mred\u001b[0m plain \u001b]0;title\u0007<script>alert(1)</script>'} />,
+      <AnsiText
+        text={"\u001b[31mred\u001b[0m plain \u001b]0;title\u0007<script>alert(1)</script>"}
+      />,
     );
 
     expect(screen.getByText("red")).toHaveStyle({ color: "rgb(210, 83, 61)" });
@@ -568,5 +567,100 @@ describe("TerminalView", () => {
     const { container } = render(<AnsiText text={"before\u001b[31"} />);
 
     expect(container.textContent).toBe("before");
+  });
+
+  it("broadcasts a saved command to selected phones with per-phone results", async () => {
+    const started: string[] = [];
+    const chans: Record<string, Chan> = {};
+    mockIpc({
+      stream_command: (args) => {
+        const serial = String(args?.serial);
+        started.push(serial);
+        chans[serial] = args?.onEvent as Chan;
+        return `cmd-${serial}`;
+      },
+    });
+    const phoneA = device();
+    const phoneB = device({ serial: "second-device-serial", deviceId: "PHONE_B", model: "Galaxy" });
+    useDevices.getState().setDevices([phoneA, phoneB]);
+    useTerminal.setState({
+      snippets: [
+        {
+          id: "s1",
+          name: "Check disk",
+          command: "df -h",
+          transport: "adbShell",
+          requiresConfirmation: false,
+        },
+      ],
+    });
+    render(<TerminalView />);
+
+    // Two phones: even a non-confirming snippet routes through the dialog for target selection.
+    await userEvent.click(screen.getByRole("button", { name: "Check disk" }));
+    const dialog = await screen.findByRole("dialog", { name: "Run saved command?" });
+    expect(dialog).toHaveTextContent("Also run on");
+    await userEvent.click(within(dialog).getByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: "Run command" }));
+
+    await waitFor(() => expect(started).toHaveLength(2));
+    expect(started.sort()).toEqual([phoneA.serial, "second-device-serial"].sort());
+
+    // One phone fails; the other succeeds — results stay on their own phones.
+    chans["second-device-serial"]?.onmessage({
+      type: "error",
+      error: { kind: "io", message: "device offline", details: null },
+    });
+    chans[phoneA.serial]?.onmessage({ type: "exit", code: 0, durationMs: 4 });
+
+    const blocksFor = (deviceK: string) =>
+      Object.entries(useTerminal.getState().sessions)
+        .filter(([sessionKey]) => sessionKey.startsWith(`["${deviceK}"`))
+        .flatMap(([, session]) => session.blocks);
+    const aBlocks = blocksFor(deviceKey(phoneA));
+    const bBlocks = blocksFor(deviceKey(phoneB));
+    expect(aBlocks).toHaveLength(1);
+    expect(bBlocks).toHaveLength(1);
+    expect(aBlocks[0]?.exitCode).toBe(0);
+    expect(aBlocks[0]?.error).toBeNull();
+    expect(bBlocks[0]?.error?.message).toBe("device offline");
+    expect(bBlocks[0]?.exitCode).toBeNull();
+    expect(useToasts.getState().toasts.at(-1)?.text).toBe(
+      "Snippet started on 2 phone(s) — results appear in each phone's Terminal tab",
+    );
+  });
+
+  it("keeps streamed output separated across two devices", async () => {
+    const chans: Record<string, Chan> = {};
+    mockIpc({
+      stream_command: (args) => {
+        const serial = String(args?.serial);
+        chans[serial] = args?.onEvent as Chan;
+        return `cmd-${serial}`;
+      },
+    });
+    const sessionA = useTerminal.getState().ensureSession("PHONE_A");
+    const sessionB = useTerminal.getState().ensureSession("PHONE_B");
+    await Promise.all([
+      useTerminal.getState().run("PHONE_A", "serial-A", "ls", "adbShell", sessionA),
+      useTerminal.getState().run("PHONE_B", "serial-B", "ps", "adbShell", sessionB),
+    ]);
+    chans["serial-A"]?.onmessage({ type: "stdout", line: "from A" });
+    chans["serial-A"]?.onmessage({ type: "exit", code: 0, durationMs: 5 });
+    chans["serial-B"]?.onmessage({ type: "stdout", line: "from B" });
+    chans["serial-B"]?.onmessage({ type: "exit", code: 0, durationMs: 5 });
+
+    const output = (deviceKey: string, sessionId: string) =>
+      (useTerminal.getState().sessions[terminalSessionKey(deviceKey, sessionId)]?.blocks ?? [])
+        .flatMap((block) => block.lines)
+        .map((line) => line.text)
+        .join("\n");
+
+    const textA = output("PHONE_A", sessionA);
+    const textB = output("PHONE_B", sessionB);
+    expect(textA).toContain("from A");
+    expect(textA).not.toContain("from B");
+    expect(textB).toContain("from B");
+    expect(textB).not.toContain("from A");
   });
 });

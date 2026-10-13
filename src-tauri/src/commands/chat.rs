@@ -135,7 +135,12 @@ pub async fn start_hermes_chat(
     session_id: Option<String>,
     on_event: Channel<HermesChatEvent>,
 ) -> Result<StreamId, AppError> {
-    let cfg = state.config.read().await.hermes.clone();
+    let device_id = state.device_id_for(&serial);
+    let cfg = state
+        .config
+        .read()
+        .await
+        .effective_hermes_config(&device_id);
     let command = build_chat_command(&cfg, &prompt, session_id.as_deref())?;
     let transport: Arc<dyn DeviceTransport> = match state.configured_hermes_transport(&serial).await
     {
@@ -146,7 +151,7 @@ pub async fn start_hermes_chat(
         }
         Err(error) => return Err(error),
     };
-    let (id, cancel) = state.streams.register(&serial, "chat");
+    let (id, cancel) = state.streams.register(&serial, &device_id, "chat");
     let stream_result = transport.stream(&command, cancel.clone()).await;
     let mut stream = match stream_result {
         Ok(stream) => stream,

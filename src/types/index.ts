@@ -55,3 +55,8 @@ export type { ProvisionEvent } from "./generated/ProvisionEvent";
 export type { ProvisionProgress } from "./generated/ProvisionProgress";
 export type { ProvisionRunOutcome } from "./generated/ProvisionRunOutcome";
 export type { ProvisionTermuxSource } from "./generated/ProvisionTermuxSource";
+export type { DeviceProfile } from "./generated/DeviceProfile";
+export type { DeviceProfileUpdate } from "./generated/DeviceProfileUpdate";
+export type { EffectiveDeviceConfig } from "./generated/EffectiveDeviceConfig";
+export type { LimitsConfig } from "./generated/LimitsConfig";
+export type { TermuxConfig } from "./generated/TermuxConfig";

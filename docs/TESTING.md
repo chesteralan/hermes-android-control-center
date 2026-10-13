@@ -101,12 +101,32 @@ Coverage targets: Rust parsers/backoff/status ≥ 90 %, overall Rust ≥ 70 %, f
 | Orphan processes after quit | 0 |
 | 3 phones, all streaming logs (500 lines/s each) | UI responsive, no frame > 100 ms, memory < 400 MB |
 
+### Local results — 2026-10-13, macOS arm64, no phone attached
+
+Measured against the unsigned release `.app` (`tauri build`) with
+`scripts/perf-probe.sh` (cold-start proxy: process spawn → first on-screen
+layer-0 window via `CGWindowListCopyWindowInfo`; idle sampled after 15 s):
+
+| Row | Result |
+|---|---|
+| Cold start to interactive | Pass — 0.4–0.7 s wall across 3 launches (budget 1.5 s) |
+| Idle CPU (no phone attached) | Pass — 0.0 % (5 samples × 2 s) |
+| Idle memory (no phone attached) | Pass — 73–91 MB RSS, settled ≈ 73 MB |
+| Orphan processes after quit | Pass after fix — the probe found one leaked `adb track-devices -l` child per launch on SIGTERM; SIGTERM/SIGINT now take the graceful quit path and `pgrep` shows 0 leftovers |
+
+Still requires a connected phone (blocked rows): idle CPU/RAM with a device
+connected and no streams, log/terminal throughput, device-info refresh, and the
+3-phone streaming row.
+
 ## 7. Cross-Platform QA (M12)
 
 Hosted [run 37611442113](https://github.com/chesteralan/hermes-android-control-center/actions/runs/37611442113)
 passed macOS, Windows, and Ubuntu automated build/test jobs, including Windows ACL,
-Job Object cancellation, and encrypted-vault checks. Its dependency-policy job remains
-blocked by existing license/advisory findings; the overall run is not green.
+Job Object cancellation, and encrypted-vault checks. Its dependency-policy job was
+blocked by license/advisory findings at the time; the policy was reviewed and updated
+on 2026-10-12 (see [SECURITY.md §6](SECURITY.md#6-strict-dependency-remediation)),
+`cargo deny check` now passes locally, and the Gitleaks shallow-clone failure was
+fixed with `fetch-depth: 0`. The overall run is expected green on the next push.
 
 No interactive Windows/Linux runtime result is recorded yet. Run every row on each environment;
 attach OS/build/WebView version, hardware, Android/ADB versions, measurements, and

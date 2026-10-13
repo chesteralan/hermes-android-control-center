@@ -74,4 +74,56 @@ describe("TermuxSetupCard", () => {
     expect(await screen.findByText(/Ready — commands can run inside Termux/)).toBeInTheDocument();
     expect(screen.queryByText("pkg install -y openssh")).not.toBeInTheDocument();
   });
+
+  it("auto-verifies on mount and offers the repair button when the bridge fails", async () => {
+    const fn = mockIpc({
+      get_termux_public_key: () => KEY,
+      check_termux: () => ({
+        ready: false,
+        distros: [],
+        items: [
+          {
+            id: "ssh",
+            label: "SSH into Termux",
+            status: "failed",
+            detail: "Termux SSH host key changed",
+            hint: "reset it",
+          },
+        ],
+      }),
+    });
+    render(<TermuxSetupCard device={device()} />);
+    expect(await screen.findByText("Termux SSH host key changed")).toBeInTheDocument();
+    expect(fn).toHaveBeenCalledWith("check_termux", { serial: device().serial });
+    expect(
+      screen.getByRole("button", { name: /Reset host key & repair bridge/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("repairs the bridge and re-verifies", async () => {
+    const fn = mockIpc({
+      get_termux_public_key: () => KEY,
+      check_termux: () => ({
+        ready: false,
+        distros: [],
+        items: [
+          {
+            id: "ssh",
+            label: "SSH into Termux",
+            status: "failed",
+            detail: "unreachable",
+            hint: "fix",
+          },
+        ],
+      }),
+      repair_termux_ssh_bridge: () => {},
+    });
+    render(<TermuxSetupCard device={device()} />);
+    await screen.findByText("unreachable");
+    await userEvent.click(screen.getByRole("button", { name: /Reset host key & repair bridge/ }));
+    expect(fn).toHaveBeenCalledWith("repair_termux_ssh_bridge", { serial: device().serial });
+    expect(fn.mock.calls.filter(([cmd]) => cmd === "check_termux").length).toBeGreaterThanOrEqual(
+      2,
+    );
+  });
 });

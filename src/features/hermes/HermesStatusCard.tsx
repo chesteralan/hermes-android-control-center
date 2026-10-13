@@ -7,11 +7,12 @@ import { KeyValue } from "../../components/KeyValue";
 import { StatusDot, type Tone } from "../../components/StatusDot";
 import { formatSeconds } from "../../lib/format";
 import { deviceKey, useActiveDevice } from "../../stores/devices";
+import { useDeviceProfiles } from "../../stores/deviceProfiles";
 import { EMPTY_HERMES, useHermes } from "../../stores/hermes";
 import { useRoute } from "../../stores/route";
 import type { ComponentStatus, HermesAction, HermesCandidate, HermesTool } from "../../types";
 import { NoDeviceState } from "../device/NoDeviceState";
-import { deviceTitle } from "../device/deviceStatus";
+import { deviceIdentity, deviceTitle } from "../device/deviceStatus";
 
 const POLL_MS = 10_000;
 
@@ -61,6 +62,7 @@ function HermesCardForDevice({
   onSettings: () => void;
 }) {
   const entry = useHermes((s) => s.byDevice[key] ?? EMPTY_HERMES);
+  const error = entry.error ?? entry.statusError;
   const refresh = useHermes((s) => s.refresh);
   const detect = useHermes((s) => s.detect);
   const runAction = useHermes((s) => s.runAction);
@@ -84,6 +86,12 @@ function HermesCardForDevice({
   const runningAction = entry.action !== null;
   const runningTool = entry.tool !== null;
   const title = deviceTitle(device);
+  const alias = useDeviceProfiles((s) =>
+    device.deviceId ? (s.profiles[device.deviceId]?.alias ?? null) : null,
+  );
+  // Confirmations name the full phone identity (M9-T8).
+  const identity = deviceIdentity(device, alias);
+  const recentHealth = [...entry.healthHistory].reverse().slice(0, 5);
 
   const onAction = (action: HermesAction) => {
     setConfirm(null);
@@ -192,6 +200,29 @@ function HermesCardForDevice({
                 ))}
               </ul>
             )}
+            {recentHealth.length > 0 && (
+              <section className="border-t border-border pt-3" aria-label="Recent gateway history">
+                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-muted">
+                  Recent gateway history
+                </h3>
+                <ol className="flex flex-col gap-1">
+                  {recentHealth.map((event) => (
+                    <li key={event.id} className="flex items-center gap-3 text-[12px]">
+                      <time
+                        className="font-mono text-muted"
+                        dateTime={new Date(event.checkedAt * 1000).toISOString()}
+                      >
+                        {new Date(event.checkedAt * 1000).toLocaleTimeString()}
+                      </time>
+                      <StatusDot
+                        tone={STATUS_TONE[event.gateway]}
+                        label={`Gateway ${event.gateway}`}
+                      />
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
             {status.rawStatusOutput && (
               <details className="rounded-md border border-border bg-bg p-2 text-[12px]">
                 <summary className="cursor-pointer text-muted">Status command output</summary>
@@ -257,7 +288,7 @@ function HermesCardForDevice({
           </div>
         )}
 
-        {entry.error && <ErrorPanel error={entry.error} />}
+        {error && <ErrorPanel error={error} />}
         {entry.result && (
           <div className="rounded-md border border-border bg-bg p-2 text-[12px]">
             <div className="mb-1 flex justify-between">
@@ -358,8 +389,8 @@ function HermesCardForDevice({
         open={confirm !== null}
         title={
           confirm === "stop"
-            ? `Stop Hermes on ${title}?`
-            : `${confirm === "restartNow" ? "Restart now" : "Restart"} Hermes on ${title}?`
+            ? `Stop Hermes on ${identity}?`
+            : `${confirm === "restartNow" ? "Restart now" : "Restart"} Hermes on ${identity}?`
         }
         confirmLabel={
           confirm === "stop"
@@ -373,20 +404,20 @@ function HermesCardForDevice({
         onConfirm={() => confirm && onAction(confirm)}
       >
         {confirm === "stop"
-          ? `Hermes on ${title} will stop processing messages.`
+          ? `Hermes on ${identity} will stop processing messages.`
           : confirm === "restartNow"
-            ? `The gateway on ${title} will restart immediately; active work may be interrupted.`
-            : `The gateway on ${title} will drain active work, then restart.`}
+            ? `The gateway on ${identity} will restart immediately; active work may be interrupted.`
+            : `The gateway on ${identity} will drain active work, then restart.`}
       </ConfirmDialog>
       <ConfirmDialog
         open={confirmUpdate}
-        title={`Update Hermes on ${title}?`}
+        title={`Update Hermes on ${identity}?`}
         confirmLabel="Update Hermes"
         danger
         onCancel={() => setConfirmUpdate(false)}
         onConfirm={() => onTool("update")}
       >
-        The configured Hermes update command will run on <b>{title}</b>, then the gateway will
+        The configured Hermes update command will run on <b>{identity}</b>, then the gateway will
         restart.
       </ConfirmDialog>
     </Card>

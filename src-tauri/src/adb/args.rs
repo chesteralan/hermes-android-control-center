@@ -51,6 +51,10 @@ pub fn install(serial: &str, apk_path: &Path) -> Vec<String> {
     )
 }
 
+pub fn uninstall_termux(serial: &str) -> Vec<String> {
+    scoped(serial, &["uninstall", "com.termux"])
+}
+
 pub fn push(serial: &str, local_path: &Path, remote_path: &str) -> Vec<String> {
     scoped(
         serial,
@@ -129,6 +133,10 @@ mod tests {
         assert_eq!(
             install(serial, Path::new("/tmp/termux.apk")),
             ["-s", serial, "install", "-r", "/tmp/termux.apk"]
+        );
+        assert_eq!(
+            uninstall_termux(serial),
+            ["-s", serial, "uninstall", "com.termux"]
         );
         assert_eq!(
             push(

@@ -1,5 +1,12 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { ErrorPanel } from "../../components/ErrorPanel";
@@ -27,6 +34,29 @@ interface PauseSnapshot {
   lines: LogLine[];
   lastSequence: number;
 }
+
+/** Per-phone viewer state so switching device tabs never leaks search/pause. */
+interface LogsUiState {
+  follow: boolean;
+  pause: PauseSnapshot | null;
+  searchInput: string;
+  searchQuery: string;
+  regexEnabled: boolean;
+  caseSensitive: boolean;
+  matchCursor: number;
+  selectedLevels: Set<LevelFilter>;
+}
+
+const DEFAULT_LOGS_UI: LogsUiState = {
+  follow: true,
+  pause: null,
+  searchInput: "",
+  searchQuery: "",
+  regexEnabled: false,
+  caseSensitive: false,
+  matchCursor: 0,
+  selectedLevels: new Set(LEVEL_FILTERS),
+};
 
 const levelStyle: Record<LogLevel, string> = {
   debug: "text-muted",
@@ -98,7 +128,11 @@ export function LogRow({
       <span className="w-[140px] shrink-0 text-muted">{line.timestamp ?? ""}</span>
       <LevelBadge level={line.level} />
       <span className="truncate">
-        {line.tag && <span className="text-muted"><HighlightText text={`${line.tag}: `} pattern={pattern} /></span>}
+        {line.tag && (
+          <span className="text-muted">
+            <HighlightText text={`${line.tag}: `} pattern={pattern} />
+          </span>
+        )}
         <HighlightText text={line.message} pattern={pattern} />
       </span>
     </button>
@@ -112,21 +146,23 @@ export function LogsView() {
   const { start, stop, clear } = useLogs();
   const lines = entry?.lines ?? NO_LINES;
   const streaming = !!entry?.streamId;
-  const [follow, setFollow] = useState(true);
-  const [pauseSnapshot, setPauseSnapshot] = useState<PauseSnapshot | null>(null);
-  const [searchInput, setSearchInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [regexEnabled, setRegexEnabled] = useState(false);
-  const [caseSensitive, setCaseSensitive] = useState(false);
-  const [matchCursor, setMatchCursor] = useState(0);
+  const [uiByDevice, setUiByDevice] = useState<Record<string, LogsUiState>>({});
+  const ui = uiByDevice[key] ?? DEFAULT_LOGS_UI;
+  const follow = ui.follow;
+  const searchInput = ui.searchInput;
+  const searchQuery = ui.searchQuery;
+  const regexEnabled = ui.regexEnabled;
+  const caseSensitive = ui.caseSensitive;
+  const matchCursor = ui.matchCursor;
+  const selectedLevels = ui.selectedLevels;
+  const pauseSnapshot = ui.pause;
+  const patchUi = (patch: Partial<LogsUiState>) =>
+    setUiByDevice((s) => ({ ...s, [key]: { ...(s[key] ?? DEFAULT_LOGS_UI), ...patch } }));
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportScope, setExportScope] = useState<"visible" | "all">("visible");
   const [exportFormat, setExportFormat] = useState<LogExportFormat>("log");
   const [exportStatus, setExportStatus] = useState("");
   const [source, setSource] = useState<LogSourceKind>("logcat");
-  const [selectedLevels, setSelectedLevels] = useState<Set<LevelFilter>>(
-    () => new Set(LEVEL_FILTERS),
-  );
   const [workerResult, setWorkerResult] = useState<LogSearchWorkerResponse | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const workerRequestId = useRef(0);
@@ -141,13 +177,21 @@ export function LogsView() {
   const visibleLines = paused && pauseSnapshot ? pauseSnapshot.lines : lines;
   const lastSequence = lines.at(-1)?.seq ?? -1;
   const displayedSource = LOG_SOURCES.find((option) => option.value === (entry?.source ?? source));
-  const newLineCount = paused && pauseSnapshot ? Math.max(0, lastSequence - pauseSnapshot.lastSequence) : 0;
+  const newLineCount =
+    paused && pauseSnapshot ? Math.max(0, lastSequence - pauseSnapshot.lastSequence) : 0;
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => setSearchQuery(searchInput), 180);
+    const timeout = window.setTimeout(
+      () =>
+        setUiByDevice((s) => ({
+          ...s,
+          [key]: { ...(s[key] ?? DEFAULT_LOGS_UI), searchQuery: searchInput },
+        })),
+      180,
+    );
     return () => window.clearTimeout(timeout);
-  }, [searchInput]);
+  }, [key, searchInput]);
 
   let searchPattern: RegExp | null = null;
   let searchError: string | null = null;
@@ -184,7 +228,11 @@ export function LogsView() {
       ? visibleLines.filter((line) => workerMatchSet.has(line.seq))
       : []
     : searchPattern
-      ? visibleLines.filter((line) => searchPattern?.test(`${line.timestamp ?? ""} ${line.level ?? ""} ${line.tag ?? ""} ${line.message}`))
+      ? visibleLines.filter((line) =>
+          searchPattern?.test(
+            `${line.timestamp ?? ""} ${line.level ?? ""} ${line.tag ?? ""} ${line.message}`,
+          ),
+        )
       : visibleLines;
   const levelCounts = searchMatches.reduce<Record<LevelFilter, number>>(
     (counts, line) => {
@@ -194,15 +242,20 @@ export function LogsView() {
     { info: 0, warn: 0, error: 0, debug: 0, unknown: 0 },
   );
   const matchingLines = searchMatches.filter((line) => selectedLevels.has(line.level ?? "unknown"));
-  const activeMatchIndex = matchingLines.length === 0 ? -1 : Math.min(matchCursor, matchingLines.length - 1);
-  const activeMatchSequence = searchPattern && activeMatchIndex >= 0 ? matchingLines[activeMatchIndex]?.seq : null;
+  const activeMatchIndex =
+    matchingLines.length === 0 ? -1 : Math.min(matchCursor, matchingLines.length - 1);
+  const activeMatchSequence =
+    searchPattern && activeMatchIndex >= 0 ? matchingLines[activeMatchIndex]?.seq : null;
   const renderedLines = matchingLines;
 
   useEffect(() => {
     if (typeof Worker === "undefined") return;
-    const worker = new Worker(new URL("./logSearch.worker.ts", import.meta.url), { type: "module" });
+    const worker = new Worker(new URL("./logSearch.worker.ts", import.meta.url), {
+      type: "module",
+    });
     workerRef.current = worker;
-    worker.onmessage = (event: MessageEvent<LogSearchWorkerResponse>) => setWorkerResult(event.data);
+    worker.onmessage = (event: MessageEvent<LogSearchWorkerResponse>) =>
+      setWorkerResult(event.data);
     return () => {
       worker.terminate();
       workerRef.current = null;
@@ -249,7 +302,7 @@ export function LogsView() {
     const el = scroller.current;
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < ROW * 2;
-    if (atBottom !== follow) setFollow(atBottom);
+    if (atBottom !== follow) patchUi({ follow: atBottom });
   };
 
   function selectLine(event: MouseEvent<HTMLButtonElement>, line: LogLine, index: number) {
@@ -268,9 +321,10 @@ export function LogsView() {
     }
 
     const toggle = event.metaKey || event.ctrlKey;
-    const next = toggle && selectionState.deviceKey === key
-      ? new Set(selectionState.selectedSeqs)
-      : new Set<number>();
+    const next =
+      toggle && selectionState.deviceKey === key
+        ? new Set(selectionState.selectedSeqs)
+        : new Set<number>();
     if (toggle && next.has(line.seq)) next.delete(line.seq);
     else next.add(line.seq);
     setSelectionState({
@@ -314,7 +368,9 @@ export function LogsView() {
       <header className="flex shrink-0 flex-col gap-2 border-b border-border px-4 py-2">
         <span>
           <b>Logs</b>{" "}
-          <span className="text-muted">{displayedSource?.label} · {lines.length.toLocaleString()} lines</span>
+          <span className="text-muted">
+            {displayedSource?.label} · {lines.length.toLocaleString()} lines
+          </span>
         </span>
         <span className="flex min-w-0 flex-wrap items-center gap-2">
           <select
@@ -365,8 +421,7 @@ export function LogsView() {
               aria-label="Search logs"
               value={searchInput}
               onChange={(event) => {
-                setSearchInput(event.target.value);
-                setMatchCursor(0);
+                patchUi({ searchInput: event.target.value, matchCursor: 0 });
               }}
               className="w-32 rounded border border-border bg-bg px-2 py-1 text-text"
             />
@@ -377,8 +432,7 @@ export function LogsView() {
               aria-label="Use regular expression"
               checked={regexEnabled}
               onChange={(event) => {
-                setRegexEnabled(event.target.checked);
-                setMatchCursor(0);
+                patchUi({ regexEnabled: event.target.checked, matchCursor: 0 });
               }}
             />
             Regex
@@ -389,17 +443,20 @@ export function LogsView() {
               aria-label="Case sensitive"
               checked={caseSensitive}
               onChange={(event) => {
-                setCaseSensitive(event.target.checked);
-                setMatchCursor(0);
+                patchUi({ caseSensitive: event.target.checked, matchCursor: 0 });
               }}
             />
             Case
           </label>
-          <span className="flex max-w-full flex-wrap items-center gap-1" role="group" aria-label="Filter log levels">
+          <span
+            className="flex max-w-full flex-wrap items-center gap-1"
+            role="group"
+            aria-label="Filter log levels"
+          >
             <Button
               variant="ghost"
               aria-pressed={selectedLevels.size === LEVEL_FILTERS.length}
-              onClick={() => setSelectedLevels(new Set(LEVEL_FILTERS))}
+              onClick={() => patchUi({ selectedLevels: new Set(LEVEL_FILTERS) })}
             >
               All
             </Button>
@@ -409,21 +466,20 @@ export function LogsView() {
                 variant="ghost"
                 aria-label={`${level.toUpperCase()} ${levelCounts[level]}`}
                 aria-pressed={selectedLevels.has(level)}
-                onClick={() =>
-                  setSelectedLevels((current) => {
-                    const next = new Set(current);
-                    if (next.has(level)) next.delete(level);
-                    else next.add(level);
-                    return next;
-                  })
-                }
+                onClick={() => {
+                  const next = new Set(selectedLevels);
+                  if (next.has(level)) next.delete(level);
+                  else next.add(level);
+                  patchUi({ selectedLevels: next });
+                }}
               >
                 {level === "unknown" ? "Unknown" : level.toUpperCase()} {levelCounts[level]}
               </Button>
             ))}
           </span>
           <span role={searchError ? "alert" : "status"} className="text-[10px] text-muted">
-            {searchError ?? (searchPending ? "Searching…" : searchQuery ? `${renderedLines.length} matches` : "")}
+            {searchError ??
+              (searchPending ? "Searching…" : searchQuery ? `${renderedLines.length} matches` : "")}
           </span>
           <Button
             variant="ghost"
@@ -431,7 +487,7 @@ export function LogsView() {
             disabled={renderedLines.length === 0 || searchPending}
             onClick={() => {
               const next = (activeMatchIndex - 1 + renderedLines.length) % renderedLines.length;
-              setMatchCursor(next);
+              patchUi({ matchCursor: next });
               const sequence = renderedLines[next]?.seq;
               const index = renderedLines.findIndex((line) => line.seq === sequence);
               if (index >= 0) virt.scrollToIndex(index, { align: "center" });
@@ -445,7 +501,7 @@ export function LogsView() {
             disabled={renderedLines.length === 0 || searchPending}
             onClick={() => {
               const next = (activeMatchIndex + 1) % renderedLines.length;
-              setMatchCursor(next);
+              patchUi({ matchCursor: next });
               const sequence = renderedLines[next]?.seq;
               const index = renderedLines.findIndex((line) => line.seq === sequence);
               if (index >= 0) virt.scrollToIndex(index, { align: "center" });
@@ -457,8 +513,7 @@ export function LogsView() {
             <Button
               variant="ghost"
               onClick={() => {
-                setPauseSnapshot(null);
-                setFollow(true);
+                patchUi({ pause: null, follow: true });
               }}
             >
               Resume{newLineCount > 0 ? ` · ${newLineCount} new` : ""}
@@ -468,14 +523,17 @@ export function LogsView() {
               variant="ghost"
               disabled={lines.length === 0}
               onClick={() => {
-                setPauseSnapshot({ deviceKey: key, lines, lastSequence });
-                setFollow(false);
+                patchUi({ pause: { deviceKey: key, lines, lastSequence }, follow: false });
               }}
             >
               Pause
             </Button>
           )}
-          <Button variant="ghost" aria-pressed={follow} onClick={() => setFollow((f) => !f)}>
+          <Button
+            variant="ghost"
+            aria-pressed={follow}
+            onClick={() => patchUi({ follow: !follow })}
+          >
             Auto-scroll {follow ? "on" : "off"}
           </Button>
         </span>
@@ -522,10 +580,14 @@ export function LogsView() {
       </div>
       {!follow && lines.length > 0 && (
         <div className="border-t border-border px-4 py-2">
-          <Button onClick={() => setFollow(true)}>Jump to latest</Button>
+          <Button onClick={() => patchUi({ follow: true })}>Jump to latest</Button>
         </div>
       )}
-      {exportStatus && <p className="sr-only" role="status">{exportStatus}</p>}
+      {exportStatus && (
+        <p className="sr-only" role="status">
+          {exportStatus}
+        </p>
+      )}
       <Dialog
         open={exportDialogOpen}
         title="Export logs"

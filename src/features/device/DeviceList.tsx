@@ -4,14 +4,18 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { StatusDot } from "../../components/StatusDot";
 import { deviceKey, useDevices } from "../../stores/devices";
+import { useDeviceProfiles } from "../../stores/deviceProfiles";
 import type { AndroidDevice, ErrorPayload } from "../../types";
-import { connectionLabel, deviceStatus, deviceTitle } from "./deviceStatus";
+import { connectionLabel, deviceIdentity, deviceStatus, deviceTitle } from "./deviceStatus";
 
 export function DeviceList() {
   const { devices, activeKey, reconnect, select, disconnect, retry } = useDevices();
+  const profiles = useDeviceProfiles((s) => s.profiles);
   const [confirm, setConfirm] = useState<AndroidDevice | null>(null);
   const [error, setError] = useState<ErrorPayload | null>(null);
   const list = Object.values(devices);
+  const aliasOf = (d: AndroidDevice | null) =>
+    d ? (profiles[d.deviceId ?? ""]?.alias ?? null) : null;
 
   async function run(fn: () => Promise<void>) {
     setError(null);
@@ -25,8 +29,8 @@ export function DeviceList() {
   return (
     <div className="flex flex-col gap-2">
       {list.map((d) => {
-        const st = deviceStatus(d, reconnect[d.serial]);
         const key = deviceKey(d);
+        const st = deviceStatus(d, reconnect[key]);
         return (
           <div
             key={key}
@@ -63,7 +67,11 @@ export function DeviceList() {
       {error && <ErrorPanel error={error} />}
       <ConfirmDialog
         open={confirm !== null}
-        title="Disconnect device?"
+        title={
+          confirm
+            ? `Disconnect ${deviceIdentity(confirm, aliasOf(confirm))}?`
+            : "Disconnect device?"
+        }
         confirmLabel="Disconnect"
         danger
         onCancel={() => setConfirm(null)}
@@ -73,7 +81,7 @@ export function DeviceList() {
           if (d) void run(() => disconnect(d.serial));
         }}
       >
-        Disconnect <b>{confirm ? deviceTitle(confirm) : ""}</b> ({confirm?.serial})? Automatic
+        Disconnect <b>{confirm ? deviceIdentity(confirm, aliasOf(confirm)) : ""}</b>? Automatic
         reconnection will be turned off for it.
       </ConfirmDialog>
     </div>

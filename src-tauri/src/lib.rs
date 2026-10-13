@@ -30,6 +30,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
@@ -52,6 +53,34 @@ pub fn run() {
             lifecycle::install_app_menu(&handle)?;
             let tray_available = lifecycle::install_tray(&handle);
             app.manage(lifecycle::AppLifecycle::new(tray_available));
+            // Unix: SIGTERM/SIGINT must take the graceful quit path so streamed
+            // `adb` children (track-devices, logcat, PTYs) are reaped (M10-T3).
+            #[cfg(unix)]
+            {
+                let quit_handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    let mut term = match signal(SignalKind::terminate()) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "SIGTERM handler unavailable");
+                            return;
+                        }
+                    };
+                    let mut interrupt = match signal(SignalKind::interrupt()) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "SIGINT handler unavailable");
+                            return;
+                        }
+                    };
+                    tokio::select! {
+                        _ = term.recv() => tracing::info!("SIGTERM received; quitting gracefully"),
+                        _ = interrupt.recv() => tracing::info!("SIGINT received; quitting gracefully"),
+                    }
+                    lifecycle::request_quit(quit_handle);
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -92,6 +121,11 @@ pub fn run() {
             commands::settings::lock_secret_storage,
             commands::settings::supports_in_app_updates,
             commands::settings::update_settings,
+            commands::settings::list_device_profiles,
+            commands::settings::get_device_profile,
+            commands::settings::set_device_profile,
+            commands::settings::delete_device_profile,
+            commands::settings::get_effective_device_config,
             commands::control_api::preview_control_api_install,
             commands::control_api::install_control_api,
             commands::control_api::test_control_api,
@@ -99,9 +133,13 @@ pub fn run() {
             commands::provision::list_provision_recipes,
             commands::provision::get_provision_recipe_source,
             commands::provision::save_provision_recipe,
+            commands::provision::get_hermes_config,
+            commands::provision::save_hermes_config,
+            commands::provision::apply_hermes_setup,
             commands::provision::import_provision_recipe,
             commands::provision::export_provision_recipe,
             commands::provision::get_provision_plan,
+            commands::provision::uninstall_incompatible_termux,
             commands::provision::reset_provision_progress,
             commands::provision::run_provision,
             commands::provision::cancel_provision,
@@ -127,11 +165,14 @@ pub fn run() {
             commands::termux::get_termux_public_key,
             commands::termux::check_termux,
             commands::termux::forget_termux_host_key,
+            commands::termux::repair_termux_ssh_bridge,
             commands::hermes::get_hermes_status,
             commands::hermes::detect_hermes,
             commands::hermes::hermes_action,
             commands::hermes::run_hermes_tool,
         ])
         .run(tauri::generate_context!())
+        // Tauri's run() returns only on a fatal startup error; there is no
+        // recoverable alternative, so a panic is the correct response here.
         .expect("error while running Hermes Control Center");
 }

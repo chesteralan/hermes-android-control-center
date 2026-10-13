@@ -7,18 +7,23 @@ use sha2::{Digest, Sha256};
 use zip::ZipArchive;
 
 use crate::error::{AppError, AppResult};
+use crate::process::cancellable;
+use tokio_util::sync::CancellationToken;
 
 use super::recipe::ProvisionTermuxSource;
 
 const FDROID_INDEX_URL: &str = "https://f-droid.org/repo/index-v1.jar";
 const USER_AGENT: &str = "HermesControlCenter/0.1 (Termux provisioning)";
-const MAX_APK_BYTES: usize = 100 * 1024 * 1024;
+const MAX_APK_MIB: usize = 200;
+const MAX_APK_BYTES: usize = MAX_APK_MIB * 1024 * 1024;
+const DOWNLOAD_PROGRESS_INTERVAL_BYTES: u64 = 1024 * 1024;
+const MAX_CHECKSUM_FILE_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApkAsset {
     pub file_name: String,
     pub url: String,
-    pub sha256: String,
+    pub sha256: Option<String>,
     pub version_name: String,
     pub version_code: u64,
 }
@@ -30,6 +35,15 @@ pub struct DownloadedApk {
     pub version_name: String,
     pub version_code: u64,
     pub sha256: String,
+    pub verified_against_source: bool,
+}
+
+struct AppApkRequest<'a> {
+    package_name: &'a str,
+    github_repository: &'a str,
+    github_asset_prefix: &'a str,
+    abi: &'a str,
+    cache_file_name: &'a str,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -194,7 +208,7 @@ pub fn select_fdroid_app_asset(
     Ok(ApkAsset {
         file_name: package.apk_name.clone(),
         url: format!("https://f-droid.org/repo/{}", package.apk_name),
-        sha256: package.hash.to_ascii_lowercase(),
+        sha256: Some(package.hash.to_ascii_lowercase()),
         version_name: package.version_name,
         version_code: package.version_code,
     })
@@ -231,20 +245,20 @@ pub fn select_github_asset_for_prefix(
         .ok_or_else(|| {
             AppError::Config(format!("Termux GitHub release has no APK for ABI {abi}."))
         })?;
-    let digest = asset
-        .digest
-        .as_deref()
-        .and_then(|digest| digest.strip_prefix("sha256:"))
-        .ok_or_else(|| {
-            AppError::Config(
-                "GitHub release does not provide a SHA-256 digest for the Termux APK.".into(),
-            )
-        })?;
-    if !valid_sha256(digest) {
-        return Err(AppError::Config(
-            "GitHub returned an invalid Termux APK SHA-256.".into(),
-        ));
-    }
+    let sha256 = match asset.digest.as_deref() {
+        None => None,
+        Some(digest) => {
+            let digest = digest.strip_prefix("sha256:").ok_or_else(|| {
+                AppError::Config("GitHub returned an invalid Termux APK SHA-256.".into())
+            })?;
+            if !valid_sha256(digest) {
+                return Err(AppError::Config(
+                    "GitHub returned an invalid Termux APK SHA-256.".into(),
+                ));
+            }
+            Some(digest.to_ascii_lowercase())
+        }
+    };
     let version_name = asset
         .name
         .strip_prefix(asset_prefix)
@@ -255,25 +269,83 @@ pub fn select_github_asset_for_prefix(
     Ok(ApkAsset {
         file_name: asset.name,
         url: asset.browser_download_url,
-        sha256: digest.to_ascii_lowercase(),
+        sha256,
         version_name,
         version_code: 0,
     })
+}
+
+pub fn sha256_from_checksum_file(checksum_text: &str, file_name: &str) -> Option<String> {
+    let wanted = Path::new(file_name).file_name()?.to_string_lossy();
+    checksum_text.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let digest = parts.next()?;
+        let name = parts.next()?.trim_start_matches('*');
+        (name == wanted && valid_sha256(digest)).then(|| digest.to_ascii_lowercase())
+    })
+}
+
+fn checksum_asset_url(release_json: &str) -> Option<String> {
+    let release: GithubRelease = serde_json::from_str(release_json).ok()?;
+    release
+        .assets
+        .into_iter()
+        .find(|asset| {
+            let name = asset.name.to_ascii_lowercase();
+            !name.ends_with(".apk") && (name.contains("sha256") || name.contains("checksum"))
+        })
+        .map(|asset| asset.browser_download_url)
+}
+
+async fn fetch_text_capped(client: &reqwest::Client, url: &str) -> AppResult<String> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| {
+            AppError::Io(format!("Could not download release checksum file: {error}"))
+        })?
+        .error_for_status()
+        .map_err(|error| AppError::Io(format!("Release checksum file request failed: {error}")))?;
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_CHECKSUM_FILE_BYTES as u64)
+    {
+        return Err(AppError::Config(
+            "Release checksum file exceeds the 1 MiB safety limit.".into(),
+        ));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| AppError::Io(format!("Could not read release checksum file: {error}")))?;
+    if bytes.len() > MAX_CHECKSUM_FILE_BYTES {
+        return Err(AppError::Config(
+            "Release checksum file exceeds the 1 MiB safety limit.".into(),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 pub async fn download_termux_apk(
     source: ProvisionTermuxSource,
     abi: &str,
     cache_dir: &Path,
+    cancel: CancellationToken,
+    on_progress: impl FnMut(u64, Option<u64>),
 ) -> AppResult<DownloadedApk> {
     download_app_apk(
         source,
-        "com.termux",
-        "termux/termux-app",
-        "termux-app_",
-        abi,
+        AppApkRequest {
+            package_name: "com.termux",
+            github_repository: "termux/termux-app",
+            github_asset_prefix: "termux-app_",
+            abi,
+            cache_file_name: "termux.apk",
+        },
         cache_dir,
-        "termux.apk",
+        cancel,
+        on_progress,
     )
     .await
 }
@@ -282,34 +354,51 @@ pub async fn download_termux_boot_apk(
     source: ProvisionTermuxSource,
     abi: &str,
     cache_dir: &Path,
+    cancel: CancellationToken,
+    on_progress: impl FnMut(u64, Option<u64>),
 ) -> AppResult<DownloadedApk> {
     download_app_apk(
         source,
-        "com.termux.boot",
-        "termux/termux-boot",
-        "termux-boot_",
-        abi,
+        AppApkRequest {
+            package_name: "com.termux.boot",
+            github_repository: "termux/termux-boot",
+            github_asset_prefix: "termux-boot_",
+            abi,
+            cache_file_name: "termux-boot.apk",
+        },
         cache_dir,
-        "termux-boot.apk",
+        cancel,
+        on_progress,
     )
     .await
 }
 
 async fn download_app_apk(
     source: ProvisionTermuxSource,
-    package_name: &str,
-    github_repository: &str,
-    github_asset_prefix: &str,
-    abi: &str,
+    request: AppApkRequest<'_>,
     cache_dir: &Path,
-    cache_file_name: &str,
+    cancel: CancellationToken,
+    on_progress: impl FnMut(u64, Option<u64>),
+) -> AppResult<DownloadedApk> {
+    cancellable(
+        &cancel,
+        download_app_apk_inner(source, request, cache_dir, on_progress),
+    )
+    .await
+}
+
+async fn download_app_apk_inner(
+    source: ProvisionTermuxSource,
+    request: AppApkRequest<'_>,
+    cache_dir: &Path,
+    mut on_progress: impl FnMut(u64, Option<u64>),
 ) -> AppResult<DownloadedApk> {
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|error| AppError::Io(error.to_string()))?;
-    let asset = match source {
+    let (mut asset, release_json) = match source {
         ProvisionTermuxSource::Fdroid => {
             let response = client
                 .get(FDROID_INDEX_URL)
@@ -335,12 +424,16 @@ async fn download_app_apk(
                 .map_err(|error| {
                     AppError::Io(format!("Could not read F-Droid index JSON: {error}"))
                 })?;
-            select_fdroid_app_asset(&index_json, package_name, abi)?
+            (
+                select_fdroid_app_asset(&index_json, request.package_name, request.abi)?,
+                None,
+            )
         }
         ProvisionTermuxSource::Github => {
             let release_json = client
                 .get(format!(
-                    "https://api.github.com/repos/{github_repository}/releases/latest"
+                    "https://api.github.com/repos/{}/releases/latest",
+                    request.github_repository
                 ))
                 .send()
                 .await
@@ -352,9 +445,24 @@ async fn download_app_apk(
                 .map_err(|error| {
                     AppError::Io(format!("Could not read Termux release metadata: {error}"))
                 })?;
-            select_github_asset_for_prefix(&release_json, github_asset_prefix, abi)?
+            let asset = select_github_asset_for_prefix(
+                &release_json,
+                request.github_asset_prefix,
+                request.abi,
+            )?;
+            (asset, Some(release_json))
         }
     };
+    if asset.sha256.is_none() {
+        if let Some(url) = release_json.as_deref().and_then(checksum_asset_url) {
+            match fetch_text_capped(&client, &url).await {
+                Ok(text) => {
+                    asset.sha256 = sha256_from_checksum_file(&text, &asset.file_name);
+                }
+                Err(error) => tracing::warn!(%error, "failed to use release checksum file"),
+            }
+        }
+    }
     let mut response = client
         .get(&asset.url)
         .send()
@@ -366,34 +474,63 @@ async fn download_app_apk(
         .content_length()
         .is_some_and(|length| length > MAX_APK_BYTES as u64)
     {
-        return Err(AppError::Config(
-            "Downloaded APK exceeds the 100 MiB safety limit.".into(),
-        ));
+        return Err(AppError::Config(format!(
+            "Downloaded APK exceeds the {MAX_APK_MIB} MiB safety limit."
+        )));
     }
+    let total_bytes = response.content_length();
     let mut bytes = Vec::new();
+    let mut last_reported_bytes = 0_u64;
+    on_progress(0, total_bytes);
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|error| AppError::Io(format!("Could not read Termux APK: {error}")))?
     {
         if chunk.len() > MAX_APK_BYTES.saturating_sub(bytes.len()) {
-            return Err(AppError::Config(
-                "Downloaded APK exceeds the 100 MiB safety limit.".into(),
-            ));
+            return Err(AppError::Config(format!(
+                "Downloaded APK exceeds the {MAX_APK_MIB} MiB safety limit."
+            )));
         }
         bytes.extend_from_slice(&chunk);
+        let downloaded_bytes = bytes.len() as u64;
+        if should_report_download_progress(downloaded_bytes, last_reported_bytes, total_bytes) {
+            on_progress(downloaded_bytes, total_bytes);
+            last_reported_bytes = downloaded_bytes;
+        }
     }
-    verify_sha256(&bytes, &asset.sha256)?;
+    let downloaded_bytes = bytes.len() as u64;
+    if downloaded_bytes > last_reported_bytes {
+        on_progress(downloaded_bytes, total_bytes);
+    }
+    let verified_against_source = asset.sha256.is_some();
+    let sha256 = match asset.sha256.as_deref() {
+        Some(expected) => {
+            verify_sha256(&bytes, expected)?;
+            expected.to_ascii_lowercase()
+        }
+        None => digest_hex(&bytes),
+    };
     std::fs::create_dir_all(cache_dir)?;
-    let path = cache_dir.join(format!("{}-{cache_file_name}", asset.sha256));
+    let path = cache_dir.join(format!("{sha256}-{}", request.cache_file_name));
     std::fs::write(&path, &bytes)?;
     Ok(DownloadedApk {
         path,
         file_name: asset.file_name,
         version_name: asset.version_name,
         version_code: asset.version_code,
-        sha256: asset.sha256,
+        sha256,
+        verified_against_source,
     })
+}
+
+fn should_report_download_progress(
+    downloaded_bytes: u64,
+    last_reported_bytes: u64,
+    total_bytes: Option<u64>,
+) -> bool {
+    downloaded_bytes.saturating_sub(last_reported_bytes) >= DOWNLOAD_PROGRESS_INTERVAL_BYTES
+        || total_bytes.is_some_and(|total| downloaded_bytes == total)
 }
 
 fn normalize_abi(abi: &str) -> AppResult<String> {
@@ -440,7 +577,32 @@ fn digest_hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn cancellation_interrupts_an_in_flight_download_operation() {
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let result = cancellable(&cancel, std::future::pending::<AppResult<()>>()).await;
+
+        assert_eq!(result, Err(AppError::Cancelled));
+    }
+
     const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    #[test]
+    fn download_progress_is_throttled_but_reports_completion() {
+        assert!(!should_report_download_progress(
+            512 * 1024,
+            0,
+            Some(2 * 1024 * 1024)
+        ));
+        assert!(should_report_download_progress(
+            1024 * 1024,
+            0,
+            Some(2 * 1024 * 1024)
+        ));
+        assert!(should_report_download_progress(1500, 1000, Some(1500)));
+    }
 
     #[tokio::test]
     async fn receipt_identifies_only_matching_device_and_installed_apk() {
@@ -451,6 +613,7 @@ mod tests {
             version_name: "0.118.3".into(),
             version_code: 1002,
             sha256: HASH.into(),
+            verified_against_source: true,
         };
         record_termux_install(
             &root,
@@ -553,14 +716,74 @@ mod tests {
         .to_string();
         let asset = select_github_asset(&release, "arm64-v8a").unwrap();
         assert!(asset.file_name.contains("arm64-v8a"));
+        assert_eq!(asset.sha256.as_deref(), Some(HASH));
 
-        let no_digest = release.replace(&format!("sha256:{HASH}"), "");
-        assert!(select_github_asset(&no_digest, "arm64-v8a").is_err());
+        let no_digest = serde_json::json!({
+            "assets": [
+                {
+                    "name": "termux-app_v0.118.3+github-debug_arm64-v8a.apk",
+                    "browser_download_url": "https://github.invalid/arm64.apk"
+                }
+            ]
+        })
+        .to_string();
+        let undigested = select_github_asset(&no_digest, "arm64-v8a").unwrap();
+        assert!(undigested.sha256.is_none());
+
+        let invalid_digest = serde_json::json!({
+            "assets": [
+                {
+                    "name": "termux-app_v0.118.3+github-debug_arm64-v8a.apk",
+                    "browser_download_url": "https://github.invalid/arm64.apk",
+                    "digest": "sha256:not-a-digest"
+                }
+            ]
+        })
+        .to_string();
+        assert!(select_github_asset(&invalid_digest, "arm64-v8a").is_err());
 
         let boot_release = release.replace("termux-app_", "termux-boot_");
         let boot =
             select_github_asset_for_prefix(&boot_release, "termux-boot_", "arm64-v8a").unwrap();
         assert!(boot.file_name.starts_with("termux-boot_"));
+    }
+
+    #[test]
+    fn reads_sha256_from_release_checksum_file() {
+        let apk_name = "termux-app_v0.118.3+github-debug_arm64-v8a.apk";
+        let text = format!(
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  other.apk\n{HASH}  {apk_name}\n"
+        );
+        assert_eq!(sha256_from_checksum_file(&text, apk_name).unwrap(), HASH);
+        let starred = format!("{HASH} *{apk_name}\n");
+        assert_eq!(sha256_from_checksum_file(&starred, apk_name).unwrap(), HASH);
+        assert!(sha256_from_checksum_file(&text, "missing.apk").is_none());
+        let invalid = format!(
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz  {apk_name}\n"
+        );
+        assert!(sha256_from_checksum_file(&invalid, apk_name).is_none());
+    }
+
+    #[test]
+    fn finds_release_checksum_asset_but_never_other_apks() {
+        let release = serde_json::json!({
+            "assets": [
+                { "name": "termux-app_v0.118.3_arm64-v8a.apk", "browser_download_url": "https://github.invalid/arm64.apk" },
+                { "name": "SHA256SUMS.txt", "browser_download_url": "https://github.invalid/SHA256SUMS.txt" }
+            ]
+        })
+        .to_string();
+        assert_eq!(
+            checksum_asset_url(&release).unwrap(),
+            "https://github.invalid/SHA256SUMS.txt"
+        );
+        let no_checksums = serde_json::json!({
+            "assets": [
+                { "name": "termux-app_v0.118.3_arm64-v8a.apk", "browser_download_url": "https://github.invalid/arm64.apk" }
+            ]
+        })
+        .to_string();
+        assert!(checksum_asset_url(&no_checksums).is_none());
     }
 
     #[test]

@@ -6,9 +6,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::lines::LineSplitter;
-use super::{CommandResult, DeviceTransport, StreamEvent, TransportKind};
+use super::{validate_command, CommandResult, DeviceTransport, StreamEvent, TransportKind};
 use crate::adb::{args, parse, AdbClient};
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::process::{ProcessRunner, StreamChunk};
 
 /// Runs commands in the Android shell (`adb -s <serial> shell`). Not Termux.
@@ -32,13 +32,6 @@ impl AdbShellTransport {
     }
 }
 
-fn validate(command: &str) -> AppResult<()> {
-    if command.trim().is_empty() {
-        return Err(AppError::Config("Enter a command to run.".into()));
-    }
-    Ok(())
-}
-
 #[async_trait]
 impl DeviceTransport for AdbShellTransport {
     fn kind(&self) -> TransportKind {
@@ -46,7 +39,7 @@ impl DeviceTransport for AdbShellTransport {
     }
 
     async fn execute(&self, command: &str, timeout: Duration) -> AppResult<CommandResult> {
-        validate(command)?;
+        validate_command(command)?;
         let out = self.client.shell(&self.serial, command, timeout).await?;
         Ok(CommandResult {
             stdout: out.stdout,
@@ -61,7 +54,7 @@ impl DeviceTransport for AdbShellTransport {
         command: &str,
         cancel: CancellationToken,
     ) -> AppResult<mpsc::Receiver<StreamEvent>> {
-        validate(command)?;
+        validate_command(command)?;
         let started = Instant::now();
         let mut raw = self
             .runner
@@ -96,18 +89,32 @@ impl DeviceTransport for AdbShellTransport {
                     StreamChunk::Exit(code) => {
                         let mut tail = Vec::new();
                         tail.extend(out.finish().map(|line| StreamEvent::Stdout { line }));
-                        tail.extend(err.finish().map(|line| StreamEvent::Stderr { line }));
+                        if let Some(line) = err.finish() {
+                            stderr_text.push_str(&line);
+                            stderr_text.push('\n');
+                            tail.push(StreamEvent::Stderr { line });
+                        }
                         // adb itself failing (device gone) is reported as a structured error.
-                        let lower = stderr_text.to_lowercase();
-                        if code != Some(0)
-                            && (lower.contains("device offline")
-                                || lower.contains("not found")
-                                || lower.contains("unauthorized"))
-                        {
-                            tail.push(StreamEvent::Error {
-                                error: parse::map_device_error(&serial, &stderr_text, code)
-                                    .to_payload(),
-                            });
+                        let device_error = if code != Some(0) {
+                            parse::classify_device_error(&serial, &stderr_text)
+                        } else {
+                            None
+                        };
+                        if let Some(device_error) = device_error {
+                            let mut error = device_error.to_payload();
+                            if matches!(
+                                error.kind,
+                                crate::error::ErrorKind::DeviceOffline
+                                    | crate::error::ErrorKind::DeviceUnauthorized
+                                    | crate::error::ErrorKind::DeviceNotFound
+                            ) {
+                                error.details = Some(format!(
+                                    "{}\nADB stderr:\n{}",
+                                    error.details.unwrap_or_default(),
+                                    parse::strip_daemon_noise(&stderr_text),
+                                ));
+                            }
+                            tail.push(StreamEvent::Error { error });
                         } else {
                             tail.push(StreamEvent::Exit {
                                 code,
@@ -173,6 +180,10 @@ mod tests {
             .execute("   ", Duration::from_secs(1))
             .await
             .is_err());
+        assert!(transport(&f)
+            .stream("\t\n", CancellationToken::new())
+            .await
+            .is_err());
         assert!(f.calls().is_empty());
     }
 
@@ -227,5 +238,120 @@ mod tests {
         assert!(
             matches!(ev.last().unwrap(), StreamEvent::Error { error } if error.kind == crate::error::ErrorKind::DeviceOffline)
         );
+    }
+
+    #[tokio::test]
+    async fn stream_classifies_unterminated_stderr_and_retains_its_details() {
+        let runner = FakeRunner::new();
+        runner.on_stream(
+            "-s S shell top",
+            vec![
+                StreamChunk::Stderr(b"error: dev".to_vec()),
+                StreamChunk::Stderr(b"ice offline".to_vec()),
+                StreamChunk::Exit(Some(1)),
+            ],
+        );
+        let events = collect(
+            transport(&runner)
+                .stream("top", CancellationToken::new())
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[0],
+            StreamEvent::Stderr {
+                line: "error: device offline".into()
+            }
+        );
+        assert!(matches!(
+            &events[1],
+            StreamEvent::Error { error }
+                if error.kind == crate::error::ErrorKind::DeviceOffline
+                    && error.details.as_deref().is_some_and(|details| details.contains("device offline")),
+        ));
+    }
+
+    #[tokio::test]
+    async fn ordinary_command_failure_flushes_partial_output_before_exit() {
+        let runner = FakeRunner::new();
+        runner.on_stream(
+            "-s S shell command",
+            vec![
+                StreamChunk::Stdout(b"partial stdout".to_vec()),
+                StreamChunk::Stderr(b"partial stderr".to_vec()),
+                StreamChunk::Exit(Some(7)),
+            ],
+        );
+        let events = collect(
+            transport(&runner)
+                .stream("command", CancellationToken::new())
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(events.len(), 3);
+        assert_eq!(
+            events[0],
+            StreamEvent::Stdout {
+                line: "partial stdout".into()
+            }
+        );
+        assert_eq!(
+            events[1],
+            StreamEvent::Stderr {
+                line: "partial stderr".into()
+            }
+        );
+        assert!(matches!(events[2], StreamEvent::Exit { code: Some(7), .. }));
+    }
+
+    #[tokio::test]
+    async fn command_not_found_is_an_ordinary_shell_exit() {
+        let runner = FakeRunner::new();
+        runner.on_stream(
+            "-s S shell missing-command",
+            vec![
+                StreamChunk::Stderr(b"sh: missing-command: not found".to_vec()),
+                StreamChunk::Exit(Some(127)),
+            ],
+        );
+        let events = collect(
+            transport(&runner)
+                .stream("missing-command", CancellationToken::new())
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(events.len(), 2);
+        assert!(matches!(
+            events[1],
+            StreamEvent::Exit {
+                code: Some(127),
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn stream_reports_no_devices_as_error() {
+        let runner = FakeRunner::new();
+        runner.on_stream(
+            "-s S shell top",
+            vec![
+                StreamChunk::Stderr(b"error: no devices/emulators found".to_vec()),
+                StreamChunk::Exit(Some(1)),
+            ],
+        );
+        let events = collect(
+            transport(&runner)
+                .stream("top", CancellationToken::new())
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(matches!(&events[1], StreamEvent::Error { error }
+            if error.kind == crate::error::ErrorKind::DeviceNotFound));
     }
 }

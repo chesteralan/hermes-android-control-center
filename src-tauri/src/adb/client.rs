@@ -16,6 +16,63 @@ const QUICK: Duration = Duration::from_secs(10);
 const CONNECT: Duration = Duration::from_secs(20);
 const INFO: Duration = Duration::from_secs(15);
 
+fn install_failure_hint(output: &str) -> Option<&'static str> {
+    const HINTS: &[(&str, &str)] = &[
+        (
+            "INSTALL_FAILED_USER_RESTRICTED",
+            "Android blocked the install; approve the package installation prompt on the phone.",
+        ),
+        (
+            "INSTALL_FAILED_INSUFFICIENT_STORAGE",
+            "The phone is low on storage; free space and retry the installation.",
+        ),
+        (
+            "INSTALL_FAILED_UPDATE_INCOMPATIBLE",
+            "The installed package has a different signing source; uninstalling it deletes its data.",
+        ),
+        (
+            "INSTALL_FAILED_VERSION_DOWNGRADE",
+            "A newer package version is already installed; keep it or remove it before installing an older version.",
+        ),
+        (
+            "INSTALL_FAILED_NO_MATCHING_ABIS",
+            "The APK does not contain a compatible CPU architecture for this phone.",
+        ),
+        (
+            "INSTALL_FAILED_CPU_ABI_INCOMPATIBLE",
+            "The APK does not contain a compatible CPU architecture for this phone.",
+        ),
+        (
+            "INSTALL_FAILED_INVALID_APK",
+            "Android rejected the APK as invalid or corrupt; download it again and retry.",
+        ),
+        (
+            "INSTALL_PARSE_FAILED_NOT_APK",
+            "The downloaded file is not a valid Android APK; download it again and retry.",
+        ),
+        (
+            "INSTALL_FAILED_OLDER_SDK",
+            "This APK requires a newer Android version than the phone provides.",
+        ),
+        (
+            "INSTALL_FAILED_MISSING_SHARED_LIBRARY",
+            "This APK requires a shared library that is not available on the phone.",
+        ),
+        (
+            "INSTALL_FAILED_MISSING_FEATURE",
+            "This APK requires a device feature that the phone does not provide.",
+        ),
+        (
+            "INSTALL_FAILED_VERIFICATION_FAILURE",
+            "Android package verification blocked this installation; review the phone's security prompt.",
+        ),
+    ];
+    HINTS
+        .iter()
+        .find(|(code, _)| output.contains(code))
+        .map(|(_, hint)| *hint)
+}
+
 /// Single entry point for every adb invocation.
 #[derive(Clone)]
 pub struct AdbClient {
@@ -100,8 +157,31 @@ impl AdbClient {
             .exec(args::install(serial, apk_path), Duration::from_secs(180))
             .await?;
         if !out.success() {
+            let stderr = if out.stderr.is_empty() {
+                out.stdout.clone()
+            } else {
+                out.stderr.clone()
+            };
+            let command = install_failure_hint(&stderr).map_or_else(
+                || "Install Android package".to_string(),
+                |hint| format!("Install Android package: {hint}"),
+            );
             return Err(AppError::CommandFailed {
-                command: "Install Android package".into(),
+                command,
+                exit_code: out.exit_code,
+                stderr,
+            });
+        }
+        Ok(out)
+    }
+
+    pub async fn uninstall_termux(&self, serial: &str) -> AppResult<RawOutput> {
+        let out = self
+            .exec(args::uninstall_termux(serial), Duration::from_secs(180))
+            .await?;
+        if !out.success() {
+            return Err(AppError::CommandFailed {
+                command: "Uninstall Termux".into(),
                 exit_code: out.exit_code,
                 stderr: if out.stderr.is_empty() {
                     out.stdout.clone()
@@ -168,14 +248,10 @@ impl AdbClient {
         timeout: Duration,
     ) -> AppResult<RawOutput> {
         let out = self.exec(args::shell(serial, command), timeout).await?;
-        let stderr = out.stderr.to_lowercase();
-        if out.exit_code != Some(0)
-            && (stderr.contains("device offline")
-                || stderr.contains("unauthorized")
-                || stderr.contains("not found")
-                || stderr.contains("no devices"))
-        {
-            return Err(parse::map_device_error(serial, &out.stderr, out.exit_code));
+        if out.exit_code != Some(0) {
+            if let Some(error) = parse::classify_device_error(serial, &out.stderr) {
+                return Err(error);
+            }
         }
         Ok(out)
     }
@@ -209,6 +285,26 @@ mod tests {
 
     fn client(f: &FakeRunner) -> AdbClient {
         AdbClient::new("/fake/adb", Arc::new(f.clone()))
+    }
+
+    #[tokio::test]
+    async fn command_not_found_is_an_ordinary_shell_exit() {
+        let runner = FakeRunner::new();
+        runner.on(
+            "-s S shell missing-command",
+            Ok(RawOutput {
+                stdout: String::new(),
+                stderr: "sh: missing-command: not found".into(),
+                exit_code: Some(127),
+                duration_ms: 1,
+            }),
+        );
+        let result = client(&runner)
+            .shell("S", "missing-command", QUICK)
+            .await
+            .unwrap();
+        assert_eq!(result.exit_code, Some(127));
+        assert_eq!(result.stderr, "sh: missing-command: not found");
     }
 
     #[tokio::test]
@@ -362,6 +458,92 @@ mod tests {
             .install_apk("S", Path::new("/tmp/termux.apk"))
             .await
             .unwrap_err();
+        assert!(matches!(error, AppError::CommandFailed { .. }));
+        assert!(error.user_message().contains("different signing source"));
+        assert!(error
+            .details()
+            .unwrap()
+            .contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE"));
+    }
+
+    #[test]
+    fn install_failure_hints_cover_common_package_manager_codes() {
+        for (code, expected) in [
+            (
+                "INSTALL_FAILED_USER_RESTRICTED",
+                "approve the package installation prompt",
+            ),
+            ("INSTALL_FAILED_INSUFFICIENT_STORAGE", "low on storage"),
+            (
+                "INSTALL_FAILED_UPDATE_INCOMPATIBLE",
+                "different signing source",
+            ),
+            ("INSTALL_FAILED_VERSION_DOWNGRADE", "newer package version"),
+            (
+                "INSTALL_FAILED_NO_MATCHING_ABIS",
+                "compatible CPU architecture",
+            ),
+            ("INSTALL_FAILED_INVALID_APK", "invalid or corrupt"),
+            ("INSTALL_PARSE_FAILED_NOT_APK", "not a valid Android APK"),
+            ("INSTALL_FAILED_OLDER_SDK", "newer Android version"),
+            ("INSTALL_FAILED_MISSING_SHARED_LIBRARY", "shared library"),
+            ("INSTALL_FAILED_MISSING_FEATURE", "device feature"),
+            (
+                "INSTALL_FAILED_VERIFICATION_FAILURE",
+                "verification blocked",
+            ),
+        ] {
+            let hint = install_failure_hint(&format!("Failure [{code}: OEM detail]")).unwrap();
+            assert!(hint.contains(expected), "{code}: {hint}");
+        }
+        assert_eq!(
+            install_failure_hint("unrecognized package manager failure"),
+            None
+        );
+    }
+
+    #[test]
+    fn install_error_keeps_original_package_manager_output_in_details() {
+        let error = AppError::CommandFailed {
+            command: format!(
+                "Install Android package: {}",
+                install_failure_hint("INSTALL_FAILED_INSUFFICIENT_STORAGE").unwrap()
+            ),
+            exit_code: Some(1),
+            stderr: "INSTALL_FAILED_INSUFFICIENT_STORAGE: original OEM detail".into(),
+        };
+
+        assert!(error.user_message().contains("low on storage"));
+        assert!(error.details().unwrap().contains("original OEM detail"));
+    }
+
+    #[tokio::test]
+    async fn uninstall_termux_is_device_scoped_and_propagates_failure() {
+        let f = FakeRunner::new();
+        f.on("-s S uninstall com.termux", Ok(RawOutput::ok("Success")));
+        let result = client(&f).uninstall_termux("S").await.unwrap();
+        assert_eq!(result.stdout, "Success");
+        assert_eq!(
+            f.calls(),
+            vec![vec![
+                "-s".to_string(),
+                "S".to_string(),
+                "uninstall".to_string(),
+                "com.termux".to_string(),
+            ]]
+        );
+
+        let f = FakeRunner::new();
+        f.on(
+            "-s S uninstall com.termux",
+            Ok(RawOutput {
+                stdout: String::new(),
+                stderr: "Failure [DELETE_FAILED_INTERNAL_ERROR]".into(),
+                exit_code: Some(1),
+                duration_ms: 10,
+            }),
+        );
+        let error = client(&f).uninstall_termux("S").await.unwrap_err();
         assert!(matches!(error, AppError::CommandFailed { .. }));
     }
 

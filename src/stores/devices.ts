@@ -1,8 +1,29 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
+import { useLogs } from "./logs";
 import type { AdbInfo, AndroidDevice, DeviceInfo, ErrorPayload, ReconnectStatus } from "../types";
 
 export const deviceKey = (d: Pick<AndroidDevice, "deviceId" | "serial">) => d.deviceId ?? d.serial;
+
+/** localStorage key holding the last-selected tab so it survives a restart. */
+export const ACTIVE_KEY_STORAGE = "hacc.activeDeviceKey";
+
+export function loadActiveKey(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_KEY_STORAGE);
+  } catch {
+    return null;
+  }
+}
+
+function persistActiveKey(key: string | null): void {
+  try {
+    if (key) localStorage.setItem(ACTIVE_KEY_STORAGE, key);
+    else localStorage.removeItem(ACTIVE_KEY_STORAGE);
+  } catch {
+    // Storage might be unavailable; the selection still works for this session.
+  }
+}
 
 interface InfoEntry {
   data: DeviceInfo | null;
@@ -39,7 +60,7 @@ export interface DeviceStore {
 
 export const useDevices = create<DeviceStore>((set, get) => ({
   devices: {},
-  activeKey: null,
+  activeKey: loadActiveKey(),
   reconnect: {},
   info: {},
   adb: { info: null, error: null, checked: false },
@@ -56,9 +77,14 @@ export const useDevices = create<DeviceStore>((set, get) => ({
     set({ devices, activeKey, listError: null });
   },
 
-  setReconnect: (s) => set((st) => ({ reconnect: { ...st.reconnect, [s.serial]: s } })),
+  setReconnect: (s) =>
+    // Key by stable device_id (M9-T7) so a wireless port change keeps the status on the same tab.
+    set((st) => ({ reconnect: { ...st.reconnect, [s.deviceId ?? s.serial]: s } })),
 
-  select: (key) => set({ activeKey: key }),
+  select: (key) => {
+    persistActiveKey(key);
+    set({ activeKey: key });
+  },
 
   detectAdb: async () => {
     try {
@@ -83,11 +109,16 @@ export const useDevices = create<DeviceStore>((set, get) => ({
   connect: async (address) => {
     const device = await ipc.connectDevice(address);
     await get().refresh();
-    set({ activeKey: deviceKey(device) });
+    const key = deviceKey(device);
+    persistActiveKey(key);
+    set({ activeKey: key });
     return device;
   },
 
   disconnect: async (serial) => {
+    // End this phone's frontend log stream; backend disconnect cancels PTY/SSH.
+    const entry = Object.entries(get().devices).find(([, d]) => d.serial === serial);
+    if (entry) await useLogs.getState().stop(entry[0]);
     await ipc.disconnectDevice(serial);
     await get().refresh();
   },

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use russh::keys::PrivateKey;
 use tokio::sync::RwLock;
@@ -24,6 +24,7 @@ use crate::transport::DeviceTransport;
 
 struct PtySessionEntry {
     serial: String,
+    device_id: String,
     control: PtySessionControl,
 }
 
@@ -34,12 +35,14 @@ pub struct PtySessionRegistry {
 }
 
 impl PtySessionRegistry {
-    pub fn insert(&self, serial: &str, control: PtySessionControl) -> String {
+    pub fn insert(&self, serial: &str, device_id: &str, control: PtySessionControl) -> String {
         let id = format!("pty-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
+        // Infallible: lock body is a pure HashMap insert; no I/O or panics inside.
         self.sessions.lock().unwrap().insert(
             id.clone(),
             PtySessionEntry {
                 serial: serial.to_string(),
+                device_id: device_id.to_string(),
                 control,
             },
         );
@@ -49,12 +52,15 @@ impl PtySessionRegistry {
     pub fn control(&self, id: &str) -> Option<PtySessionControl> {
         self.sessions
             .lock()
+            // Infallible: lock body is a pure HashMap lookup.
             .unwrap()
             .get(id)
             .map(|entry| entry.control.clone())
     }
 
     pub async fn close(&self, id: &str) -> bool {
+        // Infallible: lock body is a pure HashMap remove; the resulting channel
+        // send is performed after the lock is released.
         let entry = self.sessions.lock().unwrap().remove(id);
         if let Some(entry) = entry {
             let _ = entry.control.send(PtyInput::Close).await;
@@ -64,13 +70,14 @@ impl PtySessionRegistry {
         }
     }
 
-    pub async fn close_device(&self, serial: &str) {
+    pub async fn close_device(&self, target: &str) {
+        // Infallible: lock body collects IDs only; no panics inside.
         let ids = self
             .sessions
             .lock()
             .unwrap()
             .iter()
-            .filter(|(_, entry)| entry.serial == serial)
+            .filter(|(_, entry)| entry.serial == target || entry.device_id == target)
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
         for id in ids {
@@ -79,6 +86,7 @@ impl PtySessionRegistry {
     }
 
     pub async fn close_all(&self) {
+        // Infallible: lock body collects keys only; no panics inside.
         let ids = self
             .sessions
             .lock()
@@ -118,6 +126,31 @@ pub struct AppState {
 }
 
 impl AppState {
+    fn lock_reconnects(&self) -> MutexGuard<'_, HashMap<String, CancellationToken>> {
+        self.reconnects.lock().unwrap_or_else(|poisoned| {
+            tracing::error!("reconnect registry lock was poisoned; cancelling active retries");
+            let mut reconnects = poisoned.into_inner();
+            for token in reconnects.values() {
+                token.cancel();
+            }
+            reconnects.clear();
+            self.reconnects.clear_poison();
+            reconnects
+        })
+    }
+
+    pub fn track_reconnect(
+        &self,
+        serial: String,
+        token: CancellationToken,
+    ) -> Option<CancellationToken> {
+        self.lock_reconnects().insert(serial, token)
+    }
+
+    pub fn remove_reconnect(&self, serial: &str) -> Option<CancellationToken> {
+        self.lock_reconnects().remove(serial)
+    }
+
     pub fn new(
         runner: Arc<dyn ProcessRunner>,
         config: AppConfig,
@@ -152,7 +185,12 @@ impl AppState {
             return Ok(k);
         }
         // Serialize first use: concurrent callers must not each generate a different key.
-        let _guard = self.ssh_key_init.lock().unwrap();
+        let _guard = self.ssh_key_init.lock().map_err(|_| {
+            AppError::Io(
+                "SSH key initialization is unavailable. Restart the application before retrying."
+                    .into(),
+            )
+        })?;
         if let Some(k) = self.ssh_key.get() {
             return Ok(k);
         }
@@ -165,26 +203,21 @@ impl AppState {
         self.devices
             .get(serial)
             .and_then(|d| d.device_id)
+            .or_else(|| self.devices.id_for(serial))
             .or_else(|| device_id_from_serial(serial))
             .unwrap_or_else(|| serial.to_string())
     }
 
     pub async fn termux_transport(&self, serial: &str) -> AppResult<TermuxSshTransport> {
         let client = self.adb_client().await?;
-        let cfg = self.config.read().await.termux.clone();
+        let device_id = self.device_id_for(serial);
+        let cfg = self.config.read().await.effective_termux_config(&device_id);
         let handle = self
             .ssh
             .get_or_connect(serial, || async {
                 let port = self.forwards.ensure(&client, serial, cfg.ssh_port).await?;
                 let key = self.ssh_key()?;
-                ssh::connect(
-                    port,
-                    &cfg.ssh_user,
-                    key,
-                    &self.known_hosts,
-                    &self.device_id_for(serial),
-                )
-                .await
+                ssh::connect(port, &cfg.ssh_user, key, &self.known_hosts, &device_id).await
             })
             .await?;
         Ok(TermuxSshTransport::new(handle))
@@ -233,7 +266,13 @@ impl AppState {
         &self,
         serial: &str,
     ) -> AppResult<Arc<dyn DeviceTransport>> {
-        let transport = self.config.read().await.hermes.transport;
+        let device_id = self.device_id_for(serial);
+        let transport = self
+            .config
+            .read()
+            .await
+            .effective_hermes_config(&device_id)
+            .transport;
         match transport {
             HermesTransportKind::TermuxSsh => Ok(Arc::new(self.termux_transport(serial).await?)),
             HermesTransportKind::ControlApi => Ok(Arc::new(self.api_transport(serial).await?)),
@@ -274,8 +313,67 @@ impl AppState {
     }
 
     pub fn cancel_reconnect(&self, serial: &str) {
-        if let Some(t) = self.reconnects.lock().unwrap().remove(serial) {
+        if let Some(t) = self.remove_reconnect(serial) {
             t.cancel();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::process::FakeRunner;
+
+    #[test]
+    fn poisoned_ssh_initialization_returns_error_without_creating_a_key() {
+        let directory = std::env::temp_dir().join(format!(
+            "hacc-ssh-init-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let state = Arc::new(AppState::new(
+            Arc::new(FakeRunner::new()),
+            AppConfig::default(),
+            Box::new(|_| {}),
+            directory.clone(),
+        ));
+        let shared = state.clone();
+        let worker = std::thread::spawn(move || {
+            let _guard = shared.ssh_key_init.lock().unwrap();
+            panic!("synthetic initialization failure");
+        });
+        assert!(worker.join().is_err());
+        assert!(matches!(state.ssh_key(), Err(AppError::Io(message))
+            if message.contains("Restart the application")));
+        assert!(!keys::key_path(&directory).exists());
+    }
+
+    #[test]
+    fn poisoned_reconnect_registry_cancels_retries_and_recovers() {
+        let directory =
+            std::env::temp_dir().join(format!("hacc-reconnect-lock-{}", std::process::id()));
+        let state = Arc::new(AppState::new(
+            Arc::new(FakeRunner::new()),
+            AppConfig::default(),
+            Box::new(|_| {}),
+            directory,
+        ));
+        let token = CancellationToken::new();
+        state.track_reconnect("serial".into(), token.clone());
+        let poison = state.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poison.reconnects.lock().unwrap();
+            panic!("poison reconnect registry");
+        })
+        .join();
+
+        state.cancel_reconnect("serial");
+        assert!(token.is_cancelled());
+        assert!(state
+            .track_reconnect("serial".into(), CancellationToken::new())
+            .is_none());
     }
 }

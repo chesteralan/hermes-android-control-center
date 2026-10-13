@@ -5,9 +5,10 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusDot } from "../components/StatusDot";
 import { Dialog } from "../components/Dialog";
 import { deviceStatus, deviceTitle } from "../features/device/deviceStatus";
+import { DeviceTabBar } from "../features/device/DeviceTabBar";
 import { ipc } from "../lib/ipc";
 import { isModKey, modLabel } from "../lib/platform";
-import { useActiveDevice, useDevices } from "../stores/devices";
+import { deviceKey, useActiveDevice, useDevices } from "../stores/devices";
 import { ROUTES, ROUTE_LABELS, useRoute } from "../stores/route";
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -20,7 +21,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
   const device = useActiveDevice();
-  const reconnect = useDevices((s) => (device ? s.reconnect[device.serial] : undefined));
+  const reconnect = useDevices((s) => (device ? s.reconnect[deviceKey(device)] : undefined));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -105,7 +106,7 @@ export function Layout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="grid h-full grid-cols-[200px_1fr] grid-rows-[44px_1fr]">
+    <div className="grid h-full grid-cols-[200px_1fr] grid-rows-[44px_auto_1fr]">
       <header className="col-span-2 flex items-center justify-between border-b border-border bg-surface px-4">
         <span className="flex items-baseline gap-2">
           <span className="font-semibold tracking-wide">Hermes Control Center</span>
@@ -139,6 +140,10 @@ export function Layout({ children }: { children: ReactNode }) {
           </button>
         </span>
       </header>
+      {/* Phone tabs span the full width under the header; hidden for a single phone. */}
+      <div className="col-span-2">
+        <DeviceTabBar onOpenProfile={() => go("settings")} />
+      </div>
       <nav className="border-r border-border bg-surface py-2" aria-label="Main">
         {ROUTES.map((r, i) => (
           <button

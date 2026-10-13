@@ -12,6 +12,7 @@ pub enum ProvisionStepId {
     InstallTermux,
     AndroidSettings,
     LaunchTermux,
+    SetupStorage,
     BootstrapSsh,
     ConnectSsh,
     TermuxPackages,
@@ -64,6 +65,23 @@ pub struct ProvisionPlan {
     pub recipe_id: String,
     pub steps: Vec<ProvisionStep>,
     pub current_step: Option<ProvisionStepId>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct HermesSetupInput {
+    pub model_provider: Option<String>,
+    pub model_name: Option<String>,
+    pub model_base_url: Option<String>,
+    pub provider_api_key: Option<String>,
+    pub telegram_bot_token: Option<String>,
+    pub telegram_allowed_users: Option<String>,
+    pub discord_bot_token: Option<String>,
+    pub discord_allowed_users: Option<String>,
+    pub slack_bot_token: Option<String>,
+    pub slack_app_token: Option<String>,
+    pub slack_allowed_users: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

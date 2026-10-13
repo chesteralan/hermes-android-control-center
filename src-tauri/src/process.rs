@@ -1,6 +1,7 @@
 //! The only place in the app that spawns OS processes.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -46,6 +47,16 @@ impl RawOutput {
         } else {
             format!("{}\n{}", self.stdout, self.stderr)
         }
+    }
+}
+
+pub(crate) async fn cancellable<T>(
+    cancel: &CancellationToken,
+    operation: impl Future<Output = AppResult<T>>,
+) -> AppResult<T> {
+    tokio::select! {
+        _ = cancel.cancelled() => Err(AppError::Cancelled),
+        result = operation => result,
     }
 }
 
@@ -107,8 +118,14 @@ impl ProcessRunner for TokioRunner {
         let mut child = command(program, args)
             .spawn()
             .map_err(|e| spawn_error(program, e))?;
-        let mut stdout = child.stdout().take().expect("piped stdout");
-        let mut stderr = child.stderr().take().expect("piped stderr");
+        let mut stdout = child
+            .stdout()
+            .take()
+            .ok_or_else(|| AppError::Io("child process stdout was not captured".into()))?;
+        let mut stderr = child
+            .stderr()
+            .take()
+            .ok_or_else(|| AppError::Io("child process stderr was not captured".into()))?;
         let mut output = Vec::new();
         let mut errors = Vec::new();
         let collect = async {
@@ -153,8 +170,14 @@ impl ProcessRunner for TokioRunner {
         let mut child = command(program, args)
             .spawn()
             .map_err(|e| spawn_error(program, e))?;
-        let mut stdout = child.stdout().take().expect("piped stdout");
-        let mut stderr = child.stderr().take().expect("piped stderr");
+        let mut stdout = child
+            .stdout()
+            .take()
+            .ok_or_else(|| AppError::Io("child process stdout was not captured".into()))?;
+        let mut stderr = child
+            .stderr()
+            .take()
+            .ok_or_else(|| AppError::Io("child process stderr was not captured".into()))?;
         let (tx, rx) = mpsc::channel(256);
 
         let err_tx = tx.clone();
@@ -358,7 +381,7 @@ mod tests {
         args.push("hacc-test".into());
         args.push(path.to_string_lossy().into_owned());
         let result = TokioRunner
-            .run(Path::new("/bin/sh"), &args, Duration::from_millis(300))
+            .run(Path::new("/bin/sh"), &args, Duration::from_secs(2))
             .await;
         assert!(matches!(result, Err(AppError::Timeout { .. })));
         let descendant = std::fs::read_to_string(&path)
@@ -388,6 +411,60 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, AppError::AdbNotFound { .. }));
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_run_kills_the_child_process() {
+        let marker = std::env::temp_dir().join(format!("hacc-cancel-run-{}", std::process::id()));
+        let cancel = CancellationToken::new();
+        let task_cancel = cancel.clone();
+        let marker_for_task = marker.clone();
+        let task = tokio::spawn(async move {
+            let mut args = sh("echo $$ > \"$1\"; exec sleep 30");
+            args.push("hacc-cancel-test".into());
+            args.push(marker_for_task.to_string_lossy().into_owned());
+            cancellable(
+                &task_cancel,
+                TokioRunner.run(Path::new("/bin/sh"), &args, Duration::from_secs(60)),
+            )
+            .await
+        });
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !marker.exists() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        cancel.cancel();
+        let result = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(result, Err(AppError::Cancelled)));
+
+        let child_pid = std::fs::read_to_string(&marker).unwrap().trim().to_string();
+        std::fs::remove_file(marker).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let child_state = TokioRunner
+                .run(
+                    Path::new("/bin/sh"),
+                    &sh(&format!("ps -p {child_pid} -o stat=")),
+                    Duration::from_secs(5),
+                )
+                .await
+                .unwrap();
+            if !child_state.success() || child_state.stdout.trim().starts_with('Z') {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Child process remained active after cancellation"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
     }
 
     #[tokio::test]

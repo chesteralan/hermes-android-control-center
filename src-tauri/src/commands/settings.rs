@@ -60,3 +60,86 @@ pub async fn update_settings<R: Runtime>(
     }
     Ok(config)
 }
+
+#[tauri::command]
+pub async fn list_device_profiles(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::config::DeviceProfile>, AppError> {
+    let mut profiles: Vec<_> = state
+        .config
+        .read()
+        .await
+        .devices
+        .values()
+        .cloned()
+        .collect();
+    profiles.sort_by(|a, b| a.device_id.cmp(&b.device_id));
+    Ok(profiles)
+}
+
+#[tauri::command]
+pub async fn get_device_profile(
+    state: State<'_, AppState>,
+    device_id: String,
+) -> Result<crate::config::DeviceProfile, AppError> {
+    state
+        .config
+        .read()
+        .await
+        .devices
+        .get(&device_id)
+        .cloned()
+        .ok_or(AppError::DeviceNotFound { serial: device_id })
+}
+
+#[tauri::command]
+pub async fn set_device_profile<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    device_id: String,
+    update: crate::config::DeviceProfileUpdate,
+) -> Result<crate::config::DeviceProfile, AppError> {
+    let mut config = state.config.read().await.clone();
+    let profile = config
+        .devices
+        .get_mut(&device_id)
+        .ok_or_else(|| AppError::DeviceNotFound {
+            serial: device_id.clone(),
+        })?;
+    profile.apply_update(update);
+    config.validate()?;
+    config_store::save(&app, &config)?;
+    tracing::info!(device_id = %device_id, "updated device profile");
+    // The profile was fetched via get_mut above and `apply_update` does not remove it.
+    let updated_profile = config
+        .devices
+        .get(&device_id)
+        .cloned()
+        .expect("profile was mutated above and is still present");
+    *state.config.write().await = config;
+    Ok(updated_profile)
+}
+
+#[tauri::command]
+pub async fn delete_device_profile<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    device_id: String,
+) -> Result<(), AppError> {
+    let mut config = state.config.read().await.clone();
+    if config.devices.remove(&device_id).is_none() {
+        return Err(AppError::DeviceNotFound { serial: device_id });
+    }
+    config_store::save(&app, &config)?;
+    tracing::info!(device_id = %device_id, "deleted device profile");
+    *state.config.write().await = config;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_effective_device_config(
+    state: State<'_, AppState>,
+    device_id: String,
+) -> Result<crate::config::EffectiveDeviceConfig, AppError> {
+    Ok(state.config.read().await.effective_config(&device_id))
+}

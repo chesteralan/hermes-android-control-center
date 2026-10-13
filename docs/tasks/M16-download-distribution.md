@@ -11,7 +11,7 @@ Do not add a second host just to make downloads possible. Consider Cloudflare R2
 ## Tasks
 
 ### [ ] M16-T1 Release publication prerequisites
-- Resolve the strict dependency-policy gate and required security review; do not publish while the release gate is red.
+- Complete the required security review; the strict dependency-policy gate was resolved on 2026-10-12 (see [SECURITY.md §6](../SECURITY.md#6-strict-dependency-remediation)); do not publish while any remaining release gate is red.
 - Complete required macOS, Windows, and Linux signing setup and platform install/update QA.
 - Confirm the version, tag, release notes, support policy, and asset list with maintainers before creating a release.
 
@@ -31,15 +31,16 @@ Do not add a second host just to make downloads possible. Consider Cloudflare R2
 - Verify checksums/signatures and complete fresh-install and upgrade tests on the supported OS matrix.
 - Confirm release assets remain available from the documented public URL and that rollback to the previous release is documented.
 
-### [ ] M16-T5 Optional Cloudflare R2 mirror evaluation
+### [x] M16-T5 Optional Cloudflare R2 mirror evaluation
 - Only proceed if maintainers identify a concrete need for a custom domain, independent retention, or measured traffic capacity.
 - Record expected storage/egress costs, URL/domain ownership, retention and rollback behavior, and incident ownership before implementation.
 - If approved, use a narrowly scoped CI upload token and a public read-only bucket; mirror immutable, versioned release assets and verification files from the completed GitHub Release.
 - Verify byte-for-byte parity, checksums, signatures, caching behavior, and rollback. Never make an unsigned or partially uploaded mirror the canonical download.
+- **Decision (2026-10-09):** Keep GitHub Releases as the primary host and defer R2. No custom-domain, independent-retention, or measured traffic requirement is recorded; no mirror credentials or second upload path are needed now.
 
 ## Exit Check
 
 - [ ] The approved GitHub Release is public and all documented artifacts are anonymously downloadable and verifiable.
 - [ ] Clean install and upgrade acceptance passes on every supported desktop platform.
 - [ ] README and release documentation point to the correct stable release and explain verification.
-- [ ] Cloudflare R2 is either explicitly deferred with no extra hosting credentials, or its mirror has passed parity and rollback checks.
+- [x] Cloudflare R2 is explicitly deferred with no extra hosting credentials; reassess only if a concrete need appears.

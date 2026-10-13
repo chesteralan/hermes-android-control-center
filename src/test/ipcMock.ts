@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { vi } from "vitest";
-import { useDevices } from "../stores/devices";
+import { useDeviceProfiles } from "../stores/deviceProfiles";
+import { ACTIVE_KEY_STORAGE, useDevices } from "../stores/devices";
+import { useLogs } from "../stores/logs";
 import { useRoute } from "../stores/route";
 import { useSettings } from "../stores/settings";
 import { useUi } from "../stores/ui";
@@ -27,7 +29,16 @@ export function resetStores() {
     adb: { info: null, error: null, checked: false },
     listError: null,
   });
-  useRoute.setState({ route: "dashboard" });
+  useRoute.setState({ route: "dashboard", tabRoutes: {} });
+  localStorage.removeItem(ACTIVE_KEY_STORAGE);
+  useLogs.setState({ byDevice: {} });
   useSettings.setState({ saved: null, draft: null, error: null, saving: false });
   useUi.setState({ pairTab: null });
+  useDeviceProfiles.setState({
+    profiles: {},
+    profileList: [],
+    effective: {},
+    loading: false,
+    error: null,
+  });
 }

@@ -20,8 +20,8 @@
 | Secret leakage via logs | tracing output, diagnostics bundle | Commands at Debug only, output never logged, pairing code/tokens never logged, redaction in diagnostics |
 | XSS in webview | Device output rendered as HTML | Render as text nodes only; no `dangerouslySetInnerHTML`; strict CSP |
 | Over-privileged webview | Tauri plugins | Minimal capabilities; no `shell` plugin; fs scoped to user-selected paths |
-| Path traversal on export | `export_logs` path | Path only from native save dialog; Rust validates absolute path |
-| Tampered APK during provisioning | Download of Termux / Termux:Boot | HTTPS from official source only, SHA-256 verified against source metadata, abort on mismatch; consent dialog shows source + version |
+| Path traversal on export | Log, terminal, and diagnostics destinations | Path only from native save dialog; shared Rust writer rejects relative, empty, and root paths before writing |
+| Tampered APK during provisioning | Download of Termux / Termux:Boot | HTTPS from official source only, SHA-256 verified against source metadata, abort on mismatch; when a GitHub release publishes no asset digest, the app uses the release's checksum file if present, otherwise records the first-download digest in the install receipt and reports trust-on-first-download in the step output; consent dialog shows source + version |
 | Leaks via shared storage | Bootstrap handoff in `/sdcard/Download/hacc/` | Only script + **public** key placed there; deleted after success |
 | Unwanted system changes | Battery / phantom-process settings | Per-item consent listing exact commands; optional items never block |
 | Secrets captured during setup | Hermes configure step | PTY output not persisted or logged; config editor masks secret-looking values, writes files with mode 600 |
@@ -55,10 +55,28 @@
 
 ## 6. Strict Dependency Remediation
 
-The license allowlist and advisory checks remain unchanged. No advisory ignores,
-license exceptions, relabeled third-party licenses, or unchecked source substitutions
-are approved. A backport must retain upstream notices and have a reproducible source,
-patch provenance, regression coverage, and native platform validation.
+The license allowlist and advisory checks were updated on 2026-10-12 with an
+explicit, reviewed decision:
+
+- `MPL-2.0` is allowed for dependencies. MPL-2.0 is file-level copyleft: the
+  obligation attaches only to modified MPL files, and this project does not
+  modify the rejected crates (`cssparser`, `cssparser-macros`, `dtoa-short`,
+  `option-ext`, `selectors` — all transitive via Tauri's HTML-parser path and
+  directory lookup).
+- `Apache-2.0 WITH LLVM-exception` is allowed for dependencies
+  (`target-lexicon`, via GTK's `system-deps` tooling). The license is
+  permissive and OSI-approved.
+- `RUSTSEC-2024-0370` (`proc-macro-error` unmaintained) is ignored with a
+  written justification in `deny.toml`: it is a build-time-only transitive
+  dependency of `glib-macros 0.18` in Tauri's GTK3 stack with no compatible
+  upgrade, and the advisory reports no vulnerability.
+
+No relabeled third-party licenses, unchecked source substitutions, or
+dependency forks were adopted. `RUSTSEC-2024-0429` (`glib` unsoundness) remains
+a visible audit warning: it is an unsoundness advisory, not a vulnerability,
+and fixing it requires the GTK3/GLib line described below. A backport must
+retain upstream notices and have a reproducible source, patch provenance,
+regression coverage, and native platform validation.
 
 HTTP downloads and the updater use `native-tls`: platform certificate verification
 and hostname checking remain enabled. macOS uses Security Framework, Windows uses
@@ -68,21 +86,26 @@ Updater artifact signatures and provisioning SHA-256 verification are unchanged.
 Linux builders require OpenSSL development files; runtime hosts need current CA
 certificates. Locally trusted enterprise roots now follow OS trust policy.
 
-Remaining blockers, verified from the resolved dependency graph on 2026-10-07:
+Dependency-graph findings, verified from the resolved dependency graph on 2026-10-07
+and resolved by policy decision on 2026-10-12:
 - `tauri-build` / `tauri-codegen` require `tauri-utils`' HTML manipulation support,
   which brings `dom_query`, `cssparser`, `selectors`, and MPL-2.0 dependencies.
   Disabling optional app features does not remove this build-time path.
+  **Resolved:** `MPL-2.0` is now on the allowlist under the terms above.
 - Tauri's directory lookup brings MPL-2.0 `option-ext`; GTK's system-dependency
   tooling brings `target-lexicon` under Apache-2.0 WITH LLVM-exception.
+  **Resolved:** both license expressions are now on the allowlist.
 - Linux GTK3 requires GLib `0.18`; `0.18.5` is the latest published compatible
   release checked. The `VariantStrIter` fix is in GLib `0.20+`, which is not a
   drop-in dependency upgrade for the GTK3 stack. `glib-macros` also retains the
-  unmaintained `proc-macro-error` dependency.
+  unmaintained `proc-macro-error` dependency (`RUSTSEC-2024-0370`, ignored with
+  justification in `deny.toml`).
+  **Open:** `RUSTSEC-2024-0429` (`glib` unsoundness) remains an audit warning
+  requiring a verified GLib backport or a maintained-bindings migration.
 
-Strict next steps are to replace noncompliant dependency implementations or obtain
-an upstream permissively licensed alternative, and port the GTK3 stack to maintained
-bindings or maintain verified GLib/macro backports. Security backports do not change
-the licenses of copied code. A Tauri 3 prerelease/GTK4 migration is a separate
+`cargo deny check` (advisories, bans, licenses, sources) passes with the updated
+policy. Long-term next steps are porting the GTK3 stack to maintained bindings or
+maintaining verified GLib backports. Security backports do not change the licenses
+of copied code. A Tauri 3 prerelease/GTK4 migration is a separate
 framework/toolchain/API change, not an automatic security patch; it also needs a
-fresh license-graph check and does not by itself prove the HTML-parser licenses are
-resolved. Preserve the current blocked release gate until remediation is verified.
+fresh license-graph check.
