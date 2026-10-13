@@ -1,10 +1,14 @@
 # Open Work
 
-Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-12. The linked milestone task files remain the source of truth; update this index when their status changes.
+Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-13. The linked milestone task files remain the source of truth; update this index when their status changes.
 
 Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need new evidence or a supported environment before implementation can proceed.
 
 ## Recently Completed
+
+- [x] [M9-T4 — Device tab bar](tasks/M9-multi-device.md): the phone tab strip now renders in the app header (full width, hidden when a single phone is known) with per-phone color swatch, alias/model fallback, connection-state dot, and an overflow menu (Retry for disconnected phones — the reconnect path also serves as Connect — Disconnect with a confirm dialog naming the target phone, Open profile). Selecting a tab focuses the phone and restores that phone's remembered view via per-tab route memory in `stores/route.ts` (global views like Settings are untouched); tab order and the last-selected tab persist in localStorage by `device_id`; a wireless port change rebinds to the same tab. 22 local tests cover mixed states (connected/reconnecting/offline/disconnected/unknown), order and selection persistence, per-tab view restore, and port-change rebind.
+
+- [x] M9 local quality gates restored (typecheck, ESLint, Prettier all pass): fixed the pre-existing M9-T2/T3 fallout — `TermuxConfig` exported from the types barrel, `set_device_profile` typed as `Partial<DeviceProfileUpdate>` (matching the Rust `#[serde(default)]` partial-update contract), `AppConfig` test fixtures gained `devices: {}`, unused imports/parameters removed, and `DeviceTabBar` tab-order sync rewritten as a render-phase adjustment instead of `setState` in an effect. `src/types/generated` re-exported from Rust via `npm run gen:types` so `DeviceProfileUpdate` carries its type imports.
 
 - [x] "Install Hermes Agent" no longer dies at "bootstrap Python lookup failed" on android/proot (M11-T11): uv 0.12.3's `python find --managed-python` cannot see freshly installed managed interpreters under proot (the flag alone reproduces the miss; plain find works — verified on-device with RUST_LOG=debug). The step now retries a failed install once with the installer's pin-verified uv binary wrapped by a shim that strips only that flag (uv moved to `uv.real`, shim execs it unchanged), after deleting version-alias symlinks in the managed python dir. Confirmed on-device: the installer's exact lookup exits 0 through the shim.
 
@@ -88,12 +92,12 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ### M9 — Multi-Device
 
-Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested.
+Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested. T4 (device tab bar with per-tab views and localStorage persistence) is implemented and tested locally.
 
 - [~] [M9-T1 — Backend isolation audit and completion](tasks/M9-multi-device.md)
 - [~] [M9-T2 — DeviceProfile schema, persistence, and effective config](tasks/M9-multi-device.md)
 - [~] [M9-T3 — Profile editor UI](tasks/M9-multi-device.md)
-- [ ] [M9-T4 — Device tab bar](tasks/M9-multi-device.md)
+- [~] [M9-T4 — Device tab bar](tasks/M9-multi-device.md)
 - [ ] [M9-T5 — Per-tab terminal and log isolation](tasks/M9-multi-device.md)
 - [ ] [M9-T6 — Overview view](tasks/M9-multi-device.md)
 - [ ] [M9-T7 — Independent reconnect verification](tasks/M9-multi-device.md)

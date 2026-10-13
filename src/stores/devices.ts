@@ -4,6 +4,26 @@ import type { AdbInfo, AndroidDevice, DeviceInfo, ErrorPayload, ReconnectStatus 
 
 export const deviceKey = (d: Pick<AndroidDevice, "deviceId" | "serial">) => d.deviceId ?? d.serial;
 
+/** localStorage key holding the last-selected tab so it survives a restart. */
+export const ACTIVE_KEY_STORAGE = "hacc.activeDeviceKey";
+
+export function loadActiveKey(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_KEY_STORAGE);
+  } catch {
+    return null;
+  }
+}
+
+function persistActiveKey(key: string | null): void {
+  try {
+    if (key) localStorage.setItem(ACTIVE_KEY_STORAGE, key);
+    else localStorage.removeItem(ACTIVE_KEY_STORAGE);
+  } catch {
+    // Storage might be unavailable; the selection still works for this session.
+  }
+}
+
 interface InfoEntry {
   data: DeviceInfo | null;
   error: ErrorPayload | null;
@@ -39,7 +59,7 @@ export interface DeviceStore {
 
 export const useDevices = create<DeviceStore>((set, get) => ({
   devices: {},
-  activeKey: null,
+  activeKey: loadActiveKey(),
   reconnect: {},
   info: {},
   adb: { info: null, error: null, checked: false },
@@ -58,7 +78,10 @@ export const useDevices = create<DeviceStore>((set, get) => ({
 
   setReconnect: (s) => set((st) => ({ reconnect: { ...st.reconnect, [s.serial]: s } })),
 
-  select: (key) => set({ activeKey: key }),
+  select: (key) => {
+    persistActiveKey(key);
+    set({ activeKey: key });
+  },
 
   detectAdb: async () => {
     try {
@@ -83,7 +106,9 @@ export const useDevices = create<DeviceStore>((set, get) => ({
   connect: async (address) => {
     const device = await ipc.connectDevice(address);
     await get().refresh();
-    set({ activeKey: deviceKey(device) });
+    const key = deviceKey(device);
+    persistActiveKey(key);
+    set({ activeKey: key });
     return device;
   },
 

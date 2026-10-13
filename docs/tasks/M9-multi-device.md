@@ -34,20 +34,20 @@
 - Verify `cancel_device`/stream teardown targets only the named phone; restarting the shared ADB server emits the shared-resource warning and is the only cross-phone interrupt.
 - **Tests:** serial rebind keeps action locks and streams attached to the same `device_id`; one device's hung SSH connect does not delay another device's status; registry poison recovery remains covered.
 
-### [ ] M9-T2 `DeviceProfile` schema, persistence, and effective config
+### [~] M9-T2 `DeviceProfile` schema, persistence, and effective config
 - Implement `devices: HashMap<device_id, DeviceProfile>` in `AppConfig` with schema `version` migration: existing remembered addresses and auto-connect flags migrate into profiles on first load.
 - `effective_config(device_id)` merge helper: per-field fallback (`None` override inherits the global Hermes/Termux/log defaults). Documented in ARCHITECTURE §9.
 - Profile CRUD commands: `get_device_profile`, `set_device_profile` (partial update), `list_device_profiles`. Never log override values that may contain secrets.
 - **Unblocks:** M11-T2/T14 save the wizard's recipe-derived `HermesConfig` into the phone's profile instead of the global config.
 - **Tests:** migration of legacy remembered-address settings; merge precedence per field; partial update preserves unrelated fields; unknown `device_id` errors clearly.
 
-### [ ] M9-T3 Profile editor UI (Settings)
+### [~] M9-T3 Profile editor UI (Settings)
 - Devices section listing known profiles (alias, color swatch, last address, auto-connect toggle).
 - Edit form: alias, color, auto-connect, last address; collapsible Hermes and Termux override sections prefilled from globals with a "Reset to global" control per field.
 - Explicit save; dirty-state guard; validation errors inline via the shared error pattern.
 - **Tests:** form renders current effective values vs overrides distinctly; save emits partial updates; reset clears override.
 
-### [ ] M9-T4 Device tab bar
+### [~] M9-T4 Device tab bar
 - Header tab per connected/known phone: color swatch, alias or model fallback, ● connection state; overflow menu (Connect/Disconnect, Retry, Open profile).
 - Selecting a tab sets `activeKey` and switches the per-device route view (Dashboard/Device/Hermes/Termux/Terminal/Logs) without losing the other tab's view state.
 - Single phone keeps the current layout without a forced tab strip. Tabs persist order and last-selected tab across restart (by `device_id`).
