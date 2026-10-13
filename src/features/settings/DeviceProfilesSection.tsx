@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { ipc, toErrorPayload } from "../../lib/ipc";
 import { useDeviceProfiles, useProfileList } from "../../stores/deviceProfiles";
@@ -176,14 +175,10 @@ function EditForm({
   const [lastAddress, setLastAddress] = useState(profile.lastAddress ?? "");
 
   const [hermesOpen, setHermesOpen] = useState(profile.hermes !== null);
-  const [hermesOverride, setHermesOverride] = useState<HermesConfig | null>(
-    profile.hermes ?? null,
-  );
+  const [hermesOverride, setHermesOverride] = useState<HermesConfig | null>(profile.hermes ?? null);
 
   const [termuxOpen, setTermuxOpen] = useState(profile.termux !== null);
-  const [termuxOverride, setTermuxOverride] = useState<TermuxConfig | null>(
-    profile.termux ?? null,
-  );
+  const [termuxOverride, setTermuxOverride] = useState<TermuxConfig | null>(profile.termux ?? null);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ErrorPayload | null>(null);
@@ -313,11 +308,7 @@ function EditForm({
         ) : (
           <div className="border-t border-border px-3 py-2 text-muted text-xs">
             Using global Hermes config.{" "}
-            <button
-              type="button"
-              className="underline"
-              onClick={() => toggleHermes(true)}
-            >
+            <button type="button" className="underline" onClick={() => toggleHermes(true)}>
               Add override
             </button>
           </div>
@@ -355,11 +346,7 @@ function EditForm({
         ) : (
           <div className="border-t border-border px-3 py-2 text-muted text-xs">
             Using global Termux config.{" "}
-            <button
-              type="button"
-              className="underline"
-              onClick={() => toggleTermux(true)}
-            >
+            <button type="button" className="underline" onClick={() => toggleTermux(true)}>
               Add override
             </button>
           </div>
@@ -385,7 +372,6 @@ function EditForm({
 export function DeviceProfilesSection() {
   const profileStore = useDeviceProfiles();
   const profiles = useProfileList();
-  const toast = useToasts((t) => t.push);
   const globalSettings = useSettings((s) => s.saved);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -435,9 +421,7 @@ export function DeviceProfilesSection() {
 
   return (
     <div className="space-y-2">
-      {profileStore.error && (
-        <ErrorPanel error={profileStore.error} onRetry={() => void load()} />
-      )}
+      {profileStore.error && <ErrorPanel error={profileStore.error} onRetry={() => void load()} />}
       {profiles.map((p) => (
         <div key={p.deviceId} className="rounded-md border border-border">
           {/* Profile list row */}
@@ -479,7 +463,9 @@ export function DeviceProfilesSection() {
               <Button
                 variant="ghost"
                 aria-label={`Edit profile for ${p.alias ?? p.deviceId}`}
-                onClick={() => void (editingId === p.deviceId ? setEditingId(null) : openEdit(p.deviceId))}
+                onClick={() =>
+                  void (editingId === p.deviceId ? setEditingId(null) : openEdit(p.deviceId))
+                }
               >
                 {editingId === p.deviceId ? "Close" : "Edit"}
               </Button>

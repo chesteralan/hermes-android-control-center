@@ -87,7 +87,13 @@ function makeEffective(over: Partial<EffectiveDeviceConfig> = {}): EffectiveDevi
 describe("useDeviceProfiles store", () => {
   beforeEach(() => {
     resetStores();
-    useDeviceProfiles.setState({ profiles: {}, profileList: [], effective: {}, loading: false, error: null });
+    useDeviceProfiles.setState({
+      profiles: {},
+      profileList: [],
+      effective: {},
+      loading: false,
+      error: null,
+    });
   });
 
   it("load populates profiles keyed by deviceId", async () => {
@@ -122,7 +128,11 @@ describe("useDeviceProfiles store", () => {
 
   it("set updates the profile in the store and invalidates the effective cache", async () => {
     const original = makeProfile({ alias: "Old" });
-    useDeviceProfiles.setState({ profiles: { TESTDEVICE001: original }, profileList: [original], effective: { TESTDEVICE001: makeEffective() } });
+    useDeviceProfiles.setState({
+      profiles: { TESTDEVICE001: original },
+      profileList: [original],
+      effective: { TESTDEVICE001: makeEffective() },
+    });
 
     const updated = makeProfile({ alias: "New" });
     mockIpc({ set_device_profile: () => updated });
@@ -130,7 +140,7 @@ describe("useDeviceProfiles store", () => {
     const result = await useDeviceProfiles.getState().set("TESTDEVICE001", { alias: "New" });
 
     expect(result.alias).toBe("New");
-    expect(useDeviceProfiles.getState().profiles["TESTDEVICE001"].alias).toBe("New");
+    expect(useDeviceProfiles.getState().profiles["TESTDEVICE001"]?.alias).toBe("New");
     // Effective cache must be invalidated.
     expect(useDeviceProfiles.getState().effective["TESTDEVICE001"]).toBeUndefined();
   });
@@ -181,7 +191,13 @@ describe("useDeviceProfiles store", () => {
 describe("DeviceProfilesSection", () => {
   beforeEach(() => {
     resetStores();
-    useDeviceProfiles.setState({ profiles: {}, profileList: [], effective: {}, loading: false, error: null });
+    useDeviceProfiles.setState({
+      profiles: {},
+      profileList: [],
+      effective: {},
+      loading: false,
+      error: null,
+    });
     useSettings.setState({ saved: settings, draft: settings, error: null, saving: false });
   });
 
@@ -192,7 +208,12 @@ describe("DeviceProfilesSection", () => {
   });
 
   it("renders a profile row with alias, color, and auto-connect badges", async () => {
-    const p = makeProfile({ deviceId: "PHONE001", alias: "My Phone", color: "#ff0000", autoConnect: true });
+    const p = makeProfile({
+      deviceId: "PHONE001",
+      alias: "My Phone",
+      color: "#ff0000",
+      autoConnect: true,
+    });
     mockIpc({
       list_device_profiles: () => [p],
     });
@@ -239,7 +260,7 @@ describe("DeviceProfilesSection", () => {
     const fn = mockIpc({
       list_device_profiles: () => [p, updated].slice(0, 1), // initial load
       get_effective_device_config: () => eff,
-      set_device_profile: (_args) => updated,
+      set_device_profile: () => updated,
     });
 
     render(<DeviceProfilesSection />);
@@ -311,7 +332,9 @@ describe("DeviceProfilesSection", () => {
     });
 
     render(<DeviceProfilesSection />);
-    await userEvent.click(await screen.findByRole("button", { name: /Edit profile for Untouched/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Edit profile for Untouched/ }),
+    );
     expect(await screen.findByLabelText("Device alias")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));

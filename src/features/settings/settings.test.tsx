@@ -37,6 +37,7 @@ const cfg: AppConfig = {
   termux: { sshUser: "termux", sshPort: 8022 },
   apiPort: 8765,
   logLevel: "info",
+  devices: {},
 };
 
 describe("SettingsView", () => {

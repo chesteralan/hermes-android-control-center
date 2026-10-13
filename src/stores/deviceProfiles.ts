@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
-import type { DeviceProfile, DeviceProfileUpdate, EffectiveDeviceConfig, ErrorPayload } from "../types";
+import type {
+  DeviceProfile,
+  DeviceProfileUpdate,
+  EffectiveDeviceConfig,
+  ErrorPayload,
+} from "../types";
 
 function sortedList(profiles: Record<string, DeviceProfile>): DeviceProfile[] {
   return Object.values(profiles).sort((a, b) => a.deviceId.localeCompare(b.deviceId));
@@ -21,14 +26,14 @@ export interface DeviceProfilesStore {
   /** Reload the effective config for a single device. */
   loadEffective: (deviceId: string) => Promise<void>;
   /** Partially update a profile (creates an entry first if it does not exist). */
-  set: (deviceId: string, update: DeviceProfileUpdate) => Promise<DeviceProfile>;
+  set: (deviceId: string, update: Partial<DeviceProfileUpdate>) => Promise<DeviceProfile>;
   /** Delete a profile. */
   delete: (deviceId: string) => Promise<void>;
   /** Clear any error. */
   clearError: () => void;
 }
 
-export const useDeviceProfiles = create<DeviceProfilesStore>((set, get) => ({
+export const useDeviceProfiles = create<DeviceProfilesStore>((set) => ({
   profiles: {},
   profileList: [],
   effective: {},

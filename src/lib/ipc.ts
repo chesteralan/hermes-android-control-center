@@ -73,12 +73,10 @@ export const ipc = {
   getSettings: () => call<AppConfig>("get_settings"),
   updateSettings: (config: AppConfig) => call<AppConfig>("update_settings", { config }),
   listDeviceProfiles: () => call<DeviceProfile[]>("list_device_profiles"),
-  getDeviceProfile: (deviceId: string) =>
-    call<DeviceProfile>("get_device_profile", { deviceId }),
-  setDeviceProfile: (deviceId: string, update: DeviceProfileUpdate) =>
+  getDeviceProfile: (deviceId: string) => call<DeviceProfile>("get_device_profile", { deviceId }),
+  setDeviceProfile: (deviceId: string, update: Partial<DeviceProfileUpdate>) =>
     call<DeviceProfile>("set_device_profile", { deviceId, update }),
-  deleteDeviceProfile: (deviceId: string) =>
-    call<void>("delete_device_profile", { deviceId }),
+  deleteDeviceProfile: (deviceId: string) => call<void>("delete_device_profile", { deviceId }),
   getEffectiveDeviceConfig: (deviceId: string) =>
     call<EffectiveDeviceConfig>("get_effective_device_config", { deviceId }),
   previewControlApiInstall: (serial: string) =>
