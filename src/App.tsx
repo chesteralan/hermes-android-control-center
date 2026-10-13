@@ -8,6 +8,7 @@ import { LogsView } from "./features/logs/LogsView";
 import { LogAutoStart } from "./features/logs/LogAutoStart";
 import { HermesStatusCard } from "./features/hermes/HermesStatusCard";
 import { ChatView } from "./features/chat/ChatView";
+import { OverviewView } from "./features/overview/OverviewView";
 import { PairDialog } from "./features/device/PairDialog";
 import { SettingsView } from "./features/settings/SettingsView";
 import { TerminalView } from "./features/terminal/TerminalView";
@@ -29,6 +30,8 @@ function View({ route }: { route: Route }) {
       return <TerminalView />;
     case "logs":
       return <LogsView />;
+    case "overview":
+      return <OverviewView />;
     case "settings":
       return <SettingsView />;
   }

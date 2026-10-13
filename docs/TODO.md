@@ -6,6 +6,8 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ## Recently Completed
 
+- [x] [M9-T6 — Overview view](tasks/M9-multi-device.md): a new global Overview route (nav + ⌘K palette) shows a status card per phone — alias/color swatch, model, connection state, battery and storage snapshot, Hermes gateway state, and the latest reconnect attempt. Each card polls device info and Hermes status on its own 10 s cadence, so one slow phone only spins its own card; "Open" selects that phone's tab (restoring its remembered view) and leaves the global Overview for the per-device Device view. Four tests cover mixed availability (connected with data, info error, still-pending phone never gating another), tab linking, the reconnect line, and the empty state. M9-T9 (live multi-device QA) remains blocked — no phones attached.
+
 - [x] [M9-T7 — Independent reconnect verification](tasks/M9-multi-device.md): reconnection now prefers each phone's remembered profile `last_address` (port changes no longer strand a phone on its stale serial), the frontend reconnect map is keyed by stable `device_id` so `device://reconnect` status follows the right tab across rebinds, and a fake-clock test proves two concurrent failing loops advance independently — phone A giving up while phone B is still retrying, with events attributed per device. Manual Retry re-arms only the selected phone (frontend test).
 
 - [x] [M9-T8 — Destructive actions and limited broadcast](tasks/M9-multi-device.md): every destructive confirmation now names the target phone via a shared `deviceIdentity` helper — DeviceList disconnect, Hermes stop/restart/update, terminal session close and snippet run, provisioning consent/reset/Termux uninstall, and the Control API install review all show alias, model, and address. Limited broadcast landed on saved snippets: with two or more phones the run dialog gains an "Also run on" multi-select (predefined snippets only, one confirmation), each selected phone gets its own terminal session block, and one phone's failure never cancels or mislabels the others (per-block exit/error + toast summary).
@@ -100,17 +102,17 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ### M9 — Multi-Device
 
-Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested. T4 (device tab bar with per-tab views and localStorage persistence) is implemented and tested locally. T5 (per-tab log viewer state, limits config, tab close cleanup) is implemented and tested locally. T7 (reconnect isolation, profile-address targeting, device-keyed reconnect events) and T8 (phone-identifying confirmations, snippet broadcast) are implemented and tested locally.
+Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested. T4 (device tab bar with per-tab views and localStorage persistence) is implemented and tested locally. T5 (per-tab log viewer state, limits config, tab close cleanup) is implemented and tested locally. T6 (Overview grid) is implemented and tested locally. T7 (reconnect isolation, profile-address targeting, device-keyed reconnect events) and T8 (phone-identifying confirmations, snippet broadcast) are implemented and tested locally. T9 (live multi-device QA) is blocked on connected phones.
 
 - [~] [M9-T1 — Backend isolation audit and completion](tasks/M9-multi-device.md)
 - [~] [M9-T2 — DeviceProfile schema, persistence, and effective config](tasks/M9-multi-device.md)
 - [~] [M9-T3 — Profile editor UI](tasks/M9-multi-device.md)
 - [~] [M9-T4 — Device tab bar](tasks/M9-multi-device.md)
 - [~] [M9-T5 — Per-tab terminal and log isolation](tasks/M9-multi-device.md)
-- [ ] [M9-T6 — Overview view](tasks/M9-multi-device.md)
+- [~] [M9-T6 — Overview view](tasks/M9-multi-device.md)
 - [~] [M9-T7 — Independent reconnect verification](tasks/M9-multi-device.md)
 - [~] [M9-T8 — Destructive actions and limited broadcast](tasks/M9-multi-device.md)
-- [ ] [M9-T9 — Multi-device QA (needs ≥ 2 phones)](tasks/M9-multi-device.md)
+- [!] [M9-T9 — Multi-device QA (needs ≥ 2 phones)](tasks/M9-multi-device.md): no Android devices are attached to this workspace (`adb devices` is empty); the live rows require at least two connected phones.
 
 ### M11 — New Phone Provisioning
 

@@ -58,7 +58,7 @@
 - Log viewer buffers, search, and pause state are per phone; the ring-buffer limit in LimitsConfig applies per device.
 - **Tests:** interleaved output from two fake devices stays separated; buffer bounds are per device; cancel-on-close affects only the closed tab's streams.
 
-### [ ] M9-T6 Overview view
+### [~] M9-T6 Overview view
 - Global view with a status card per phone: alias/color, model, connection state, battery/storage snapshot when known, Hermes gateway state when known, latest reconnect attempt.
 - Cards link to the phone's tab. Refresh follows the existing per-device polling cadence; a slow phone shows its own spinner without blocking others.
 - **Tests:** cards render mixed availability (no info yet, error, connected); one device's pending promise does not gate another's render.
@@ -73,7 +73,7 @@
 - Optional broadcast: predefined actions/snippets only, explicit multi-select of phones, one confirmation listing every target, per-phone result report. No free-form command broadcast.
 - **Tests:** confirm payload includes the target identity; broadcast confirmation lists all selected phones; one phone's failure does not cancel or mislabel the others' results.
 
-### [ ] M9-T9 Multi-device QA
+### [!] M9-T9 Multi-device QA
 - Run the TESTING.md multi-device rows: 3 phones streaming logs; drop/reconnect one phone; actions always hit the targeted phone; resource limits hold.
 - Cross-check that M11 wizard saves profiles per phone (hands off to M11-T2/T14 once implemented).
 - **Live check:** requires ≥ 2 connected Android phones; record results in the exit check.

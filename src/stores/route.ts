@@ -8,13 +8,14 @@ export const ROUTES = [
   "chat",
   "terminal",
   "logs",
+  "overview",
   "settings",
 ] as const;
 export type Route = (typeof ROUTES)[number];
 
 /** Global views are shared across every phone tab; all other views are per tab. */
 export function isGlobalRoute(r: Route): boolean {
-  return r === "settings";
+  return r === "settings" || r === "overview";
 }
 
 export const ROUTE_LABELS: Record<Route, string> = {
@@ -24,6 +25,7 @@ export const ROUTE_LABELS: Record<Route, string> = {
   chat: "Chat",
   terminal: "Terminal",
   logs: "Logs",
+  overview: "Overview",
   settings: "Settings",
 };
 
