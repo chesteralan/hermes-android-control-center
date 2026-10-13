@@ -323,7 +323,10 @@ pub async fn apply_hermes_setup(
 }
 
 fn non_empty(value: &Option<String>) -> Option<&str> {
-    value.as_deref().map(str::trim).filter(|value| !value.is_empty())
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 const HERMES_PROVIDER_ENV_KEYS: &[(&str, &str)] = &[
@@ -349,7 +352,10 @@ fn hermes_setup_values(input: &HermesSetupInput) -> AppResult<Vec<(String, &str)
         ("the model name", non_empty(&input.model_name)),
         ("the model base URL", non_empty(&input.model_base_url)),
         ("the provider API key", non_empty(&input.provider_api_key)),
-        ("the Telegram bot token", non_empty(&input.telegram_bot_token)),
+        (
+            "the Telegram bot token",
+            non_empty(&input.telegram_bot_token),
+        ),
         (
             "the Telegram allowed users",
             non_empty(&input.telegram_allowed_users),
@@ -459,10 +465,7 @@ fn hermes_setup_env_assignments(input: &HermesSetupInput) -> AppResult<Vec<(Stri
         ),
         ("SLACK_BOT_TOKEN", non_empty(&input.slack_bot_token)),
         ("SLACK_APP_TOKEN", non_empty(&input.slack_app_token)),
-        (
-            "SLACK_ALLOWED_USERS",
-            non_empty(&input.slack_allowed_users),
-        ),
+        ("SLACK_ALLOWED_USERS", non_empty(&input.slack_allowed_users)),
     ] {
         if let Some(value) = value {
             assignments.push((key.to_string(), value.to_string()));
@@ -495,7 +498,10 @@ fn hermes_setup_config_set_command(input: &HermesSetupInput) -> Option<String> {
         ));
     }
     if let Some(model) = non_empty(&input.model_name) {
-        sets.push(format!("hermes config set model.default {}", shell_quote(model)));
+        sets.push(format!(
+            "hermes config set model.default {}",
+            shell_quote(model)
+        ));
     }
     if let Some(base_url) = non_empty(&input.model_base_url) {
         sets.push(format!(
@@ -870,10 +876,8 @@ mod tests {
 
     #[test]
     fn hermes_env_update_command_is_private_atomic_and_quotes_values() {
-        let command = hermes_env_update_command(&[(
-            "OPENROUTER_API_KEY".into(),
-            "sk-or-v1:abc".into(),
-        )]);
+        let command =
+            hermes_env_update_command(&[("OPENROUTER_API_KEY".into(), "sk-or-v1:abc".into())]);
         assert!(command.contains("chmod 600"));
         assert!(command.contains("mktemp"));
         assert!(command.contains("mv -f"));
@@ -896,10 +900,7 @@ mod tests {
         let assignments = hermes_setup_env_assignments(&input).unwrap();
         assert!(assignments.contains(&("OPENROUTER_API_KEY".into(), "sk-or".into())));
         assert!(assignments.contains(&("TELEGRAM_BOT_TOKEN".into(), "token".into())));
-        assert!(assignments.contains(&(
-            "TELEGRAM_ALLOWED_USERS".into(),
-            "111,222".into()
-        )));
+        assert!(assignments.contains(&("TELEGRAM_ALLOWED_USERS".into(), "111,222".into())));
 
         let token_without_users = HermesSetupInput {
             telegram_bot_token: Some("token".into()),

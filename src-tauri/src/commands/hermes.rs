@@ -159,7 +159,11 @@ pub async fn get_hermes_status(
     serial: String,
 ) -> Result<HermesStatus, AppError> {
     let device_id = state.device_id_for(&serial);
-    let cfg = state.config.read().await.effective_hermes_config(&device_id);
+    let cfg = state
+        .config
+        .read()
+        .await
+        .effective_hermes_config(&device_id);
     fetch_status(&state, &serial, &cfg).await
 }
 
@@ -172,7 +176,11 @@ pub async fn detect_hermes(
     let out = t.execute(detect::SCRIPT, STATUS_TIMEOUT).await?;
     let mut report = detect::parse(&out.stdout);
     let device_id = state.device_id_for(&serial);
-    let base = state.config.read().await.effective_hermes_config(&device_id);
+    let base = state
+        .config
+        .read()
+        .await
+        .effective_hermes_config(&device_id);
     for candidate in &mut report.candidates {
         let mut candidate_cfg = base.clone();
         candidate_cfg.environment = candidate.environment.clone();
@@ -242,7 +250,11 @@ pub async fn hermes_action(
     let device_id = state.device_id_for(&serial);
     let lock = locks.for_device(&device_id).await;
     let _guard = lock.lock().await;
-    let cfg = state.config.read().await.effective_hermes_config(&device_id);
+    let cfg = state
+        .config
+        .read()
+        .await
+        .effective_hermes_config(&device_id);
     if cfg.transport == crate::config::HermesTransportKind::ControlApi {
         let api = match state.api_transport(&serial).await {
             Ok(api) => api,
@@ -385,7 +397,11 @@ pub async fn run_hermes_tool(
     let device_id = state.device_id_for(&serial);
     let lock = locks.for_device(&device_id).await;
     let _guard = lock.lock().await;
-    let cfg = state.config.read().await.effective_hermes_config(&device_id);
+    let cfg = state
+        .config
+        .read()
+        .await
+        .effective_hermes_config(&device_id);
     let configured = match tool {
         HermesTool::Doctor => &cfg.doctor_command,
         HermesTool::Update => &cfg.update_command,

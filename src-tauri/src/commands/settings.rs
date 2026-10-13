@@ -65,7 +65,14 @@ pub async fn update_settings<R: Runtime>(
 pub async fn list_device_profiles(
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::config::DeviceProfile>, AppError> {
-    let mut profiles: Vec<_> = state.config.read().await.devices.values().cloned().collect();
+    let mut profiles: Vec<_> = state
+        .config
+        .read()
+        .await
+        .devices
+        .values()
+        .cloned()
+        .collect();
     profiles.sort_by(|a, b| a.device_id.cmp(&b.device_id));
     Ok(profiles)
 }
@@ -82,7 +89,7 @@ pub async fn get_device_profile(
         .devices
         .get(&device_id)
         .cloned()
-        .ok_or_else(|| AppError::DeviceNotFound { serial: device_id })
+        .ok_or(AppError::DeviceNotFound { serial: device_id })
 }
 
 #[tauri::command]

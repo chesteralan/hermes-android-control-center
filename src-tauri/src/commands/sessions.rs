@@ -466,7 +466,11 @@ pub async fn list_hermes_sessions(
     serial: String,
 ) -> Result<Vec<HermesSessionSummary>, AppError> {
     let device_id = state.device_id_for(&serial);
-    let cfg = state.config.read().await.effective_hermes_config(&device_id);
+    let cfg = state
+        .config
+        .read()
+        .await
+        .effective_hermes_config(&device_id);
     let value = request_api(&state, &serial, &cfg, "/api/sessions", MAX_LIST_BYTES).await?;
     parse_sessions(&value)
 }
@@ -498,7 +502,11 @@ pub async fn get_hermes_session_messages(
     let offset = offset.unwrap_or(0);
     let (path, limit) = session_messages_path(&session_id, Some(offset), limit);
     let device_id = state.device_id_for(&serial);
-    let cfg = state.config.read().await.effective_hermes_config(&device_id);
+    let cfg = state
+        .config
+        .read()
+        .await
+        .effective_hermes_config(&device_id);
     let value = request_api(&state, &serial, &cfg, &path, MAX_TRANSCRIPT_BYTES).await?;
     parse_messages(&session_id, &value, offset, limit)
 }

@@ -217,14 +217,7 @@ impl AppState {
             .get_or_connect(serial, || async {
                 let port = self.forwards.ensure(&client, serial, cfg.ssh_port).await?;
                 let key = self.ssh_key()?;
-                ssh::connect(
-                    port,
-                    &cfg.ssh_user,
-                    key,
-                    &self.known_hosts,
-                    &device_id,
-                )
-                .await
+                ssh::connect(port, &cfg.ssh_user, key, &self.known_hosts, &device_id).await
             })
             .await?;
         Ok(TermuxSshTransport::new(handle))
@@ -274,7 +267,12 @@ impl AppState {
         serial: &str,
     ) -> AppResult<Arc<dyn DeviceTransport>> {
         let device_id = self.device_id_for(serial);
-        let transport = self.config.read().await.effective_hermes_config(&device_id).transport;
+        let transport = self
+            .config
+            .read()
+            .await
+            .effective_hermes_config(&device_id)
+            .transport;
         match transport {
             HermesTransportKind::TermuxSsh => Ok(Arc::new(self.termux_transport(serial).await?)),
             HermesTransportKind::ControlApi => Ok(Arc::new(self.api_transport(serial).await?)),

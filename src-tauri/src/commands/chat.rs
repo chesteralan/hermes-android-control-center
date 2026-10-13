@@ -136,7 +136,11 @@ pub async fn start_hermes_chat(
     on_event: Channel<HermesChatEvent>,
 ) -> Result<StreamId, AppError> {
     let device_id = state.device_id_for(&serial);
-    let cfg = state.config.read().await.effective_hermes_config(&device_id);
+    let cfg = state
+        .config
+        .read()
+        .await
+        .effective_hermes_config(&device_id);
     let command = build_chat_command(&cfg, &prompt, session_id.as_deref())?;
     let transport: Arc<dyn DeviceTransport> = match state.configured_hermes_transport(&serial).await
     {

@@ -383,7 +383,9 @@ impl AppConfig {
         }
         for (id, profile) in &self.devices {
             if id.trim().is_empty() {
-                return Err(AppError::Config("Device profile ID cannot be empty.".into()));
+                return Err(AppError::Config(
+                    "Device profile ID cannot be empty.".into(),
+                ));
             }
             if let Some(hermes) = &profile.hermes {
                 validate_hermes_config(hermes)?;
@@ -629,8 +631,8 @@ mod tests {
             }],
             ..Default::default()
         };
-        let device_id =
-            crate::adb::parse::device_id_from_serial("192.0.2.30:5555").unwrap_or_else(|| "192.0.2.30:5555".into());
+        let device_id = crate::adb::parse::device_id_from_serial("192.0.2.30:5555")
+            .unwrap_or_else(|| "192.0.2.30:5555".into());
         cfg.devices.insert(
             device_id.clone(),
             DeviceProfile {
@@ -683,7 +685,10 @@ mod tests {
         let eff = cfg.effective_config("phone-a");
         assert_eq!(eff.hermes, override_hermes);
         assert_eq!(eff.termux, override_termux);
-        assert_eq!(eff.log_command, "tail -n 100 /root/.hermes/logs/gateway.log");
+        assert_eq!(
+            eff.log_command,
+            "tail -n 100 /root/.hermes/logs/gateway.log"
+        );
         assert!(eff.has_hermes_override);
         assert!(eff.has_termux_override);
         assert!(eff.has_log_command_override);
@@ -738,7 +743,7 @@ mod tests {
             ..Default::default()
         };
         profile.apply_update(DeviceProfileUpdate {
-            alias: Some(None),  // explicitly set to null
+            alias: Some(None), // explicitly set to null
             color: Some(None),
             ..Default::default()
         });
