@@ -21,6 +21,10 @@ See [desktop setup, build prerequisites, and secret storage](docs/guides/DESKTOP
 - Manages Hermes status and gateway actions, and provides terminal and log views.
 - Uses an SSH bridge forwarded over ADB. The Termux SSH service is configured for loopback only.
 
+The first-run window (no phone connected yet):
+
+![Hermes Control Center with no phone connected: Pair, Pair with code, Connect by IP, and Discover actions](assets/screenshots/onboarding-empty.png)
+
 ## 1. Prerequisites
 
 - macOS 13 or newer for the current release target.

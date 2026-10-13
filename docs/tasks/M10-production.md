@@ -125,6 +125,7 @@
 ### [~] M10-T10 Signing & notarization (RELEASE.md §3)
 - Developer ID Application cert, hardened runtime, entitlements minimal, notarize + staple in CI.
 - **Progress:** Release workflow imports the documented signing/notarization secrets and fails closed when they are absent; Tauri's hardened runtime defaults to enabled, and no extra entitlements are configured.
+- **Progress (2026-10-13):** Verified the repository has no CI secrets configured yet (`gh secret list` is empty); RELEASE.md §3 lists the exact names to provision (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_API_ISSUER, APPLE_API_KEY, APPLE_API_KEY_CONTENT).
 - **Blocked:** This Mac has only an Apple Development identity. The local universal bundle is unsigned; Developer ID credentials and notarization secrets must be provisioned before a signed distribution build can pass.
 
 ### [~] M10-T11 Universal build
@@ -135,11 +136,13 @@
 ### [~] M10-T12 Auto-updater
 - `tauri-plugin-updater` with signing keypair; `latest.json` on GitHub Releases; update prompt in app.
 - **Progress:** Signed updater plugin, public key, GitHub Releases endpoint, update confirmation UI, and relaunch integration are implemented. A local signed updater archive and `.sig` were produced using a private key stored outside the repository with owner-only permissions.
+- **Progress (2026-10-13):** Confirmed no updater/signing secrets are configured on the repository yet (`gh secret list` is empty); the key must be added as `TAURI_SIGNING_PRIVATE_KEY` (+ `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) per RELEASE.md §3.
 - **Remaining:** Back up the private key securely, configure it as a GitHub Actions secret, and test install/update against a published release.
 
 ### [~] M10-T13 Release workflow
 - Tag `v*` → build, sign, notarize, upload DMG + updater artifacts + checksums; draft release notes from CHANGELOG.
 - **Progress:** A tag-triggered workflow runs checks, requires signing secrets, builds the universal macOS bundle, drafts CHANGELOG-based notes, and uploads updater artifacts and checksums.
+- **Progress (2026-10-13):** Local unsigned DMG bundling is reproducible (`tauri build --bundles dmg` produced a 10.96 MiB DMG on this Mac).
 - **Remaining:** Execute it with provisioned credentials and verify the resulting draft release.
 
 ### [x] M10-T14 Versioning & changelog
@@ -151,11 +154,13 @@
 ### [~] M10-T15 Root README (brief §25 — all required sections)
 1. Prerequisites 2. Installing ADB 3. Enabling Developer Options 4. Enabling Wireless Debugging 5. Pairing 6. Connecting 7. Configuring Termux 8. Configuring Hermes 9. Running the application 10. Troubleshooting ADB
 - Source content from `docs/guides/`; add screenshots.
-- **Progress:** The root README now covers all ten required sections and links to the maintained setup/troubleshooting guides. UI screenshots and fresh-Mac walkthrough verification remain open.
+- **Progress:** The root README now covers all ten required sections and links to the maintained setup/troubleshooting guides.
+- **Progress (2026-10-13):** Audited all `docs/guides/` links (resolve) and embedded a sanitized first-run screenshot (`assets/screenshots/onboarding-empty.png`) captured from the packaged app with a stub ADB path so no real device data appears. A connected-state screenshot (device serials/IPs redacted) and the full fresh-Mac walkthrough remain open.
 
 ### [x] M10-T16 CONTRIBUTING.md, SECURITY policy (reporting), LICENSE confirmed.
 - Added root contribution instructions and private vulnerability reporting policy; confirmed the existing MIT license.
 
 ## Exit check
+- **Partial (2026-10-13):** Packaged-app fresh-profile QA on this Mac: launching the release binary with an isolated `HOME` shows the main window in ~0.7 s, writes its startup log under the fresh profile's `Library/Logs`, and exits with zero app/stream leftovers on SIGTERM. The download/Gatekeeper/10-minute-onboarding walkthrough still requires a published release.
 - [ ] Fresh Mac: download DMG → open without Gatekeeper warning → onboard → manage Hermes in < 10 minutes following README only.
 - [ ] Tag `v1.0.0`.
