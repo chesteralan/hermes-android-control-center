@@ -1,8 +1,14 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
+import { useSettings } from "./settings";
 import type { ErrorPayload, LogLine, LogSourceKind } from "../types";
 
+/** Fallback when settings are not loaded yet; AppConfig.limits.maxLogLines wins. */
 export const MAX_LOG_LINES = 20_000;
+
+function maxLogLines(): number {
+  return useSettings.getState().saved?.limits.maxLogLines ?? MAX_LOG_LINES;
+}
 
 interface DeviceLogs {
   lines: LogLine[];
@@ -40,8 +46,8 @@ export const useLogs = create<LogStore>((set, get) => {
       set((s) => {
         const cur = s.byDevice[key] ?? empty;
         const merged = cur.lines.concat(batch);
-        const lines =
-          merged.length > MAX_LOG_LINES ? merged.slice(merged.length - MAX_LOG_LINES) : merged;
+        const limit = maxLogLines();
+        const lines = merged.length > limit ? merged.slice(merged.length - limit) : merged;
         return { byDevice: { ...s.byDevice, [key]: { ...cur, lines } } };
       }),
 

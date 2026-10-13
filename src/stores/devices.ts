@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
+import { useLogs } from "./logs";
 import type { AdbInfo, AndroidDevice, DeviceInfo, ErrorPayload, ReconnectStatus } from "../types";
 
 export const deviceKey = (d: Pick<AndroidDevice, "deviceId" | "serial">) => d.deviceId ?? d.serial;
@@ -113,6 +114,9 @@ export const useDevices = create<DeviceStore>((set, get) => ({
   },
 
   disconnect: async (serial) => {
+    // End this phone's frontend log stream; backend disconnect cancels PTY/SSH.
+    const entry = Object.entries(get().devices).find(([, d]) => d.serial === serial);
+    if (entry) await useLogs.getState().stop(entry[0]);
     await ipc.disconnectDevice(serial);
     await get().refresh();
   },

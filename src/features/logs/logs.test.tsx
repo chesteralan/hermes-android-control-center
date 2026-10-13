@@ -1,11 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useDevices } from "../../stores/devices";
 import { MAX_LOG_LINES, useLogs } from "../../stores/logs";
+import { useSettings } from "../../stores/settings";
 import { device } from "../../test/fixtures";
 import { mockIpc, resetStores } from "../../test/ipcMock";
-import type { LogLine } from "../../types";
+import type { AppConfig, LogLine } from "../../types";
 import { LogAutoStart } from "./LogAutoStart";
 import {
   searchLogSequences,
@@ -52,6 +53,31 @@ describe("logs store", () => {
     useLogs.getState().append(KEY, [line(1)]);
     useLogs.getState().clear(KEY);
     expect(useLogs.getState().byDevice[KEY]?.lines).toHaveLength(0);
+  });
+
+  it("keeps interleaved output from two devices separated", () => {
+    useLogs.getState().append("PHONE_A", [line(1), line(3)]);
+    useLogs.getState().append("PHONE_B", [line(2)]);
+    useLogs.getState().append("PHONE_A", [line(5)]);
+    const a = useLogs.getState().byDevice.PHONE_A?.lines ?? [];
+    const b = useLogs.getState().byDevice.PHONE_B?.lines ?? [];
+    expect(a.map((l) => l.seq)).toEqual([1, 3, 5]);
+    expect(b.map((l) => l.seq)).toEqual([2]);
+  });
+
+  it("applies the configured per-device ring-buffer limit", () => {
+    useSettings.setState({ saved: { limits: { maxLogLines: 5 } } as AppConfig });
+    try {
+      useLogs.getState().append(
+        KEY,
+        Array.from({ length: 10 }, (_, i) => line(i + 1)),
+      );
+      const lines = useLogs.getState().byDevice[KEY]?.lines ?? [];
+      expect(lines).toHaveLength(5);
+      expect(lines[0]?.seq).toBe(6);
+    } finally {
+      useSettings.setState({ saved: null });
+    }
   });
 });
 
@@ -405,6 +431,50 @@ describe("LogsView", () => {
     render(<LogsView />);
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("offline");
+  });
+
+  it("keeps pause and search state per phone when switching devices", async () => {
+    const phoneA = device({ serial: "serial-A", deviceId: "PHONE_A", model: "Pixel7" });
+    const phoneB = device({ serial: "serial-B", deviceId: "PHONE_B", model: "Galaxy" });
+    useDevices.getState().setDevices([phoneA, phoneB]);
+    useDevices.setState({ activeKey: "PHONE_A" });
+    useLogs.setState({
+      byDevice: {
+        PHONE_A: {
+          lines: [line(1), line(2)],
+          source: "logcat",
+          streamId: "logs-A",
+          starting: false,
+          error: null,
+        },
+        PHONE_B: {
+          lines: [line(1)],
+          source: "logcat",
+          streamId: "logs-B",
+          starting: false,
+          error: null,
+        },
+      },
+    });
+    render(<LogsView />);
+
+    // Search and pause while phone A is active.
+    await userEvent.type(screen.getByLabelText("Search logs"), "from");
+    await userEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(screen.getByRole("button", { name: /Resume/ })).toBeInTheDocument();
+
+    // Lines keep arriving for A while paused.
+    act(() => useLogs.getState().append("PHONE_A", [line(3)]));
+
+    // Phone B starts with its own (empty) search and is not paused.
+    act(() => useDevices.setState({ activeKey: "PHONE_B" }));
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Search logs")).toHaveValue("");
+
+    // Back on A: pause snapshot with the new-line count and search are retained.
+    act(() => useDevices.setState({ activeKey: "PHONE_A" }));
+    expect(screen.getByRole("button", { name: /Resume · 1 new/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("Search logs")).toHaveValue("from");
   });
 });
 

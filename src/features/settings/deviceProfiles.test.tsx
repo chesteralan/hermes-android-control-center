@@ -45,6 +45,7 @@ const settings = {
   reconnect: { enabled: true, scheduleMs: [1000, 2000] },
   hermes: globalHermes,
   logs: { autoStart: false, logcatFilter: "*:I" },
+  limits: { maxLogLines: 20_000 },
   termux: globalTermux,
   apiPort: 8765,
   logLevel: "info" as const,

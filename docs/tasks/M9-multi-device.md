@@ -53,7 +53,7 @@
 - Single phone keeps the current layout without a forced tab strip. Tabs persist order and last-selected tab across restart (by `device_id`).
 - **Tests:** tab rendering for mixed states (connected, reconnecting, offline, unknown); selection persistence; port-change rebind keeps the same tab.
 
-### [ ] M9-T5 Per-tab terminal and log isolation
+### [~] M9-T5 Per-tab terminal and log isolation
 - Terminal sessions and scrollback are scoped per `device_id` (and transport); switching tabs never merges output. Closing a tab offers to end that phone's streams/sessions.
 - Log viewer buffers, search, and pause state are per phone; the ring-buffer limit in LimitsConfig applies per device.
 - **Tests:** interleaved output from two fake devices stays separated; buffer bounds are per device; cancel-on-close affects only the closed tab's streams.

@@ -567,4 +567,38 @@ describe("TerminalView", () => {
 
     expect(container.textContent).toBe("before");
   });
+
+  it("keeps streamed output separated across two devices", async () => {
+    const chans: Record<string, Chan> = {};
+    mockIpc({
+      stream_command: (args) => {
+        const serial = String(args?.serial);
+        chans[serial] = args?.onEvent as Chan;
+        return `cmd-${serial}`;
+      },
+    });
+    const sessionA = useTerminal.getState().ensureSession("PHONE_A");
+    const sessionB = useTerminal.getState().ensureSession("PHONE_B");
+    await Promise.all([
+      useTerminal.getState().run("PHONE_A", "serial-A", "ls", "adbShell", sessionA),
+      useTerminal.getState().run("PHONE_B", "serial-B", "ps", "adbShell", sessionB),
+    ]);
+    chans["serial-A"]?.onmessage({ type: "stdout", line: "from A" });
+    chans["serial-A"]?.onmessage({ type: "exit", code: 0, durationMs: 5 });
+    chans["serial-B"]?.onmessage({ type: "stdout", line: "from B" });
+    chans["serial-B"]?.onmessage({ type: "exit", code: 0, durationMs: 5 });
+
+    const output = (deviceKey: string, sessionId: string) =>
+      (useTerminal.getState().sessions[terminalSessionKey(deviceKey, sessionId)]?.blocks ?? [])
+        .flatMap((block) => block.lines)
+        .map((line) => line.text)
+        .join("\n");
+
+    const textA = output("PHONE_A", sessionA);
+    const textB = output("PHONE_B", sessionB);
+    expect(textA).toContain("from A");
+    expect(textA).not.toContain("from B");
+    expect(textB).toContain("from B");
+    expect(textB).not.toContain("from A");
+  });
 });

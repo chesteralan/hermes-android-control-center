@@ -34,6 +34,7 @@ const cfg: AppConfig = {
     pathPrepend: ["/root/.local/bin"],
   },
   logs: { autoStart: false, logcatFilter: "*:I" },
+  limits: { maxLogLines: 20_000 },
   termux: { sshUser: "termux", sshPort: 8022 },
   apiPort: 8765,
   logLevel: "info",

@@ -6,6 +6,8 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ## Recently Completed
 
+- [x] [M9-T5 — Per-tab terminal and log isolation](tasks/M9-multi-device.md): the log viewer's search input/query, regex/case toggles, match cursor, level filter, pause snapshot, and auto-scroll now live in a per-device record, so switching tabs never leaks viewer state (buffers were already per phone from M9-T1; terminal sessions/scrollback were too — now regression-tested with interleaved two-device streams). AppConfig gains `limits.maxLogLines` (serde default 20,000, validated non-zero, no settings UI yet) and the log store ring buffer honors it. `devices.disconnect` now stops the phone's frontend log stream before the backend disconnect (which cancels its PTY sessions, SSH, and reconnect), and device tabs gained a close (×) for wireless phones: the confirm dialog names the phone and explains that its terminal sessions and log streams end — hidden for USB, mirroring Disconnect. Six new tests cover two-device interleaving (terminal + logs), per-phone pause/search state, cancel-on-close isolation, the hidden USB close, and the configured buffer limit.
+
 - [x] [M9-T4 — Device tab bar](tasks/M9-multi-device.md): the phone tab strip now renders in the app header (full width, hidden when a single phone is known) with per-phone color swatch, alias/model fallback, connection-state dot, and an overflow menu (Retry for disconnected phones — the reconnect path also serves as Connect — Disconnect with a confirm dialog naming the target phone, Open profile). Selecting a tab focuses the phone and restores that phone's remembered view via per-tab route memory in `stores/route.ts` (global views like Settings are untouched); tab order and the last-selected tab persist in localStorage by `device_id`; a wireless port change rebinds to the same tab. 22 local tests cover mixed states (connected/reconnecting/offline/disconnected/unknown), order and selection persistence, per-tab view restore, and port-change rebind.
 
 - [x] M9 local quality gates restored (typecheck, ESLint, Prettier all pass): fixed the pre-existing M9-T2/T3 fallout — `TermuxConfig` exported from the types barrel, `set_device_profile` typed as `Partial<DeviceProfileUpdate>` (matching the Rust `#[serde(default)]` partial-update contract), `AppConfig` test fixtures gained `devices: {}`, unused imports/parameters removed, and `DeviceTabBar` tab-order sync rewritten as a render-phase adjustment instead of `setState` in an effect. `src/types/generated` re-exported from Rust via `npm run gen:types` so `DeviceProfileUpdate` carries its type imports.
@@ -92,13 +94,13 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ### M9 — Multi-Device
 
-Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested. T4 (device tab bar with per-tab views and localStorage persistence) is implemented and tested locally.
+Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested. T4 (device tab bar with per-tab views and localStorage persistence) is implemented and tested locally. T5 (per-tab log viewer state, limits config, tab close cleanup) is implemented and tested locally.
 
 - [~] [M9-T1 — Backend isolation audit and completion](tasks/M9-multi-device.md)
 - [~] [M9-T2 — DeviceProfile schema, persistence, and effective config](tasks/M9-multi-device.md)
 - [~] [M9-T3 — Profile editor UI](tasks/M9-multi-device.md)
 - [~] [M9-T4 — Device tab bar](tasks/M9-multi-device.md)
-- [ ] [M9-T5 — Per-tab terminal and log isolation](tasks/M9-multi-device.md)
+- [~] [M9-T5 — Per-tab terminal and log isolation](tasks/M9-multi-device.md)
 - [ ] [M9-T6 — Overview view](tasks/M9-multi-device.md)
 - [ ] [M9-T7 — Independent reconnect verification](tasks/M9-multi-device.md)
 - [ ] [M9-T8 — Destructive actions and limited broadcast](tasks/M9-multi-device.md)

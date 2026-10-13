@@ -35,6 +35,29 @@ interface PauseSnapshot {
   lastSequence: number;
 }
 
+/** Per-phone viewer state so switching device tabs never leaks search/pause. */
+interface LogsUiState {
+  follow: boolean;
+  pause: PauseSnapshot | null;
+  searchInput: string;
+  searchQuery: string;
+  regexEnabled: boolean;
+  caseSensitive: boolean;
+  matchCursor: number;
+  selectedLevels: Set<LevelFilter>;
+}
+
+const DEFAULT_LOGS_UI: LogsUiState = {
+  follow: true,
+  pause: null,
+  searchInput: "",
+  searchQuery: "",
+  regexEnabled: false,
+  caseSensitive: false,
+  matchCursor: 0,
+  selectedLevels: new Set(LEVEL_FILTERS),
+};
+
 const levelStyle: Record<LogLevel, string> = {
   debug: "text-muted",
   info: "text-accent",
@@ -123,21 +146,23 @@ export function LogsView() {
   const { start, stop, clear } = useLogs();
   const lines = entry?.lines ?? NO_LINES;
   const streaming = !!entry?.streamId;
-  const [follow, setFollow] = useState(true);
-  const [pauseSnapshot, setPauseSnapshot] = useState<PauseSnapshot | null>(null);
-  const [searchInput, setSearchInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [regexEnabled, setRegexEnabled] = useState(false);
-  const [caseSensitive, setCaseSensitive] = useState(false);
-  const [matchCursor, setMatchCursor] = useState(0);
+  const [uiByDevice, setUiByDevice] = useState<Record<string, LogsUiState>>({});
+  const ui = uiByDevice[key] ?? DEFAULT_LOGS_UI;
+  const follow = ui.follow;
+  const searchInput = ui.searchInput;
+  const searchQuery = ui.searchQuery;
+  const regexEnabled = ui.regexEnabled;
+  const caseSensitive = ui.caseSensitive;
+  const matchCursor = ui.matchCursor;
+  const selectedLevels = ui.selectedLevels;
+  const pauseSnapshot = ui.pause;
+  const patchUi = (patch: Partial<LogsUiState>) =>
+    setUiByDevice((s) => ({ ...s, [key]: { ...(s[key] ?? DEFAULT_LOGS_UI), ...patch } }));
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportScope, setExportScope] = useState<"visible" | "all">("visible");
   const [exportFormat, setExportFormat] = useState<LogExportFormat>("log");
   const [exportStatus, setExportStatus] = useState("");
   const [source, setSource] = useState<LogSourceKind>("logcat");
-  const [selectedLevels, setSelectedLevels] = useState<Set<LevelFilter>>(
-    () => new Set(LEVEL_FILTERS),
-  );
   const [workerResult, setWorkerResult] = useState<LogSearchWorkerResponse | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const workerRequestId = useRef(0);
@@ -157,9 +182,16 @@ export function LogsView() {
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => setSearchQuery(searchInput), 180);
+    const timeout = window.setTimeout(
+      () =>
+        setUiByDevice((s) => ({
+          ...s,
+          [key]: { ...(s[key] ?? DEFAULT_LOGS_UI), searchQuery: searchInput },
+        })),
+      180,
+    );
     return () => window.clearTimeout(timeout);
-  }, [searchInput]);
+  }, [key, searchInput]);
 
   let searchPattern: RegExp | null = null;
   let searchError: string | null = null;
@@ -270,7 +302,7 @@ export function LogsView() {
     const el = scroller.current;
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < ROW * 2;
-    if (atBottom !== follow) setFollow(atBottom);
+    if (atBottom !== follow) patchUi({ follow: atBottom });
   };
 
   function selectLine(event: MouseEvent<HTMLButtonElement>, line: LogLine, index: number) {
@@ -389,8 +421,7 @@ export function LogsView() {
               aria-label="Search logs"
               value={searchInput}
               onChange={(event) => {
-                setSearchInput(event.target.value);
-                setMatchCursor(0);
+                patchUi({ searchInput: event.target.value, matchCursor: 0 });
               }}
               className="w-32 rounded border border-border bg-bg px-2 py-1 text-text"
             />
@@ -401,8 +432,7 @@ export function LogsView() {
               aria-label="Use regular expression"
               checked={regexEnabled}
               onChange={(event) => {
-                setRegexEnabled(event.target.checked);
-                setMatchCursor(0);
+                patchUi({ regexEnabled: event.target.checked, matchCursor: 0 });
               }}
             />
             Regex
@@ -413,8 +443,7 @@ export function LogsView() {
               aria-label="Case sensitive"
               checked={caseSensitive}
               onChange={(event) => {
-                setCaseSensitive(event.target.checked);
-                setMatchCursor(0);
+                patchUi({ caseSensitive: event.target.checked, matchCursor: 0 });
               }}
             />
             Case
@@ -427,7 +456,7 @@ export function LogsView() {
             <Button
               variant="ghost"
               aria-pressed={selectedLevels.size === LEVEL_FILTERS.length}
-              onClick={() => setSelectedLevels(new Set(LEVEL_FILTERS))}
+              onClick={() => patchUi({ selectedLevels: new Set(LEVEL_FILTERS) })}
             >
               All
             </Button>
@@ -437,14 +466,12 @@ export function LogsView() {
                 variant="ghost"
                 aria-label={`${level.toUpperCase()} ${levelCounts[level]}`}
                 aria-pressed={selectedLevels.has(level)}
-                onClick={() =>
-                  setSelectedLevels((current) => {
-                    const next = new Set(current);
-                    if (next.has(level)) next.delete(level);
-                    else next.add(level);
-                    return next;
-                  })
-                }
+                onClick={() => {
+                  const next = new Set(selectedLevels);
+                  if (next.has(level)) next.delete(level);
+                  else next.add(level);
+                  patchUi({ selectedLevels: next });
+                }}
               >
                 {level === "unknown" ? "Unknown" : level.toUpperCase()} {levelCounts[level]}
               </Button>
@@ -460,7 +487,7 @@ export function LogsView() {
             disabled={renderedLines.length === 0 || searchPending}
             onClick={() => {
               const next = (activeMatchIndex - 1 + renderedLines.length) % renderedLines.length;
-              setMatchCursor(next);
+              patchUi({ matchCursor: next });
               const sequence = renderedLines[next]?.seq;
               const index = renderedLines.findIndex((line) => line.seq === sequence);
               if (index >= 0) virt.scrollToIndex(index, { align: "center" });
@@ -474,7 +501,7 @@ export function LogsView() {
             disabled={renderedLines.length === 0 || searchPending}
             onClick={() => {
               const next = (activeMatchIndex + 1) % renderedLines.length;
-              setMatchCursor(next);
+              patchUi({ matchCursor: next });
               const sequence = renderedLines[next]?.seq;
               const index = renderedLines.findIndex((line) => line.seq === sequence);
               if (index >= 0) virt.scrollToIndex(index, { align: "center" });
@@ -486,8 +513,7 @@ export function LogsView() {
             <Button
               variant="ghost"
               onClick={() => {
-                setPauseSnapshot(null);
-                setFollow(true);
+                patchUi({ pause: null, follow: true });
               }}
             >
               Resume{newLineCount > 0 ? ` · ${newLineCount} new` : ""}
@@ -497,14 +523,17 @@ export function LogsView() {
               variant="ghost"
               disabled={lines.length === 0}
               onClick={() => {
-                setPauseSnapshot({ deviceKey: key, lines, lastSequence });
-                setFollow(false);
+                patchUi({ pause: { deviceKey: key, lines, lastSequence }, follow: false });
               }}
             >
               Pause
             </Button>
           )}
-          <Button variant="ghost" aria-pressed={follow} onClick={() => setFollow((f) => !f)}>
+          <Button
+            variant="ghost"
+            aria-pressed={follow}
+            onClick={() => patchUi({ follow: !follow })}
+          >
             Auto-scroll {follow ? "on" : "off"}
           </Button>
         </span>
@@ -551,7 +580,7 @@ export function LogsView() {
       </div>
       {!follow && lines.length > 0 && (
         <div className="border-t border-border px-4 py-2">
-          <Button onClick={() => setFollow(true)}>Jump to latest</Button>
+          <Button onClick={() => patchUi({ follow: true })}>Jump to latest</Button>
         </div>
       )}
       {exportStatus && (

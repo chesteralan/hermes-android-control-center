@@ -286,6 +286,23 @@ pub struct EffectiveDeviceConfig {
     pub has_log_command_override: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+/// Resource bounds applied per device (frontend log ring buffer).
+pub struct LimitsConfig {
+    /// Lines kept per phone in the live log viewer's ring buffer.
+    pub max_log_lines: usize,
+}
+
+impl Default for LimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_log_lines: 20_000,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
@@ -297,6 +314,7 @@ pub struct AppConfig {
     pub reconnect: ReconnectConfig,
     pub hermes: HermesConfig,
     pub logs: LogsConfig,
+    pub limits: LimitsConfig,
     pub termux: TermuxConfig,
     pub api_port: u16,
     pub log_level: LogLevelSetting,
@@ -312,6 +330,7 @@ impl Default for AppConfig {
             reconnect: ReconnectConfig::default(),
             hermes: HermesConfig::default(),
             logs: LogsConfig::default(),
+            limits: LimitsConfig::default(),
             termux: TermuxConfig::default(),
             api_port: 8765,
             log_level: LogLevelSetting::Info,
@@ -376,6 +395,11 @@ impl AppConfig {
         if self.reconnect.schedule_ms.iter().any(|ms| *ms < 500) {
             return Err(AppError::Config(
                 "Reconnect delays must be at least 500 ms.".into(),
+            ));
+        }
+        if self.limits.max_log_lines == 0 {
+            return Err(AppError::Config(
+                "Log buffer limit must be at least 1 line.".into(),
             ));
         }
         for k in &self.known_addresses {
@@ -585,6 +609,24 @@ mod tests {
         cfg.reconnect.schedule_ms = vec![10];
         assert!(cfg.validate().is_err());
         assert!(AppConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn limits_default_when_absent_and_override_when_present() {
+        let cfg = AppConfig::from_json(serde_json::json!({ "version": 3 }));
+        assert_eq!(cfg.limits.max_log_lines, 20_000);
+        let cfg = AppConfig::from_json(serde_json::json!({
+            "version": 3,
+            "limits": { "maxLogLines": 1_234 }
+        }));
+        assert_eq!(cfg.limits.max_log_lines, 1_234);
+    }
+
+    #[test]
+    fn log_buffer_limit_must_be_positive() {
+        let mut cfg = AppConfig::default();
+        cfg.limits.max_log_lines = 0;
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

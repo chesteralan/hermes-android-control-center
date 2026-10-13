@@ -35,6 +35,7 @@ const testConfig: AppConfig = {
     updateCommand: "hermes update",
   },
   logs: { autoStart: false, logcatFilter: "*:I" },
+  limits: { maxLogLines: 20_000 },
   termux: { sshUser: "termux", sshPort: 8022 },
   apiPort: 8765,
   logLevel: "info",

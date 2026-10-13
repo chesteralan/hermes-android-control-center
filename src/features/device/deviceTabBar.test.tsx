@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useDeviceProfiles } from "../../stores/deviceProfiles";
 import { ACTIVE_KEY_STORAGE, loadActiveKey, useDevices } from "../../stores/devices";
+import { useLogs } from "../../stores/logs";
 import { useRoute } from "../../stores/route";
 import { device } from "../../test/fixtures";
 import { mockIpc, resetStores } from "../../test/ipcMock";
@@ -266,5 +267,60 @@ describe("DeviceTabBar", () => {
     useRoute.getState().go("settings");
     await userEvent.click(screen.getByText("Galaxy"));
     expect(useRoute.getState().route).toBe("settings");
+  });
+
+  it("closing a tab ends only that phone's log stream and disconnects it", async () => {
+    const fn = mockIpc({
+      disconnect_device: () => undefined,
+      cancel_stream: () => true,
+      list_devices: () => [],
+    });
+    useDevices.getState().setDevices([deviceA, deviceB]);
+    useLogs.setState({
+      byDevice: {
+        PHONE_A: {
+          lines: [],
+          source: "logcat",
+          streamId: "logs-A",
+          starting: false,
+          error: null,
+        },
+        PHONE_B: {
+          lines: [],
+          source: "logcat",
+          streamId: "logs-B",
+          starting: false,
+          error: null,
+        },
+      },
+    });
+    render(<DeviceTabBar />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Close tab for Pixel7" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Pixel7");
+    expect(dialog).toHaveTextContent("log streams");
+    await userEvent.click(screen.getByRole("button", { name: "Close tab" }));
+
+    await waitFor(() => expect(fn).toHaveBeenCalledWith("cancel_stream", { streamId: "logs-A" }));
+    expect(fn).toHaveBeenCalledWith("disconnect_device", { serial: deviceA.serial });
+    expect(fn).not.toHaveBeenCalledWith("cancel_stream", { streamId: "logs-B" });
+    expect(useLogs.getState().byDevice.PHONE_A?.streamId).toBeNull();
+    expect(useLogs.getState().byDevice.PHONE_B?.streamId).toBe("logs-B");
+  });
+
+  it("hides the close button for USB devices", () => {
+    const usb = device({
+      serial: "usb-1",
+      deviceId: "PHONE_USB",
+      model: "PixelUSB",
+      connection: "usb",
+    });
+    useDevices.getState().setDevices([deviceA, usb]);
+    render(<DeviceTabBar />);
+    expect(screen.getByRole("button", { name: "Close tab for Pixel7" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Close tab for PixelUSB" }),
+    ).not.toBeInTheDocument();
   });
 });

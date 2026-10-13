@@ -2,9 +2,10 @@
 import type { DeviceProfile } from "./DeviceProfile";
 import type { HermesConfig } from "./HermesConfig";
 import type { KnownAddress } from "./KnownAddress";
+import type { LimitsConfig } from "./LimitsConfig";
 import type { LogLevelSetting } from "./LogLevelSetting";
 import type { LogsConfig } from "./LogsConfig";
 import type { ReconnectConfig } from "./ReconnectConfig";
 import type { TermuxConfig } from "./TermuxConfig";
 
-export type AppConfig = { version: number, adbPath: string | null, knownAddresses: Array<KnownAddress>, reconnect: ReconnectConfig, hermes: HermesConfig, logs: LogsConfig, termux: TermuxConfig, apiPort: number, logLevel: LogLevelSetting, devices: { [key in string]: DeviceProfile }, };
+export type AppConfig = { version: number, adbPath: string | null, knownAddresses: Array<KnownAddress>, reconnect: ReconnectConfig, hermes: HermesConfig, logs: LogsConfig, limits: LimitsConfig, termux: TermuxConfig, apiPort: number, logLevel: LogLevelSetting, devices: { [key in string]: DeviceProfile }, };

@@ -149,6 +149,7 @@ export function DeviceTabBar({ onOpenProfile }: DeviceTabBarProps) {
   const [tabOrder, setTabOrder] = useState<string[]>(loadTabOrder);
   const [syncedOrder, setSyncedOrder] = useState<string | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState<AndroidDevice | null>(null);
+  const [confirmClose, setConfirmClose] = useState<AndroidDevice | null>(null);
   const [actionError, setActionError] = useState<ErrorPayload | null>(null);
 
   const allKeys = Object.keys(devices);
@@ -225,6 +226,20 @@ export function DeviceTabBar({ onOpenProfile }: DeviceTabBarProps) {
               <span className="truncate max-w-[120px]">{alias ?? deviceTitle(d)}</span>
               {/* State badge */}
               <StatusDot tone={st.tone} label={st.label} pulse={st.pulse} />
+              {/* Close tab (wireless phones only — USB devices cannot be disconnected) */}
+              {d.connection !== "usb" && (
+                <button
+                  type="button"
+                  aria-label={`Close tab for ${deviceTitle(d)}`}
+                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[11px] leading-none text-muted hover:bg-surface-2 hover:text-text"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmClose(d);
+                  }}
+                >
+                  ×
+                </button>
+              )}
               {/* Overflow menu */}
               <OverflowMenu
                 device={d}
@@ -268,6 +283,35 @@ export function DeviceTabBar({ onOpenProfile }: DeviceTabBarProps) {
           {confirmDisconnect?.ipAddress ? ` · ${confirmDisconnect.ipAddress}` : ""}?
         </p>
         <p className="mt-2 text-muted text-sm">Automatic reconnection will be disabled for it.</p>
+      </ConfirmDialog>
+
+      {/* Close-tab confirm: cleanup + disconnect (M9-T5) */}
+      <ConfirmDialog
+        open={confirmClose !== null}
+        title={`Close ${confirmClose ? (profiles[deviceKey(confirmClose)]?.alias ?? deviceTitle(confirmClose)) : "device"} tab?`}
+        confirmLabel="Close tab"
+        danger
+        onCancel={() => setConfirmClose(null)}
+        onConfirm={() => {
+          const d = confirmClose;
+          setConfirmClose(null);
+          if (d) void handleDisconnect(d);
+        }}
+      >
+        <p>
+          Close{" "}
+          <b>
+            {confirmClose
+              ? (profiles[deviceKey(confirmClose)]?.alias ?? deviceTitle(confirmClose))
+              : ""}
+          </b>
+          {confirmClose?.model ? ` (${confirmClose.model})` : ""}
+          {confirmClose?.ipAddress ? ` · ${confirmClose.ipAddress}` : ""}?
+        </p>
+        <p className="mt-2 text-muted text-sm">
+          This ends its terminal sessions and log streams and disconnects the phone. Automatic
+          reconnection will be disabled for it.
+        </p>
       </ConfirmDialog>
     </div>
   );
