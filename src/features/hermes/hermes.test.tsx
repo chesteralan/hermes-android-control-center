@@ -294,7 +294,9 @@ describe("HermesStatusCard", () => {
     await screen.findByText("running");
     await userEvent.click(screen.getByRole("button", { name: "Stop" }));
     expect(fn).not.toHaveBeenCalledWith("hermes_action", expect.anything());
-    expect(screen.getByRole("dialog", { name: /Stop Hermes on CPH2239/ })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: /Stop Hermes on CPH2239/ });
+    // Confirmations name the phone's address, not just the model (M9-T8).
+    expect(dialog).toHaveTextContent(device().serial);
     await userEvent.click(screen.getByRole("button", { name: "Stop Hermes" }));
     expect(fn).toHaveBeenCalledWith("hermes_action", { serial: device().serial, action: "stop" });
     expect(await screen.findByText("Action confirmed")).toBeInTheDocument();

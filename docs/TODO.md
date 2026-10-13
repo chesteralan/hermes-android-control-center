@@ -6,6 +6,12 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ## Recently Completed
 
+- [x] [M9-T7 — Independent reconnect verification](tasks/M9-multi-device.md): reconnection now prefers each phone's remembered profile `last_address` (port changes no longer strand a phone on its stale serial), the frontend reconnect map is keyed by stable `device_id` so `device://reconnect` status follows the right tab across rebinds, and a fake-clock test proves two concurrent failing loops advance independently — phone A giving up while phone B is still retrying, with events attributed per device. Manual Retry re-arms only the selected phone (frontend test).
+
+- [x] [M9-T8 — Destructive actions and limited broadcast](tasks/M9-multi-device.md): every destructive confirmation now names the target phone via a shared `deviceIdentity` helper — DeviceList disconnect, Hermes stop/restart/update, terminal session close and snippet run, provisioning consent/reset/Termux uninstall, and the Control API install review all show alias, model, and address. Limited broadcast landed on saved snippets: with two or more phones the run dialog gains an "Also run on" multi-select (predefined snippets only, one confirmation), each selected phone gets its own terminal session block, and one phone's failure never cancels or mislabels the others (per-block exit/error + toast summary).
+
+- [x] [M10-T3 — Performance budgets](tasks/M10-production.md): local macOS probe (`scripts/perf-probe.sh` + `scripts/winprobe.swift`) records cold start 0.4–0.7 s to first window, idle CPU 0.0 %, idle RAM ≈ 73 MB with no phone, and 0 orphan processes after quit. The probe found and the fix landed for a SIGTERM leak of one `adb track-devices -l` child per launch — SIGTERM/SIGINT now take the graceful quit path. Connected-idle, throughput, device-info, and 3-phone rows remain blocked on a phone; procedure and partial results recorded in TESTING.md §6.
+
 - [x] [M9-T5 — Per-tab terminal and log isolation](tasks/M9-multi-device.md): the log viewer's search input/query, regex/case toggles, match cursor, level filter, pause snapshot, and auto-scroll now live in a per-device record, so switching tabs never leaks viewer state (buffers were already per phone from M9-T1; terminal sessions/scrollback were too — now regression-tested with interleaved two-device streams). AppConfig gains `limits.maxLogLines` (serde default 20,000, validated non-zero, no settings UI yet) and the log store ring buffer honors it. `devices.disconnect` now stops the phone's frontend log stream before the backend disconnect (which cancels its PTY sessions, SSH, and reconnect), and device tabs gained a close (×) for wireless phones: the confirm dialog names the phone and explains that its terminal sessions and log streams end — hidden for USB, mirroring Disconnect. Six new tests cover two-device interleaving (terminal + logs), per-phone pause/search state, cancel-on-close isolation, the hidden USB close, and the configured buffer limit.
 
 - [x] [M9-T4 — Device tab bar](tasks/M9-multi-device.md): the phone tab strip now renders in the app header (full width, hidden when a single phone is known) with per-phone color swatch, alias/model fallback, connection-state dot, and an overflow menu (Retry for disconnected phones — the reconnect path also serves as Connect — Disconnect with a confirm dialog naming the target phone, Open profile). Selecting a tab focuses the phone and restores that phone's remembered view via per-tab route memory in `stores/route.ts` (global views like Settings are untouched); tab order and the last-selected tab persist in localStorage by `device_id`; a wireless port change rebinds to the same tab. 22 local tests cover mixed states (connected/reconnecting/offline/disconnected/unknown), order and selection persistence, per-tab view restore, and port-change rebind.
@@ -89,12 +95,12 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ### M10 — Hardening & Production
 
-- [ ] [M10-T3 — Performance budgets](tasks/M10-production.md)
+- [~] [M10-T3 — Performance budgets](tasks/M10-production.md)
 - [ ] [M10-T5 — Resilience QA matrix](tasks/M10-production.md)
 
 ### M9 — Multi-Device
 
-Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested. T4 (device tab bar with per-tab views and localStorage persistence) is implemented and tested locally. T5 (per-tab log viewer state, limits config, tab close cleanup) is implemented and tested locally.
+Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested. T4 (device tab bar with per-tab views and localStorage persistence) is implemented and tested locally. T5 (per-tab log viewer state, limits config, tab close cleanup) is implemented and tested locally. T7 (reconnect isolation, profile-address targeting, device-keyed reconnect events) and T8 (phone-identifying confirmations, snippet broadcast) are implemented and tested locally.
 
 - [~] [M9-T1 — Backend isolation audit and completion](tasks/M9-multi-device.md)
 - [~] [M9-T2 — DeviceProfile schema, persistence, and effective config](tasks/M9-multi-device.md)
@@ -102,8 +108,8 @@ Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (
 - [~] [M9-T4 — Device tab bar](tasks/M9-multi-device.md)
 - [~] [M9-T5 — Per-tab terminal and log isolation](tasks/M9-multi-device.md)
 - [ ] [M9-T6 — Overview view](tasks/M9-multi-device.md)
-- [ ] [M9-T7 — Independent reconnect verification](tasks/M9-multi-device.md)
-- [ ] [M9-T8 — Destructive actions and limited broadcast](tasks/M9-multi-device.md)
+- [~] [M9-T7 — Independent reconnect verification](tasks/M9-multi-device.md)
+- [~] [M9-T8 — Destructive actions and limited broadcast](tasks/M9-multi-device.md)
 - [ ] [M9-T9 — Multi-device QA (needs ≥ 2 phones)](tasks/M9-multi-device.md)
 
 ### M11 — New Phone Provisioning

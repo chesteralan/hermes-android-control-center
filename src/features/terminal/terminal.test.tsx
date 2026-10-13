@@ -1,7 +1,8 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { deviceKey, useDevices } from "../../stores/devices";
+import { useToasts } from "../../stores/toast";
 import {
   MAX_COMMAND_HISTORY,
   MAX_TERMINAL_LINES,
@@ -566,6 +567,67 @@ describe("TerminalView", () => {
     const { container } = render(<AnsiText text={"before\u001b[31"} />);
 
     expect(container.textContent).toBe("before");
+  });
+
+  it("broadcasts a saved command to selected phones with per-phone results", async () => {
+    const started: string[] = [];
+    const chans: Record<string, Chan> = {};
+    mockIpc({
+      stream_command: (args) => {
+        const serial = String(args?.serial);
+        started.push(serial);
+        chans[serial] = args?.onEvent as Chan;
+        return `cmd-${serial}`;
+      },
+    });
+    const phoneA = device();
+    const phoneB = device({ serial: "second-device-serial", deviceId: "PHONE_B", model: "Galaxy" });
+    useDevices.getState().setDevices([phoneA, phoneB]);
+    useTerminal.setState({
+      snippets: [
+        {
+          id: "s1",
+          name: "Check disk",
+          command: "df -h",
+          transport: "adbShell",
+          requiresConfirmation: false,
+        },
+      ],
+    });
+    render(<TerminalView />);
+
+    // Two phones: even a non-confirming snippet routes through the dialog for target selection.
+    await userEvent.click(screen.getByRole("button", { name: "Check disk" }));
+    const dialog = await screen.findByRole("dialog", { name: "Run saved command?" });
+    expect(dialog).toHaveTextContent("Also run on");
+    await userEvent.click(within(dialog).getByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: "Run command" }));
+
+    await waitFor(() => expect(started).toHaveLength(2));
+    expect(started.sort()).toEqual([phoneA.serial, "second-device-serial"].sort());
+
+    // One phone fails; the other succeeds — results stay on their own phones.
+    chans["second-device-serial"]?.onmessage({
+      type: "error",
+      error: { kind: "io", message: "device offline", details: null },
+    });
+    chans[phoneA.serial]?.onmessage({ type: "exit", code: 0, durationMs: 4 });
+
+    const blocksFor = (deviceK: string) =>
+      Object.entries(useTerminal.getState().sessions)
+        .filter(([sessionKey]) => sessionKey.startsWith(`["${deviceK}"`))
+        .flatMap(([, session]) => session.blocks);
+    const aBlocks = blocksFor(deviceKey(phoneA));
+    const bBlocks = blocksFor(deviceKey(phoneB));
+    expect(aBlocks).toHaveLength(1);
+    expect(bBlocks).toHaveLength(1);
+    expect(aBlocks[0]?.exitCode).toBe(0);
+    expect(aBlocks[0]?.error).toBeNull();
+    expect(bBlocks[0]?.error?.message).toBe("device offline");
+    expect(bBlocks[0]?.exitCode).toBeNull();
+    expect(useToasts.getState().toasts.at(-1)?.text).toBe(
+      "Snippet started on 2 phone(s) — results appear in each phone's Terminal tab",
+    );
   });
 
   it("keeps streamed output separated across two devices", async () => {

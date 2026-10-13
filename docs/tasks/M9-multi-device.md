@@ -63,12 +63,12 @@
 - Cards link to the phone's tab. Refresh follows the existing per-device polling cadence; a slow phone shows its own spinner without blocking others.
 - **Tests:** cards render mixed availability (no info yet, error, connected); one device's pending promise does not gate another's render.
 
-### [ ] M9-T7 Independent reconnect verification
+### [~] M9-T7 Independent reconnect verification
 - Reconnection uses each phone's remembered profile address with the existing backoff schedule; giving up on one phone must not stop retries on another.
 - Reconnect events (`device://reconnect`) carry `device_id`; UI attributes attempts to the right tab/card.
 - **Tests:** two concurrent failing reconnect loops advance independently (fake clock); give-up on A leaves B retrying; manual Retry re-arms only the selected phone.
 
-### [ ] M9-T8 Destructive actions and limited broadcast
+### [~] M9-T8 Destructive actions and limited broadcast
 - Every confirmation dialog (Stop/Restart Hermes, disconnect, provisioning actions, snippet execution) shows the target phone's alias, model, and address.
 - Optional broadcast: predefined actions/snippets only, explicit multi-select of phones, one confirmation listing every target, per-phone result report. No free-form command broadcast.
 - **Tests:** confirm payload includes the target identity; broadcast confirmation lists all selected phones; one phone's failure does not cancel or mislabel the others' results.

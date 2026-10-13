@@ -7,7 +7,7 @@ import { useLogs } from "../../stores/logs";
 import { useRoute } from "../../stores/route";
 import { device } from "../../test/fixtures";
 import { mockIpc, resetStores } from "../../test/ipcMock";
-import type { DeviceProfile } from "../../types";
+import type { DeviceProfile, ReconnectStatus } from "../../types";
 import { DeviceTabBar, mergeTabOrder } from "./DeviceTabBar";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -322,5 +322,46 @@ describe("DeviceTabBar", () => {
     expect(
       screen.queryByRole("button", { name: "Close tab for PixelUSB" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("manual Retry re-arms only the selected phone", async () => {
+    const fn = mockIpc({ retry_connection: () => undefined });
+    const disconnectedA = device({
+      serial: "adb-A-old._adb-tls-connect._tcp",
+      deviceId: "PHONE_A",
+      model: "Pixel7",
+      state: "disconnected",
+    });
+    useDevices.getState().setDevices([disconnectedA, deviceB]);
+    render(<DeviceTabBar />);
+    const moreBtns = screen.getAllByRole("button", { name: /More options/ });
+    await userEvent.click(moreBtns[0]!);
+    await userEvent.click(screen.getByRole("menuitem", { name: /Retry/ }));
+    await waitFor(() =>
+      expect(fn).toHaveBeenCalledWith("retry_connection", { serial: disconnectedA.serial }),
+    );
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("attributes reconnect status to the tab by device id after a port change", () => {
+    const rebinding = device({
+      serial: "192.0.2.10:5555",
+      deviceId: "PHONE_A",
+      model: "Pixel7",
+      state: "reconnecting",
+    });
+    useDevices.getState().setDevices([rebinding, deviceB]);
+    // Events arrive with the phone's new serial but its stable device_id (M9-T7).
+    const status: ReconnectStatus = {
+      serial: "192.0.2.10:5559",
+      deviceId: "PHONE_A",
+      phase: "waiting",
+      attempt: 2,
+      maxAttempts: 8,
+      nextDelayMs: 5_000,
+    };
+    useDevices.getState().setReconnect(status);
+    render(<DeviceTabBar />);
+    expect(screen.getByText(/Reconnecting \(attempt 2\/8/)).toBeInTheDocument();
   });
 });

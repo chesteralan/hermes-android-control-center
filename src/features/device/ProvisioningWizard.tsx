@@ -9,8 +9,11 @@ import { StatusDot } from "../../components/StatusDot";
 import { maskHermesConfig, restoreHermesConfigSecrets } from "./hermesConfigDraft";
 import type { MaskedHermesSecrets } from "./hermesConfigDraft";
 import { ipc, toErrorPayload } from "../../lib/ipc";
+import { useDevices } from "../../stores/devices";
+import { useDeviceProfiles } from "../../stores/deviceProfiles";
 import { useRoute } from "../../stores/route";
 import { useTerminal } from "../../stores/terminal";
+import { deviceIdentity } from "./deviceStatus";
 import type {
   ErrorPayload,
   ProvisionConsent,
@@ -128,6 +131,14 @@ function interactiveCommandForStep(
 export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
   const go = useRoute((state) => state.go);
   const requestInteractiveLaunch = useTerminal((state) => state.requestInteractiveLaunch);
+  const device = useDevices(
+    (s) => Object.values(s.devices).find((d) => d.serial === serial) ?? null,
+  );
+  const deviceAlias = useDeviceProfiles((s) =>
+    device?.deviceId ? (s.profiles[device.deviceId]?.alias ?? null) : null,
+  );
+  // Confirmations name the target phone (M9-T8).
+  const deviceLabel = device ? deviceIdentity(device, deviceAlias) : serial;
   const [recipes, setRecipes] = useState<ProvisionRecipe[]>([]);
   const [recipeId, setRecipeId] = useState("");
   const [plan, setPlan] = useState<ProvisionPlan | null>(null);
@@ -650,7 +661,9 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
       >
         {consentPrompt && (
           <>
-            <p className="mb-2">Review the commands and changes for this phone:</p>
+            <p className="mb-2">
+              Review the commands and changes for <b>{deviceLabel}</b>:
+            </p>
             <ul className="list-disc space-y-1 pl-5 font-mono text-[12px]">
               {consentPrompt.consent.commands.map((command) => (
                 <li key={command}>{command}</li>
@@ -672,14 +685,14 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
         onCancel={() => setResetPromptOpen(false)}
       >
         <p>
-          This clears the saved checklist for this phone and recipe. It does not undo changes
-          already made on the phone.
+          This clears the saved checklist for <b>{deviceLabel}</b> and recipe. It does not undo
+          changes already made on the phone.
         </p>
       </ConfirmDialog>
 
       <Dialog
         open={termuxUninstallOpen}
-        title={`Uninstall Termux from ${serial}?`}
+        title={`Uninstall Termux from ${deviceLabel}?`}
         onClose={() => {
           if (uninstallingTermux) return;
           setTermuxUninstallOpen(false);
@@ -708,8 +721,8 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
         }
       >
         <p className="mb-3 text-danger">
-          This permanently removes Termux and deletes all of its data from {serial}. Provisioning
-          will continue only after the phone passes preflight again.
+          This permanently removes Termux and deletes all of its data from <b>{deviceLabel}</b>.
+          Provisioning will continue only after the phone passes preflight again.
         </p>
         <label className="flex flex-col gap-1">
           <span className="text-muted">Type UNINSTALL TERMUX to confirm</span>

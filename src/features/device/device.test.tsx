@@ -107,6 +107,9 @@ describe("DeviceList", () => {
     await userEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     expect(fn).not.toHaveBeenCalledWith("disconnect_device", expect.anything());
     const dialog = screen.getByRole("dialog");
+    // Confirmations name the phone's model and address (M9-T8).
+    expect(dialog).toHaveTextContent("CPH2239");
+    expect(dialog).toHaveTextContent(device().serial);
     await userEvent.click(dialog.querySelector("button:last-child") as HTMLButtonElement);
     expect(fn).toHaveBeenCalledWith("disconnect_device", { serial: device().serial });
   });

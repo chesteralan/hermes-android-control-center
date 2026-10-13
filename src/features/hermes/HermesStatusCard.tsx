@@ -7,11 +7,12 @@ import { KeyValue } from "../../components/KeyValue";
 import { StatusDot, type Tone } from "../../components/StatusDot";
 import { formatSeconds } from "../../lib/format";
 import { deviceKey, useActiveDevice } from "../../stores/devices";
+import { useDeviceProfiles } from "../../stores/deviceProfiles";
 import { EMPTY_HERMES, useHermes } from "../../stores/hermes";
 import { useRoute } from "../../stores/route";
 import type { ComponentStatus, HermesAction, HermesCandidate, HermesTool } from "../../types";
 import { NoDeviceState } from "../device/NoDeviceState";
-import { deviceTitle } from "../device/deviceStatus";
+import { deviceIdentity, deviceTitle } from "../device/deviceStatus";
 
 const POLL_MS = 10_000;
 
@@ -85,6 +86,11 @@ function HermesCardForDevice({
   const runningAction = entry.action !== null;
   const runningTool = entry.tool !== null;
   const title = deviceTitle(device);
+  const alias = useDeviceProfiles((s) =>
+    device.deviceId ? (s.profiles[device.deviceId]?.alias ?? null) : null,
+  );
+  // Confirmations name the full phone identity (M9-T8).
+  const identity = deviceIdentity(device, alias);
   const recentHealth = [...entry.healthHistory].reverse().slice(0, 5);
 
   const onAction = (action: HermesAction) => {
@@ -383,8 +389,8 @@ function HermesCardForDevice({
         open={confirm !== null}
         title={
           confirm === "stop"
-            ? `Stop Hermes on ${title}?`
-            : `${confirm === "restartNow" ? "Restart now" : "Restart"} Hermes on ${title}?`
+            ? `Stop Hermes on ${identity}?`
+            : `${confirm === "restartNow" ? "Restart now" : "Restart"} Hermes on ${identity}?`
         }
         confirmLabel={
           confirm === "stop"
@@ -398,20 +404,20 @@ function HermesCardForDevice({
         onConfirm={() => confirm && onAction(confirm)}
       >
         {confirm === "stop"
-          ? `Hermes on ${title} will stop processing messages.`
+          ? `Hermes on ${identity} will stop processing messages.`
           : confirm === "restartNow"
-            ? `The gateway on ${title} will restart immediately; active work may be interrupted.`
-            : `The gateway on ${title} will drain active work, then restart.`}
+            ? `The gateway on ${identity} will restart immediately; active work may be interrupted.`
+            : `The gateway on ${identity} will drain active work, then restart.`}
       </ConfirmDialog>
       <ConfirmDialog
         open={confirmUpdate}
-        title={`Update Hermes on ${title}?`}
+        title={`Update Hermes on ${identity}?`}
         confirmLabel="Update Hermes"
         danger
         onCancel={() => setConfirmUpdate(false)}
         onConfirm={() => onTool("update")}
       >
-        The configured Hermes update command will run on <b>{title}</b>, then the gateway will
+        The configured Hermes update command will run on <b>{identity}</b>, then the gateway will
         restart.
       </ConfirmDialog>
     </Card>

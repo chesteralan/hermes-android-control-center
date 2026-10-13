@@ -15,7 +15,9 @@ import { Dialog } from "../../components/Dialog";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { ipc } from "../../lib/ipc";
 import { AnsiText } from "./AnsiText";
-import { deviceKey, useActiveDevice } from "../../stores/devices";
+import { deviceKey, useActiveDevice, useDevices } from "../../stores/devices";
+import { useDeviceProfiles } from "../../stores/deviceProfiles";
+import { useToasts } from "../../stores/toast";
 import {
   EMPTY_COMMAND_HISTORY,
   terminalSessionKey,
@@ -26,9 +28,9 @@ import {
   type OutputLine,
   type TerminalSessionTab,
 } from "../../stores/terminal";
-import type { ErrorPayload, TransportKind } from "../../types";
+import type { AndroidDevice, ErrorPayload, TransportKind } from "../../types";
 import { NoDeviceState } from "../device/NoDeviceState";
-import { deviceTitle } from "../device/deviceStatus";
+import { deviceIdentity, deviceTitle } from "../device/deviceStatus";
 
 function Footer({ b }: { b: CommandBlock }) {
   if (b.running) return <span className="text-accent">running…</span>;
@@ -135,6 +137,9 @@ function TerminalOutputRow({
 export function TerminalView() {
   const device = useActiveDevice();
   const key = device ? deviceKey(device) : "";
+  const allDevices = useDevices((s) => s.devices);
+  const profiles = useDeviceProfiles((s) => s.profiles);
+  const pushToast = useToasts((s) => s.push);
   const tabs = useTerminal((state) => state.tabsByDevice[key] ?? NO_TABS);
   const activeSessionId = useTerminal((state) => state.activeSessionByDevice[key] ?? null);
   const sessionKey = activeSessionId ? terminalSessionKey(key, activeSessionId) : "";
@@ -156,6 +161,7 @@ export function TerminalView() {
   const [snippetTransport, setSnippetTransport] = useState<TransportKind>("adbShell");
   const [snippetRequiresConfirmation, setSnippetRequiresConfirmation] = useState(true);
   const [pendingSnippet, setPendingSnippet] = useState<CommandSnippet | null>(null);
+  const [broadcastTargets, setBroadcastTargets] = useState<ReadonlySet<string>>(new Set());
   const [pendingCloseSessionId, setPendingCloseSessionId] = useState<string | null>(null);
   const snippetForm = useRef<HTMLFormElement>(null);
   const closeSnippetDialog = useCallback(() => setSnippetDialogOpen(false), []);
@@ -344,9 +350,16 @@ export function TerminalView() {
     }
   }
 
+  const aliasOf = (d: AndroidDevice) => profiles[d.deviceId ?? ""]?.alias ?? null;
+  const identityOf = (d: AndroidDevice) => deviceIdentity(d, aliasOf(d));
+  const otherDevices = Object.values(allDevices).filter((d) => deviceKey(d) !== key);
+
   function runSnippet(snippet: CommandSnippet) {
     if (!device || running) return;
-    if (snippet.requiresConfirmation) {
+    // With more than one phone, always go through the dialog so the user can
+    // pick broadcast targets (M9-T8: predefined snippets only, explicit select).
+    if (snippet.requiresConfirmation || otherDevices.length > 0) {
+      setBroadcastTargets(new Set());
       setPendingSnippet(snippet);
       return;
     }
@@ -358,6 +371,35 @@ export function TerminalView() {
       snippet.transport,
       activeSessionId,
       commandTimeoutSeconds * 1000,
+    );
+  }
+
+  async function runSnippetOn(snippet: CommandSnippet) {
+    if (!device) return;
+    const targets = [
+      { device, session: activeSessionId ?? undefined },
+      ...otherDevices
+        .filter((d) => broadcastTargets.has(deviceKey(d)))
+        .map((d) => ({ device: d, session: ensureSession(deviceKey(d)) })),
+    ];
+    const outcomes = await Promise.allSettled(
+      targets.map((t) =>
+        run(
+          deviceKey(t.device),
+          t.device.serial,
+          snippet.command,
+          snippet.transport,
+          t.session,
+          commandTimeoutSeconds * 1000,
+        ),
+      ),
+    );
+    const failed = outcomes.filter((o) => o.status === "rejected").length;
+    pushToast(
+      failed > 0
+        ? `Snippet failed to start on ${failed} phone(s)`
+        : `Snippet started on ${targets.length} phone(s) — results appear in each phone's Terminal tab`,
+      failed > 0 ? "error" : "success",
     );
   }
 
@@ -743,7 +785,10 @@ export function TerminalView() {
           setPendingCloseSessionId(null);
         }}
       >
-        Closing this tab cancels its running command.
+        <p>
+          Session on <b>{device ? identityOf(device) : ""}</b>. Closing this tab cancels its running
+          command.
+        </p>
       </ConfirmDialog>
       <ConfirmDialog
         open={pendingSnippet !== null}
@@ -751,22 +796,46 @@ export function TerminalView() {
         confirmLabel="Run command"
         onCancel={() => setPendingSnippet(null)}
         onConfirm={() => {
-          if (pendingSnippet && device) {
-            void run(
-              key,
-              device.serial,
-              pendingSnippet.command,
-              pendingSnippet.transport,
-              activeSessionId ?? undefined,
-              commandTimeoutSeconds * 1000,
-            );
-          }
+          const snippet = pendingSnippet;
           setPendingSnippet(null);
+          if (snippet) void runSnippetOn(snippet);
         }}
       >
         <p className="mb-2 text-[12px] text-muted">
           {pendingSnippet?.name} · {pendingSnippet ? TRANSPORT_LABEL[pendingSnippet.transport] : ""}
         </p>
+        {device && (
+          <p className="mb-1 text-[12px]">
+            Runs on <b>{identityOf(device)}</b>
+            {otherDevices.length > 0 ? " and any phones selected below:" : "."}
+          </p>
+        )}
+        {device && otherDevices.length > 0 && (
+          <fieldset
+            className="mb-2 max-h-32 overflow-y-auto rounded border border-border p-2"
+            aria-label="Additional phones"
+          >
+            <legend className="px-1 text-[11px] text-muted">Also run on</legend>
+            {otherDevices.map((d) => {
+              const deviceK = deviceKey(d);
+              return (
+                <label key={deviceK} className="flex items-center gap-2 py-0.5 text-[12px]">
+                  <input
+                    type="checkbox"
+                    checked={broadcastTargets.has(deviceK)}
+                    onChange={(event) => {
+                      const next = new Set(broadcastTargets);
+                      if (event.target.checked) next.add(deviceK);
+                      else next.delete(deviceK);
+                      setBroadcastTargets(next);
+                    }}
+                  />
+                  {identityOf(d)}
+                </label>
+              );
+            })}
+          </fieldset>
+        )}
         <pre className="whitespace-pre-wrap break-all rounded border border-border bg-bg p-3 font-mono text-[12px] text-text">
           {pendingSnippet?.command}
         </pre>

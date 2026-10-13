@@ -84,8 +84,9 @@
 - **CI fix:** the Security job's Gitleaks step failed because `actions/checkout@v4` used a shallow clone while gitleaks-action scanned a commit range (`fatal: unknown revision`). The security job now checks out with `fetch-depth: 0`; a local full-history `gitleaks detect` over all 66 commits found no leaks.
 - **Still open for T2:** built-app CSP review, full capability review, diagnostics archive review, and the `glib` unsoundness remediation path (GLib backport or bindings migration).
 
-### [ ] M10-T3 Performance budgets (TESTING.md §6)
+### [~] M10-T3 Performance budgets (TESTING.md §6)
 - Cold start < 1.5 s to interactive; idle CPU < 1 %; idle RAM < 200 MB; log throughput target met.
+- **Progress (2026-10-13):** `scripts/perf-probe.sh` measures the release `.app` locally: cold start 0.4–0.7 s to first window, idle CPU 0.0 %, idle RAM ≈ 73 MB (no phone). The probe found and the fix landed for a SIGTERM leak of one `adb track-devices -l` child per launch — SIGTERM/SIGINT now route through the graceful quit path; 0 leftovers verified. Connected-idle, throughput, device-info refresh, and 3-phone rows remain blocked on a phone (TESTING.md §6).
 
 ### [~] M10-T4 Accessibility & keyboard
 - All controls focusable, visible focus ring, ARIA labels on icon buttons, status not conveyed by color alone (● + text), ⌘K palette, shortcut cheat sheet.

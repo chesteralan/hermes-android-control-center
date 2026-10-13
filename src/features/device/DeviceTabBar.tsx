@@ -201,7 +201,7 @@ export function DeviceTabBar({ onOpenProfile }: DeviceTabBarProps) {
           const profile = profiles[key] ?? profiles[d.deviceId ?? ""];
           const alias = profile?.alias ?? null;
           const color = profile?.color ?? null;
-          const st = deviceStatus(d, reconnect[d.serial]);
+          const st = deviceStatus(d, reconnect[key]);
           const isActive = key === activeKey;
 
           return (

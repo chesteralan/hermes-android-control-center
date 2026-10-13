@@ -288,7 +288,9 @@ fn restore_main_window<R: Runtime>(app: &AppHandle<R>) {
     let _ = window.set_focus();
 }
 
-fn request_quit<R: Runtime>(app: AppHandle<R>) {
+/// Graceful quit used by the tray/menu Quit action and by Unix SIGTERM/SIGINT
+/// (M10-T3: reaps streamed `adb` children so none outlive the app).
+pub(crate) fn request_quit<R: Runtime>(app: AppHandle<R>) {
     let lifecycle = app.state::<AppLifecycle>();
     if !lifecycle.begin_quit() {
         return;

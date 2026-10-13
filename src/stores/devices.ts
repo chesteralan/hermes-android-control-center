@@ -77,7 +77,9 @@ export const useDevices = create<DeviceStore>((set, get) => ({
     set({ devices, activeKey, listError: null });
   },
 
-  setReconnect: (s) => set((st) => ({ reconnect: { ...st.reconnect, [s.serial]: s } })),
+  setReconnect: (s) =>
+    // Key by stable device_id (M9-T7) so a wireless port change keeps the status on the same tab.
+    set((st) => ({ reconnect: { ...st.reconnect, [s.deviceId ?? s.serial]: s } })),
 
   select: (key) => {
     persistActiveKey(key);

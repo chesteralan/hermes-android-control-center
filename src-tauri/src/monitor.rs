@@ -127,14 +127,17 @@ pub fn spawn_reconnect<R: Runtime>(app: AppHandle<R>, device: AndroidDevice) {
     tauri::async_runtime::spawn(async move {
         let mine = token.clone();
         let state = app.state::<AppState>();
-        let reconnect_cfg = state.config.read().await.reconnect.clone();
+        let (reconnect_cfg, profiles) = {
+            let cfg = state.config.read().await;
+            (cfg.reconnect.clone(), cfg.devices.clone())
+        };
         if !reconnect_cfg.enabled {
             return;
         }
         let Ok(client) = state.adb_client().await else {
             return;
         };
-        let target = reconnect::ReconnectTarget::from_device(&device);
+        let target = reconnect_target(&device, &profiles);
         let emit_app = app.clone();
         let ok = reconnect::run(
             &client,
@@ -159,14 +162,70 @@ pub fn spawn_reconnect<R: Runtime>(app: AppHandle<R>, device: AndroidDevice) {
     });
 }
 
+/// Build the reconnect target, preferring the phone's remembered profile address
+/// (M9-T7): a wireless port change must not strand a phone on its stale serial.
+pub fn reconnect_target(
+    device: &AndroidDevice,
+    profiles: &std::collections::HashMap<String, crate::config::DeviceProfile>,
+) -> reconnect::ReconnectTarget {
+    let mut target = reconnect::ReconnectTarget::from_device(device);
+    let remembered = target
+        .device_id
+        .as_deref()
+        .and_then(|id| profiles.get(id))
+        .and_then(|profile| profile.last_address.as_ref());
+    if let Some(address) = remembered {
+        target.address = Some(address.clone());
+        if let Some((host, _)) = crate::adb::address::split_host_port(address) {
+            target.ip = Some(host);
+        }
+    }
+    target
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::adb::parse::parse_devices;
+    use crate::config::DeviceProfile;
+    use std::collections::HashMap;
 
     #[test]
     fn identity_lookup_includes_already_registered_ip_aliases() {
         let devices = parse_devices("192.0.2.10:5555 device model:Phone\n");
         assert_eq!(identity_lookup_candidates(devices), ["192.0.2.10:5555"]);
+    }
+
+    #[test]
+    fn reconnect_target_prefers_profile_last_address() {
+        let device = AndroidDevice {
+            serial: "192.0.2.10:5555".into(),
+            device_id: Some("SER1".into()),
+            model: None,
+            product: None,
+            device: None,
+            transport_id: None,
+            ip_address: None,
+            state: DeviceState::Offline,
+            raw_state: "offline".into(),
+            connection: ConnectionType::WirelessIp,
+        };
+        let mut profiles = HashMap::new();
+        profiles.insert(
+            "SER1".to_string(),
+            DeviceProfile {
+                device_id: "SER1".into(),
+                last_address: Some("192.0.2.99:41000".into()),
+                ..Default::default()
+            },
+        );
+
+        let target = reconnect_target(&device, &profiles);
+        assert_eq!(target.address.as_deref(), Some("192.0.2.99:41000"));
+        assert_eq!(target.ip.as_deref(), Some("192.0.2.99"));
+
+        let fallback = reconnect_target(&device, &HashMap::new());
+        assert_eq!(fallback.address.as_deref(), Some("192.0.2.10:5555"));
+        assert_eq!(fallback.ip.as_deref(), Some("192.0.2.10"));
     }
 }

@@ -53,6 +53,34 @@ pub fn run() {
             lifecycle::install_app_menu(&handle)?;
             let tray_available = lifecycle::install_tray(&handle);
             app.manage(lifecycle::AppLifecycle::new(tray_available));
+            // Unix: SIGTERM/SIGINT must take the graceful quit path so streamed
+            // `adb` children (track-devices, logcat, PTYs) are reaped (M10-T3).
+            #[cfg(unix)]
+            {
+                let quit_handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    let mut term = match signal(SignalKind::terminate()) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "SIGTERM handler unavailable");
+                            return;
+                        }
+                    };
+                    let mut interrupt = match signal(SignalKind::interrupt()) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "SIGINT handler unavailable");
+                            return;
+                        }
+                    };
+                    tokio::select! {
+                        _ = term.recv() => tracing::info!("SIGTERM received; quitting gracefully"),
+                        _ = interrupt.recv() => tracing::info!("SIGINT received; quitting gracefully"),
+                    }
+                    lifecycle::request_quit(quit_handle);
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

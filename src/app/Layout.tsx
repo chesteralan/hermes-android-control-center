@@ -8,7 +8,7 @@ import { deviceStatus, deviceTitle } from "../features/device/deviceStatus";
 import { DeviceTabBar } from "../features/device/DeviceTabBar";
 import { ipc } from "../lib/ipc";
 import { isModKey, modLabel } from "../lib/platform";
-import { useActiveDevice, useDevices } from "../stores/devices";
+import { deviceKey, useActiveDevice, useDevices } from "../stores/devices";
 import { ROUTES, ROUTE_LABELS, useRoute } from "../stores/route";
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -21,7 +21,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
   const device = useActiveDevice();
-  const reconnect = useDevices((s) => (device ? s.reconnect[device.serial] : undefined));
+  const reconnect = useDevices((s) => (device ? s.reconnect[deviceKey(device)] : undefined));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
