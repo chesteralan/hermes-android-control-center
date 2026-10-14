@@ -21,10 +21,12 @@ Do not add a second host just to make downloads possible. Consider Cloudflare R2
 - Verify updater URLs resolve to the exact published asset names, and validate Authenticode, GPG, AppImage, and updater signatures as applicable.
 - Publish the draft only after a maintainer reviews the assets and release notes.
 
-### [ ] M16-T3 Public download path and instructions
+### [~] M16-T3 Public download path and instructions
 - Link the README's download action to the latest published stable GitHub Release; keep prereleases clearly labeled and separate.
 - List supported OS/architectures, package formats, minimum OS versions, install/update guidance, and checksum/signature verification steps.
 - Explain that Linux deb/rpm updates use the package manager and are not installed by the AppImage updater.
+- **Progress (2026-10-14):** README rewritten around a `## Download` section: the platform table now carries architecture, package formats, and minimum OS (macOS 13+, Windows 10 22H2+, Ubuntu 22.04+/current Fedora); per-platform install and in-app-update guidance (incl. the NSIS/MSI/WebView2 and AppImage vs `.deb`/`.rpm` package-manager split) and a "Verify a download" subsection (`SHA256SUMS`, Linux GPG `.asc` flow, macOS codesign/spctl/stapler, Windows Authenticode) with anchors into `DESKTOP_PLATFORMS.md` and `RELEASE.md`. Stable-vs-prerelease separation is documented: only `vX.Y.Z` tags feed `releases/latest/latest.json`; hyphenated tags publish as GitHub **Pre-release** and never reach the updater (matches the release workflow).
+- **Remaining:** point the download action at the literal `releases/latest/download/…` stable URL once the first release exists (blocked on M16-T1/T2 — signing credentials); final walkthrough of the published page (M16-T4).
 
 ### [ ] M16-T4 Download and installation acceptance
 - From a browser session without GitHub authentication, download each supported artifact and its verification files.

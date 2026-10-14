@@ -176,3 +176,72 @@ pub fn run() {
         // recoverable alternative, so a panic is the correct response here.
         .expect("error while running Hermes Control Center");
 }
+
+#[cfg(test)]
+mod security_review {
+    use serde_json::Value;
+
+    fn read_json(path: &str) -> Value {
+        let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
+        let text = std::fs::read_to_string(&full)
+            .unwrap_or_else(|error| panic!("read {}: {error}", full.display()));
+        serde_json::from_str(&text)
+            .unwrap_or_else(|error| panic!("parse {}: {error}", full.display()))
+    }
+
+    // M10-T2 capability review (2026-10-14): the reviewed webview grant set.
+    // The frontend never invokes `plugin:dialog` — every file dialog opens from
+    // Rust (`app.dialog()`), which is not gated by capabilities — so no
+    // `dialog:*` permission is granted. Each remaining grant is used by shipped
+    // frontend code: core IPC/events/window state, the three notification calls
+    // in `nativeNotifications.ts`, `updater:default` for `check`/
+    // `downloadAndInstall`, and `process:allow-restart` for `relaunch`.
+    #[test]
+    fn capability_grants_match_reviewed_set() {
+        let capability = read_json("capabilities/default.json");
+        let mut permissions = capability["permissions"]
+            .as_array()
+            .expect("capabilities/default.json must list permissions")
+            .iter()
+            .map(|value| value.as_str().expect("permission must be a string"))
+            .collect::<Vec<_>>();
+        permissions.sort_unstable();
+        let expected = [
+            "core:default",
+            "notification:allow-is-permission-granted",
+            "notification:allow-notify",
+            "notification:allow-request-permission",
+            "process:allow-restart",
+            "updater:default",
+        ];
+        assert_eq!(
+            permissions, expected,
+            "capability set changed; update SECURITY.md §3 and this test together"
+        );
+        assert_eq!(
+            capability["windows"],
+            serde_json::json!(["main"]),
+            "capabilities must stay scoped to the main window"
+        );
+    }
+
+    // M10-T2 CSP review (2026-10-14): policy fixed as documented in
+    // SECURITY.md §3; no remote script/style/font/image origins and no
+    // `unsafe-eval`, matching a frontend with zero fetch/XHR/WebSocket usage.
+    #[test]
+    fn csp_matches_reviewed_policy() {
+        let config = read_json("tauri.conf.json");
+        let csp = config["app"]["security"]["csp"]
+            .as_str()
+            .expect("tauri.conf.json must set app.security.csp");
+        assert_eq!(
+            csp,
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+        );
+        assert_eq!(
+            config["app"]["withGlobalTauri"],
+            serde_json::json!(false),
+            "withGlobalTauri must stay disabled"
+        );
+    }
+}

@@ -6,6 +6,10 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 
 ## Recently Completed
 
+- [x] Local QA pass — M10-T5 resilience rows, M10-T4 audit, M16-T3 download docs (2026-10-14): **T5** — adb server kill recovers (tracker respawned, app stable), quit during 3 live log streams leaves 0 orphans, and 3 phones streaming survive one dropping and auto-reconnecting without touching the others, all driven by the new committed `scripts/stub-adb.py` stub (framed `track-devices`, sectioned device-info shell, live logcat, invocation log proving serial-scoped targeting). **T4** — keyboard/AX/contrast audit on the packaged app: visible focus ring, ⌘K filter, About-dialog Tab trap (wrap verified on the real-click path), full ARIA exposure (dialog semantics, tab group names, aria-live toasts, aria-keyshortcuts), every text pair passes WCAG AA; one finding fixed — form-control boundaries were 1.3:1 vs the required 3:1, now `--color-border-strong` (3.1:1) on inputs/textareas/selects. **M16-T3** — README `## Download` section with platform/arch/min-OS table, per-platform install + update guidance (deb/rpm package-manager note), SHA256SUMS/GPG/Authenticode/notarization verification anchors, and the stable-vs-prerelease updater policy; the literal `releases/latest` link waits on the first signed release.
+
+- [x] M10-T2 security-review closeout — CSP review, capability review, CI scanners, diagnostics archive (2026-10-14): The built-app CSP review confirmed the reviewed policy is embedded in the packaged binary and served as the `Content-Security-Policy` header on `tauri://` HTML, with a frontend audit showing no remote fetch/XHR/WebSocket/eval/`dangerouslySetInnerHTML` usage (locked by the new `csp_matches_reviewed_policy` test). The capability review found `dialog:allow-open`/`dialog:allow-save` were granted but unused — all file dialogs open from Rust, which is not capability-gated — so both were removed; the exact grant set is locked by the new `capability_grants_match_reviewed_set` test and SECURITY.md §3/§5 were synced. CI's Security audits job (Gitleaks, npm audit, RustSec, cargo-deny) passes on `main`. M10-T6 closed: a real archive exported from the packaged app with seeded Bearer JWT / `api_key` / `sk-` / Telegram-bot / password / secret values and two IPs redacted everything to `[REDACTED]`/`[IP REDACTED]` (incl. `adbPath` → `[REDACTED PATH]`).
+
 - [x] Configure Hermes is automatic now (M11-T12): when the wizard's Configure Hermes step pauses on an unconfigured phone it renders an in-app form (model provider/name/base URL/API key + optional Telegram/Discord/Slack tokens with allow-lists) instead of the manual `proot-distro login …` terminal instructions. Submitting applies the setup over SSH via the previously unexposed `apply_hermes_setup` backend command (new `ipc.applyHermesSetup` binding) and re-runs the step, whose existing check verifies completion — secrets are written only to the phone's `~/.hermes/.env` (mode 600). The terminal handoff, interactive PTY, and Hermes `--portal` remain as a "Run manually instead" fallback; systemd/allow-list guidance stays visible in the panel. Four wizard tests cover the panel, apply + auto-resume, validation, and the failure path.
 
 - [x] M10 release-ticket verification pass (T10–T13, T15, fresh-Mac exit check, 2026-10-13): the root README now embeds a sanitized first-run screenshot captured from the packaged app using a stub ADB path (no real device data), and all `docs/guides/` links were audited. Fresh-profile QA with an isolated `HOME` shows the window in ~0.7 s, writes startup logs, and exits with zero leftovers on SIGTERM. Local unsigned DMG bundling is reproducible (10.96 MiB). Confirmed the repository still has no CI secrets (`gh secret list` empty) — RELEASE.md §3 names everything to provision for signing, notarization, and the updater key (T10–T13 remain blocked on those credentials). Note: one phone (CPH2239) is now visible on the shared ADB server; M9-T9 still needs a second phone.
@@ -54,7 +58,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 - [x] [M10-T1 — Terminal input errors precede connection setup](tasks/M10-production.md): blank execute/stream requests are rejected before ADB/SSH/API setup; broader error audit remains open.
 - [x] [M10-T1 — Provisioning-run lock poisoning returns an error](tasks/M10-production.md): IPC reports poisoned state and cleanup failures are logged; the wider error audit remains open.
 - [x] [M10-T1 — Shared export destination validation and write-error coverage](tasks/M10-production.md): log, terminal, and diagnostics exports reject relative/empty/root paths; broader error audit and native-dialog QA remain open.
-- [x] [M10-T6 — Quoted diagnostics secret redaction and synthetic ZIP regression coverage](tasks/M10-production.md): JSON/log secrets, escaped quoted values, Bearer headers, and both IP-consent settings verified; packaged-app archive QA remains open.
+- [x] [M10-T6 — Quoted diagnostics secret redaction and synthetic ZIP regression coverage](tasks/M10-production.md): JSON/log secrets, escaped quoted values, Bearer headers, and both IP-consent settings verified; packaged-app archive QA completed 2026-10-14 (see Recently Completed), closing the ticket.
 - [x] [M3-T10 — macOS live terminal and logcat QA](tasks/M3-basic-terminal-logs.md): stdout/stderr, exit status, streamed output, Cancel, and Logs Start/Stop/Clear verified on CPH2239.
 - [x] M0-S3 verified the sanitized `track_frames.bin` header (`0074` = 116 payload bytes) and added an exact-length parser assertion. The broader capture ticket remains in progress.
 - [x] [M13-T5 — Device-scoped restoration and documentation](tasks/M13-chat-sessions.md): persistence, unavailable-device behavior, environment separation, privacy, and profile limitations are tested/documented.
@@ -76,9 +80,8 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 ## In Progress
 
 - [~] [M10-T1 — Error audit](tasks/M10-production.md)
-- [~] [M10-T2 — Isolated GLib backport passes optimized library tests and 241 Linux app tests/Clippy; dependency policy resolved 2026-10-12 (MPL-2.0 and Apache-2.0 WITH LLVM-exception allowed, RUSTSEC-2024-0370 justified ignore) and `cargo deny check` passes; glib unsoundness warning and CSP/capability/diagnostics reviews remain](tasks/M10-production.md)
-- [~] [M10-T4 — Keyboard command palette and shortcut guide](tasks/M10-production.md)
-- [~] [M10-T6 — Consent-gated diagnostics ZIP](tasks/M10-production.md)
+- [~] [M10-T2 — Isolated GLib backport passes optimized library tests and 241 Linux app tests/Clippy; dependency policy resolved 2026-10-12 and `cargo deny check` passes; CSP/capability/diagnostics/CI-scanner reviews completed 2026-10-14 — only the glib unsoundness remediation path remains](tasks/M10-production.md)
+- [~] [M10-T4 — Keyboard command palette and shortcut guide](tasks/M10-production.md): local keyboard/AX/contrast audit done 2026-10-14 (focus ring, ⌘K filter, dialog Tab trap, ARIA exposure, all text AA); form-boundary contrast fixed via `--color-border-strong`; manual VoiceOver walkthrough and Windows/Linux shortcut checks remain.
 - [~] [M10-T7 — Existing setup path; automatic wizard awaits M11](tasks/M10-production.md)
 - [~] [M10-T8 — About, version, and native app menu](tasks/M10-production.md)
 - [~] [M10-T9 — Tray status, named stop alerts, and persistent gateway timeline; packaged notification/runtime QA remains](tasks/M10-production.md)
@@ -102,7 +105,7 @@ Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need 
 ### M10 — Hardening & Production
 
 - [~] [M10-T3 — Performance budgets](tasks/M10-production.md)
-- [ ] [M10-T5 — Resilience QA matrix](tasks/M10-production.md)
+- [~] [M10-T5 — Resilience QA matrix](tasks/M10-production.md): local rows verified 2026-10-14 without a phone (adb server kill → tracker recovery; quit during 3 live streams → 0 orphans; 3 stub phones streaming with one dropped and auto-reconnected without affecting the others; targeted serial routing) using the committed `scripts/stub-adb.py`; phone-dependent rows and the 3-real-phone row remain blocked.
 
 ### M9 — Multi-Device
 
@@ -162,7 +165,7 @@ GitHub Releases is the recommended primary host; the existing tag workflow assem
 
 - [ ] [M16-T1 — Release publication prerequisites](tasks/M16-download-distribution.md)
 - [ ] [M16-T2 — Verify the GitHub Release pipeline](tasks/M16-download-distribution.md)
-- [ ] [M16-T3 — Public download path and instructions](tasks/M16-download-distribution.md)
+- [~] [M16-T3 — Public download path and instructions](tasks/M16-download-distribution.md): README `## Download` section written 2026-10-14 (platform/min-OS table, per-platform install/update guidance incl. the deb/rpm package-manager note, SHA256SUMS/GPG/Authenticode/notarization verification with guide anchors, stable-vs-prerelease updater policy); the literal `releases/latest` link and published-page walkthrough wait on the first release (M16-T1/T2).
 - [ ] [M16-T4 — Download and installation acceptance](tasks/M16-download-distribution.md)
 - [x] [M16-T5 — R2 mirror evaluated and deferred; GitHub Releases remains primary](tasks/M16-download-distribution.md)
 
