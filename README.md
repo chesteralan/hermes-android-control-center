@@ -4,13 +4,57 @@ Desktop app (Tauri 2, Rust, and React) for managing a [Hermes Agent](https://git
 
 **Release status:** pre-1.0. macOS is the first release target. Windows and Linux are planned for v1.1; see the [roadmap](docs/MILESTONES.md) and [open work](docs/TODO.md).
 
-| Platform       | Bundles                     | Verification Status                                                |
-| -------------- | --------------------------- | ------------------------------------------------------------------ |
-| macOS          | Universal app + DMG         | Local Apple Silicon tests; signed-release/Intel QA pending         |
-| Windows x86_64 | Per-user NSIS + managed MSI | Build/signing workflow implemented; Windows runtime QA pending     |
-| Linux x86_64   | AppImage, `.deb`, `.rpm`    | Build/signing workflow implemented; Wayland/X11 runtime QA pending |
+| Platform       | Architecture                      | Bundles                     | Minimum OS                      | Verification Status                                                |
+| -------------- | --------------------------------- | --------------------------- | ------------------------------- | ------------------------------------------------------------------ |
+| macOS          | Universal (Apple Silicon + Intel) | DMG                         | macOS 13 or newer               | Local Apple Silicon tests; signed-release/Intel QA pending         |
+| Windows x86_64 | x86_64                            | Per-user NSIS + managed MSI | Windows 10 22H2 or newer        | Build/signing workflow implemented; Windows runtime QA pending     |
+| Linux x86_64   | x86_64                            | AppImage, `.deb`, `.rpm`    | Ubuntu 22.04+ or current Fedora | Build/signing workflow implemented; Wayland/X11 runtime QA pending |
 
-Release downloads will appear after a public release is published: [GitHub Releases](https://github.com/chesteralan/hermes-android-control-center/releases).
+## Download
+
+Builds are published on [GitHub Releases](https://github.com/chesteralan/hermes-android-control-center/releases).
+Assets are prefixed per platform (`darwin-universal-`, `windows-x86_64-`,
+`linux-x86_64-`), so the correct package for each row above is unambiguous. Nothing is
+published yet; downloads appear when the first release is published.
+
+Stable releases (tags `vX.Y.Z`) are the only versions the in-app updater offers: it
+reads `releases/latest/download/latest.json`, which GitHub resolves only to the newest
+stable release. Prerelease tags (`vX.Y.Z-alpha.N`, `-beta.N`, `-rc.N`) are published
+labeled **Pre-release**, are kept separate on the releases page, and are never picked up
+by the updater.
+
+### Install and update
+
+- **macOS:** open the `.dmg` and drag **Hermes Control Center** to Applications. Update
+  in-app via **About → Check for Updates**; releases are Developer ID signed and
+  notarized.
+- **Windows:** run the per-user NSIS `-setup.exe` (no administrator prompt) or deploy
+  the `.msi` with your management tooling; both embed the WebView2 bootstrapper. Update
+  in-app via **About → Check for Updates**.
+- **Linux:** make the AppImage executable and run it (see
+  [desktop platforms](docs/guides/DESKTOP_PLATFORMS.md#linux) for FUSE and
+  desktop-portal notes); AppImages update in-app. Debian/Ubuntu `.deb` and Fedora `.rpm`
+  installations are **not** updated by the AppImage updater — the app shows a
+  package-manager notice instead; install newer packages with `apt`, `dnf`, or your
+  package installer.
+
+### Verify a download
+
+Every release includes `SHA256SUMS` covering all assets:
+
+```sh
+sha256sum -c SHA256SUMS # Linux; on macOS: shasum -a 256 -c SHA256SUMS
+```
+
+- **Linux:** `SHA256SUMS` and the AppImage also carry detached GPG signatures (`.asc`).
+  Obtain the public key and confirm its fingerprint through a trusted maintainer
+  channel first, then follow the
+  [GPG verification steps](docs/guides/DESKTOP_PLATFORMS.md#linux).
+- **macOS:** the app and DMG are Developer ID signed and notarized — verify with the
+  [codesign / spctl / stapler commands](docs/RELEASE.md#3-macos-signing--notarization).
+- **Windows:** installers carry a timestamped Authenticode signature — verify with
+  `signtool verify /pa /v <installer>.exe` or the file's Properties dialog.
+
 See [desktop setup, build prerequisites, and secret storage](docs/guides/DESKTOP_PLATFORMS.md).
 
 ## What the app does
