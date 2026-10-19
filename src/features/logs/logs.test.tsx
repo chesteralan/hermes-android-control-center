@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useDevices } from "../../stores/devices";
 import { MAX_LOG_LINES, useLogs } from "../../stores/logs";
+import { useLogsUi } from "../../stores/logsUi";
 import { useSettings } from "../../stores/settings";
 import { device } from "../../test/fixtures";
 import { mockIpc, resetStores } from "../../test/ipcMock";
@@ -85,6 +86,7 @@ describe("LogsView", () => {
   beforeEach(() => {
     resetStores();
     useLogs.setState({ byDevice: {} });
+    useLogsUi.setState({ byDevice: {} });
     useDevices.getState().setDevices([device()]);
   });
 
@@ -475,6 +477,22 @@ describe("LogsView", () => {
     act(() => useDevices.setState({ activeKey: "PHONE_A" }));
     expect(screen.getByRole("button", { name: /Resume · 1 new/ })).toBeInTheDocument();
     expect(screen.getByLabelText("Search logs")).toHaveValue("from");
+  });
+
+  it("keeps viewer state across unmount and remount of the Logs view", async () => {
+    const phoneA = device({ serial: "serial-A", deviceId: "PHONE_A", model: "Pixel7" });
+    useDevices.getState().setDevices([phoneA]);
+    useDevices.setState({ activeKey: "PHONE_A" });
+    useLogsUi.setState({ byDevice: {} });
+
+    const first = render(<LogsView />);
+    await userEvent.type(screen.getByLabelText("Search logs"), "keep");
+    expect(screen.getByLabelText("Search logs")).toHaveValue("keep");
+    first.unmount();
+
+    // Remount (user navigated away and back): per-device state must survive.
+    render(<LogsView />);
+    expect(screen.getByLabelText("Search logs")).toHaveValue("keep");
   });
 });
 

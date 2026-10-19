@@ -45,6 +45,16 @@ fn aggregate_tray_status(devices: &[AndroidDevice]) -> TrayDeviceStatus {
     }
 }
 
+/// Unique phones in a device list: IP + mDNS-alias transports of the same
+/// phone count once (keyed by learned `device_id`, falling back to serial).
+fn distinct_phone_count(devices: &[AndroidDevice]) -> usize {
+    devices
+        .iter()
+        .map(|d| d.device_id.clone().unwrap_or_else(|| d.serial.clone()))
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+}
+
 fn tray_tooltip(status: TrayDeviceStatus, count: usize) -> String {
     match status {
         TrayDeviceStatus::NoDevices => "Hermes Control Center: no Android devices".into(),
@@ -134,6 +144,9 @@ enum MenuCommand {
 pub struct AppLifecycle {
     tray_available: bool,
     quitting: AtomicBool,
+    /// Set once graceful shutdown finished reaping children — exit requests
+    /// arriving before this must be deferred so cleanup can complete.
+    exit_cleanup_finished: AtomicBool,
 }
 
 impl AppLifecycle {
@@ -141,6 +154,7 @@ impl AppLifecycle {
         Self {
             tray_available,
             quitting: AtomicBool::new(false),
+            exit_cleanup_finished: AtomicBool::new(false),
         }
     }
 
@@ -152,8 +166,16 @@ impl AppLifecycle {
         self.tray_available && minimized && !self.quitting.load(Ordering::SeqCst)
     }
 
-    fn begin_quit(&self) -> bool {
+    pub(crate) fn begin_quit(&self) -> bool {
         !self.quitting.swap(true, Ordering::SeqCst)
+    }
+
+    pub(crate) fn mark_exit_cleanup_finished(&self) {
+        self.exit_cleanup_finished.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn exit_cleanup_finished(&self) -> bool {
+        self.exit_cleanup_finished.load(Ordering::SeqCst)
     }
 }
 
@@ -182,7 +204,17 @@ pub fn install_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, SETTINGS_MENU_ID, "Settings", true, Some("CmdOrCtrl+,"))?;
     let check_updates =
         MenuItem::with_id(app, UPDATE_MENU_ID, "Check for Updates", true, None::<&str>)?;
-    let quit = PredefinedMenuItem::quit(app, Some("Quit Hermes Control Center"))?;
+    // Own the ⌘Q accelerator: Tauri's predefined quit goes through NSApp
+    // terminate, which tao cannot veto (no applicationShouldTerminate), so
+    // the process dies before children are reaped (M10-T5 ⌘Q orphan leak).
+    // Routing Quit through request_quit keeps the graceful path mandatory.
+    let quit = MenuItem::with_id(
+        app,
+        QUIT_ID,
+        "Quit Hermes Control Center",
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?;
     let app_submenu = Submenu::with_items(
         app,
         "Hermes Control Center",
@@ -203,6 +235,10 @@ pub fn install_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             ABOUT_MENU_ID => Some(MenuCommand::About),
             SETTINGS_MENU_ID => Some(MenuCommand::Settings),
             UPDATE_MENU_ID => Some(MenuCommand::CheckForUpdates),
+            QUIT_ID => {
+                request_quit(app.clone());
+                None
+            }
             _ => None,
         };
         if let Some(command) = command {
@@ -256,7 +292,9 @@ fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<TrayIcon<R>> {
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             OPEN_ID => restore_main_window(app),
-            QUIT_ID => request_quit(app.clone()),
+            QUIT_ID => {
+                request_quit(app.clone());
+            }
             _ => {}
         })
         .build(app)
@@ -267,7 +305,8 @@ pub fn update_tray_status<R: Runtime>(app: &AppHandle<R>, devices: &[AndroidDevi
         return;
     };
     let status = aggregate_tray_status(devices);
-    if let Err(error) = tray.set_tooltip(Some(tray_tooltip(status, devices.len()))) {
+    if let Err(error) = tray.set_tooltip(Some(tray_tooltip(status, distinct_phone_count(devices))))
+    {
         tracing::warn!(%error, "failed to update tray status tooltip");
     }
     if let Some(icon) = tray_status_icon(status) {
@@ -290,10 +329,14 @@ fn restore_main_window<R: Runtime>(app: &AppHandle<R>) {
 
 /// Graceful quit used by the tray/menu Quit action and by Unix SIGTERM/SIGINT
 /// (M10-T3: reaps streamed `adb` children so none outlive the app).
-pub(crate) fn request_quit<R: Runtime>(app: AppHandle<R>) {
+/// Begin the graceful quit. Returns `true` when this call took ownership of
+/// the shutdown (cleanup is now running), `false` when a quit was already
+/// requested. `ExitRequested` handlers use the flag to defer the real exit
+/// until [`AppLifecycle::exit_cleanup_finished`].
+pub(crate) fn request_quit<R: Runtime>(app: AppHandle<R>) -> bool {
     let lifecycle = app.state::<AppLifecycle>();
     if !lifecycle.begin_quit() {
-        return;
+        return false;
     }
 
     let state = app.state::<AppState>();
@@ -318,14 +361,29 @@ pub(crate) fn request_quit<R: Runtime>(app: AppHandle<R>) {
             }
         })
         .await;
+        app.state::<AppLifecycle>().mark_exit_cleanup_finished();
         app.exit(0);
     });
+    true
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::adb::parse::parse_devices;
+
+    #[test]
+    fn distinct_phone_count_dedupes_transports_by_device_id() {
+        let mut aliased =
+            parse_devices("192.0.2.10:5555 device\nadb-SER1-aaaa._adb-tls-connect._tcp device\n");
+        for d in &mut aliased {
+            d.device_id = Some("SER1".into());
+        }
+        assert_eq!(distinct_phone_count(&aliased), 1);
+
+        let two_phones = parse_devices("192.0.2.10:5555 device\n192.0.2.20:5555 device\n");
+        assert_eq!(distinct_phone_count(&two_phones), 2);
+    }
 
     #[test]
     fn aggregate_tray_status_distinguishes_empty_connected_and_attention() {
@@ -375,5 +433,17 @@ mod tests {
         assert!(!lifecycle.begin_quit());
         assert!(!lifecycle.should_hide_on_close());
         assert!(!lifecycle.should_hide_on_minimize(true));
+    }
+
+    #[test]
+    fn exit_gate_holds_until_graceful_cleanup_finishes() {
+        let lifecycle = AppLifecycle::new(true);
+        // First exit request takes ownership of the shutdown.
+        assert!(lifecycle.begin_quit());
+        // While cleanup runs, exit requests must stay deferred.
+        assert!(!lifecycle.exit_cleanup_finished());
+        lifecycle.mark_exit_cleanup_finished();
+        // Only after children are reaped may the process actually exit.
+        assert!(lifecycle.exit_cleanup_finished());
     }
 }

@@ -40,6 +40,7 @@
 - Profile CRUD commands: `get_device_profile`, `set_device_profile` (partial update), `list_device_profiles`. Never log override values that may contain secrets.
 - **Unblocks:** M11-T2/T14 save the wizard's recipe-derived `HermesConfig` into the phone's profile instead of the global config.
 - **Tests:** migration of legacy remembered-address settings; merge precedence per field; partial update preserves unrelated fields; unknown `device_id` errors clearly.
+- **Regression (live QA 2026-10-19):** the migration keyed profiles by **address string**, not `device_id` — config v3 contained nine profiles such as `"192.168.0.107:43237"` with `deviceId: "192.168.0.107:43237"`, and no profile under either phone's `ro.serialno`. Settings → DEVICES listed the ghost addresses with no alias/color for the real phones; `profiles[deviceKey(device)]` therefore missed for every connected phone (tab labels fell back to model, `effective_config` missed, supervisor `last_address` lookup missed under the stable key). **Fixed 2026-10-19:** `remember_address_for(address, device_id)` keys by identity when known; `rekey_profile`/`adopt_profile_identity` re-key provisional address ghosts onto the stable id at identity-learning sites (`learn_device_id`, `get_device_info`) and persist; same-host stale ghosts are pruned. Live-verified: both phones keyed by `ro.serialno` with current `last_address` after migration+learn.
 
 ### [~] M9-T3 Profile editor UI (Settings)
 - Devices section listing known profiles (alias, color swatch, last address, auto-connect toggle).
@@ -73,17 +74,25 @@
 - Optional broadcast: predefined actions/snippets only, explicit multi-select of phones, one confirmation listing every target, per-phone result report. No free-form command broadcast.
 - **Tests:** confirm payload includes the target identity; broadcast confirmation lists all selected phones; one phone's failure does not cancel or mislabel the others' results.
 
-### [!] M9-T9 Multi-device QA
+### [~] M9-T9 Multi-device QA
 - Run the TESTING.md multi-device rows: 3 phones streaming logs; drop/reconnect one phone; actions always hit the targeted phone; resource limits hold.
 - Cross-check that M11 wizard saves profiles per phone (hands off to M11-T2/T14 once implemented).
-- **Live check:** requires ≥ 2 connected Android phones; record results in the exit check.
+- **Live check:** two connected phones (CPH2239 Android 11 + SM-T225 Android 14) verified 2026-10-19 — see the live QA record below. The 3-phone streaming row still needs a third phone (the stub-based 3-phone row is recorded in M10-T5).
 
 ## Exit check
 
-- [ ] Two or more phones appear as tabs; each keeps its own view, terminal sessions, and log buffer across switching and app restart.
-- [ ] Per-phone profiles (alias, color, Hermes/Termux overrides, auto-connect) persist and take effect via `effective_config`; legacy settings migrated.
-- [ ] Wireless port change on one phone rebinds its tab, sessions, host key, and history to the same `device_id`.
-- [ ] One phone offline/hung never blocks the other phones' status, streams, or reconnect attempts (verified with fakes and live).
-- [ ] Overview shows a live card per phone.
-- [ ] Every destructive confirmation names the target phone; broadcast is limited to predefined actions with multi-select.
-- [ ] M11-T2/T14 can persist per-phone HermesConfig (dependency verified).
+- [ ] Two or more phones appear as tabs; each keeps its own view, terminal sessions, and log buffer across switching and app restart. *(Tabs/sessions/buffers ✓ live; per-tab view memory now persists and restores across restart (fixed 2026-10-19, `hacc.tabRoutes` + `startupRoute`); direct tab-click still needs a human check because automation hits the tab's × child.)*
+- [ ] Per-phone profiles (alias, color, Hermes/Termux overrides, auto-connect) persist and take effect via `effective_config`; legacy settings migrated. *(FAIL — profiles are address-keyed ghosts; see M9-T2 regression note.)*
+- [ ] Wireless port change on one phone rebinds its tab, sessions, host key, and history to the same `device_id`. *(✓ live: wireless debugging toggled, connect port 33843→37809, same tab/identity, no duplicate.)*
+- [ ] One phone offline/hung never blocks the other phones' status, streams, or reconnect attempts (verified with fakes and live). *(✓ live: SM drop/offline left CPH streaming uninterrupted; supervisor backoff ran 1..8 per phone.)*
+- [ ] Overview shows a live card per phone. *(✓ live: battery/storage/gateway per card, Open switches tabs.)*
+- [ ] Every destructive confirmation names the target phone; broadcast is limited to predefined actions with multi-select. *(✓ live: "Close SM T225 (SM_T225)?" dialog; disconnect dialog content covered by unit tests.)*
+- [ ] M11-T2/T14 can persist per-phone HermesConfig (dependency verified). *(Blocked by the profile-keying regression above.)*
+
+## Live QA record (2026-10-19)
+
+- **Setup:** packaged release build from `2c2b8d3`; OnePlus CPH2239T2 (Android 11, `192.168.0.107:46351`) and Samsung SM-T225 (Android 14, wireless debugging) — four adb transports (IP + mDNS alias per phone) rendered as exactly **2 tabs** with correct per-device info (serial via `ro.serialno`, Android 14/SDK 34, Termux installed vs not).
+- **Passing rows:** tab strip + dedupe; per-device log buffers (0 lines vs live stream, then 1.5k vs 6k concurrently); log stream survives navigation and keeps buffering; terminal targeting (`echo TARGET:$(getprop ro.serialno)` on CPH2239's tab → `TARGET:<ro.serialno>` (the correct OnePlus serial), exit 0); Overview live cards; close-tab confirmation names the phone; SM drop left CPH streaming 2,170→6,290+ lines uninterrupted; reconnect supervisor engaged within 1 s of Wi-Fi loss with schedule 1/2/5/10/30 s and recovered after Wi-Fi returned; wireless-debugging toggle → new port → same tab rebind; tab order + last-selected tab restored after restart; Connect form validates and attaches (recovered the phone after finding 2).
+- **Failures/regressions:** profile migration keying (finding 1), alias-loss auto-recovery + Retry (finding 2 — supervisor exhausted 8/8 and Retry stayed Disconnected while `adb devices` listed the phone under its IP serial; explicit Connect succeeded), stale log stream after serial change (finding 3), per-tab route memory not persisted across restart (finding 7). Tray counted transports (finding 6).
+- **Not verifiable by automation:** direct tab-click select behavior — WebKit AXPress on `role="tab"` dispatches to the × child button, and backgrounded pixel clicks no-op on this WKWebView; awaiting a human click check.
+- **Deferred:** M11 wizard profile-handoff cross-check (Wave 3), 3-phone streaming row (needs a third phone).

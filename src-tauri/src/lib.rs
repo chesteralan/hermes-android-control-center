@@ -27,7 +27,7 @@ use crate::state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -171,10 +171,26 @@ pub fn run() {
             commands::hermes::hermes_action,
             commands::hermes::run_hermes_tool,
         ])
-        .run(tauri::generate_context!())
-        // Tauri's run() returns only on a fatal startup error; there is no
+        // Tauri's build() returns only on a fatal startup error; there is no
         // recoverable alternative, so a panic is the correct response here.
-        .expect("error while running Hermes Control Center");
+        .build(tauri::generate_context!())
+        .expect("error while building Hermes Control Center");
+    app.run(|handle, event| {
+        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            // Every exit route (Cmd+Q, terminate, last window) must pass
+            // through the graceful path so streamed `adb` children
+            // (track-devices, logcat, PTYs) are reaped before the process
+            // dies (M10-T5: ⌘Q used to orphan them). The first request owns
+            // the shutdown; further requests stay deferred until cleanup
+            // reports finished, then the final exit is allowed through.
+            let lifecycle = handle.state::<lifecycle::AppLifecycle>();
+            let defer_exit =
+                lifecycle::request_quit(handle.clone()) || !lifecycle.exit_cleanup_finished();
+            if defer_exit {
+                api.prevent_exit();
+            }
+        }
+    });
 }
 
 #[cfg(test)]
