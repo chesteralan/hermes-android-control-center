@@ -17,22 +17,51 @@ pub fn root_expr(env: &HermesEnvironment) -> String {
 
 /// Wraps a command so it runs inside the Hermes environment.
 pub fn wrap(cfg: &HermesConfig, cmd: &str) -> String {
-    let path = if cfg.path_prepend.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "export PATH={}:$PATH; ",
-            cfg.path_prepend
-                .iter()
-                .map(|p| shell_escape(p))
-                .collect::<Vec<_>>()
-                .join(":")
-        )
-    };
-    let inner = format!("{path}{cmd}");
     match &cfg.environment {
-        HermesEnvironment::Termux => inner,
+        HermesEnvironment::Termux => {
+            if cfg.path_prepend.is_empty() {
+                cmd.to_string()
+            } else {
+                format!(
+                    "export PATH={}:$PATH; {}",
+                    cfg.path_prepend
+                        .iter()
+                        .map(|p| shell_escape(p))
+                        .collect::<Vec<_>>()
+                        .join(":"),
+                    cmd
+                )
+            }
+        }
         HermesEnvironment::ProotDistro { distro } => {
+            // Inside proot the environment must be Debian's: Termux exports
+            // CC/CFLAGS/android python env into every ssh session and
+            // proot-distro passes them through, which made builds target
+            // aarch64-linux-android (M11 install failures). Replace PATH
+            // outright (prepend first) and drop the toolchain variables.
+            let mut path = cfg.path_prepend.clone();
+            path.extend(
+                [
+                    "/usr/local/sbin",
+                    "/usr/local/bin",
+                    "/usr/sbin",
+                    "/usr/bin",
+                    "/sbin",
+                    "/bin",
+                ]
+                .iter()
+                .map(|entry| (*entry).to_string()),
+            );
+            let inner = format!(
+                "export PATH={}; unset CC CXX CPP CFLAGS CXXFLAGS CPPFLAGS LDFLAGS \
+                 _PYTHON_HOST_PLATFORM _PYTHON_SYSCONFIGDATA_NAME UV_PYTHON \
+                 UV_PYTHON_INSTALL_DIR PYTHONHOME PYTHONPATH; {}",
+                path.iter()
+                    .map(|p| shell_escape(p))
+                    .collect::<Vec<_>>()
+                    .join(":"),
+                cmd
+            );
             format!(
                 "proot-distro login {} -- bash -c {}",
                 shell_escape(distro),
@@ -60,20 +89,38 @@ mod tests {
         let cfg = HermesConfig::default();
         assert_eq!(
             wrap(&cfg, "hermes gateway run"),
-            "proot-distro login debian -- bash -c 'export PATH=/root/.local/bin:$PATH; hermes gateway run'"
+            "proot-distro login debian -- bash -c 'export PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; unset CC CXX CPP CFLAGS CXXFLAGS CPPFLAGS LDFLAGS _PYTHON_HOST_PLATFORM _PYTHON_SYSCONFIGDATA_NAME UV_PYTHON UV_PYTHON_INSTALL_DIR PYTHONHOME PYTHONPATH; hermes gateway run'"
         );
     }
 
     #[test]
-    fn wraps_quotes_safely() {
+    fn wraps_proot_without_path_prepend_still_sanitizes() {
         let cfg = HermesConfig {
             path_prepend: vec![],
             ..Default::default()
         };
         assert_eq!(
             wrap(&cfg, "echo 'x'"),
-            r"proot-distro login debian -- bash -c 'echo '\''x'\'''"
+            r"proot-distro login debian -- bash -c 'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; unset CC CXX CPP CFLAGS CXXFLAGS CPPFLAGS LDFLAGS _PYTHON_HOST_PLATFORM _PYTHON_SYSCONFIGDATA_NAME UV_PYTHON UV_PYTHON_INSTALL_DIR PYTHONHOME PYTHONPATH; echo '\''x'\'''"
         );
+    }
+
+    #[test]
+    fn wraps_proot_strips_inherited_android_toolchain() {
+        // Termux exports CC/CFLAGS/python env into every ssh session;
+        // proot-distro login passes them through, which made builds inside
+        // Debian target aarch64-linux-android (M11 install failures).
+        let wrapped = wrap(&HermesConfig::default(), "hermes --version");
+        assert!(
+            !wrapped.contains("$PATH"),
+            "must not inherit Termux PATH entries"
+        );
+        assert!(
+            wrapped.contains("unset CC "),
+            "must drop the android CC wrapper"
+        );
+        assert!(wrapped.contains("_PYTHON_HOST_PLATFORM"));
+        assert!(wrapped.contains("PYTHONHOME"));
     }
 
     #[test]
