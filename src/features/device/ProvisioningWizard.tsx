@@ -14,6 +14,7 @@ import { useDeviceProfiles } from "../../stores/deviceProfiles";
 import { useRoute } from "../../stores/route";
 import { useTerminal } from "../../stores/terminal";
 import { deviceIdentity } from "./deviceStatus";
+import { HermesSetupPanel } from "./HermesSetupPanel";
 import type {
   ErrorPayload,
   ProvisionConsent,
@@ -146,6 +147,7 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
   const [runId, setRunId] = useState<string | null>(null);
   const [consentPrompt, setConsentPrompt] = useState<ConsentPrompt | null>(null);
   const [phoneAction, setPhoneAction] = useState<PhoneAction | null>(null);
+  const [configureManualOpen, setConfigureManualOpen] = useState(false);
   const [resetPromptOpen, setResetPromptOpen] = useState(false);
   const [termuxUninstallOpen, setTermuxUninstallOpen] = useState(false);
   const [termuxUninstallConfirmation, setTermuxUninstallConfirmation] = useState("");
@@ -240,7 +242,13 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
         setStarting(false);
         setRunId(null);
         setPhoneAction({ step: event.step, message: event.message, onlyStep });
-        updateStep(event.step, "phoneActionNeeded", event.message);
+        // Configure Hermes shows the automatic panel; keep the raw manual
+        // handoff out of the step detail (it lives behind the disclosure).
+        updateStep(
+          event.step,
+          "phoneActionNeeded",
+          event.step === "configureHermes" ? null : event.message,
+        );
         break;
       case "stepBlocked":
         setStarting(false);
@@ -556,56 +564,64 @@ export function ProvisioningWizard({ serial }: ProvisioningWizardProps) {
                       Uninstall incompatible Termux
                     </Button>
                   )}
-                {phoneAction?.step === step.id && (
+                {phoneAction?.step === step.id && step.id !== "configureHermes" && (
                   <span role="status" className="w-full pl-4 text-warning">
                     {phoneAction.message}
                   </span>
                 )}
                 {phoneAction?.step === "configureHermes" && step.id === "configureHermes" && (
-                  <aside
-                    role="note"
-                    aria-label="Hermes setup guidance"
-                    className="w-full rounded-md border border-warning/30 bg-warning/5 p-3 text-[12px]"
-                  >
-                    <p>
-                      In proot-distro there is no systemd. If setup asks to install or start a
-                      gateway service, choose No; this app supervises the gateway.
-                    </p>
-                    <p className="mt-2 text-muted">
-                      Keep the gateway restricted to users you trust; direct messages should remain
-                      allow-listed or pairing-protected.
-                    </p>
-                  </aside>
+                  <div className="w-full pl-4">
+                    <HermesSetupPanel
+                      serial={serial}
+                      recipeId={recipeId}
+                      onApplied={() => {
+                        setConfigureManualOpen(false);
+                        void beginRun("configureHermes", phoneAction.onlyStep);
+                      }}
+                    />
+                    {configureManualOpen ? (
+                      <div className="mt-2 rounded-md border border-border p-2 text-[12px]">
+                        <p className="text-warning">{phoneAction.message}</p>
+                        <span className="mt-1 flex flex-wrap gap-2">
+                          {interactiveCommandForStep(activeRecipe, step.id) && (
+                            <Button
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() => openInteractiveStep(step.id)}
+                            >
+                              Open interactive step
+                            </Button>
+                          )}
+                          {interactiveCommandForStep(activeRecipe, step.id, true) && (
+                            <Button
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() => openInteractiveStep(step.id, true)}
+                            >
+                              Open setup portal
+                            </Button>
+                          )}
+                        </span>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        className="mt-2"
+                        onClick={() => setConfigureManualOpen(true)}
+                      >
+                        Run manually instead
+                      </Button>
+                    )}
+                  </div>
                 )}
                 <span className="ml-auto flex gap-2">
                   {phoneAction?.step === step.id ? (
-                    <>
-                      <Button
-                        disabled={busy}
-                        onClick={() => void beginRun(step.id, phoneAction.onlyStep)}
-                      >
-                        Resume
-                      </Button>
-                      {interactiveCommandForStep(activeRecipe, step.id) && (
-                        <Button
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => openInteractiveStep(step.id)}
-                        >
-                          Open interactive step
-                        </Button>
-                      )}
-                      {step.id === "configureHermes" &&
-                        interactiveCommandForStep(activeRecipe, step.id, true) && (
-                          <Button
-                            variant="ghost"
-                            disabled={busy}
-                            onClick={() => openInteractiveStep(step.id, true)}
-                          >
-                            Open setup portal
-                          </Button>
-                        )}
-                    </>
+                    <Button
+                      disabled={busy}
+                      onClick={() => void beginRun(step.id, phoneAction.onlyStep)}
+                    >
+                      Resume
+                    </Button>
                   ) : (
                     <Button
                       variant="ghost"

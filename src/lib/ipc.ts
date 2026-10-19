@@ -18,6 +18,7 @@ import type {
   HermesInstallReport,
   HermesSessionPage,
   HermesSessionSummary,
+  HermesSetupInput,
   HermesStatus,
   HermesTool,
   LogLine,
@@ -97,6 +98,8 @@ export const ipc = {
     call<string | null>("export_provision_recipe", { recipeId }),
   getProvisionPlan: (serial: string, recipeId: string) =>
     call<ProvisionPlan>("get_provision_plan", { serial, recipeId }),
+  applyHermesSetup: (serial: string, recipeId: string, input: HermesSetupInput) =>
+    call<void>("apply_hermes_setup", { serial, recipeId, input }),
   uninstallIncompatibleTermux: (serial: string, recipeId: string, confirmation: string) =>
     call<void>("uninstall_incompatible_termux", { serial, recipeId, confirmation }),
   resetProvisionProgress: (serial: string, recipeId: string) =>

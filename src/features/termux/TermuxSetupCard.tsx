@@ -64,7 +64,10 @@ export function TermuxSetupCard({ device }: { device: AndroidDevice }) {
   const [error, setError] = useState<ErrorPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const ready = device.state === "device";
-  const autoVerified = useRef(false);
+  // Auto-verify once per device: switching the active tab to another phone
+  // re-runs the check for that phone instead of staying latched forever on
+  // whichever device happened to mount first.
+  const lastAutoVerifiedSerial = useRef<string | null>(null);
 
   useEffect(() => {
     ipc
@@ -74,8 +77,10 @@ export function TermuxSetupCard({ device }: { device: AndroidDevice }) {
   }, []);
 
   useEffect(() => {
-    if (!ready || autoVerified.current) return;
-    autoVerified.current = true;
+    if (!ready || lastAutoVerifiedSerial.current === device.serial) return;
+    lastAutoVerifiedSerial.current = device.serial;
+    // Never keep another phone's checklist visible while this one verifies.
+    setCheck(null);
     setBusy(true);
     setError(null);
     ipc

@@ -317,6 +317,14 @@ impl AppState {
             t.cancel();
         }
     }
+
+    /// Apply a learned hardware identity to the device profile: re-key any
+    /// provisional address-keyed profile onto the stable `device_id`.
+    /// Returns whether the config changed (caller persists it).
+    pub async fn adopt_profile_identity(&self, serial: &str, device_id: &str) -> bool {
+        let mut cfg = self.config.write().await;
+        cfg.rekey_profile(serial, device_id)
+    }
 }
 
 #[cfg(test)]
@@ -349,6 +357,52 @@ mod tests {
         assert!(matches!(state.ssh_key(), Err(AppError::Io(message))
             if message.contains("Restart the application")));
         assert!(!keys::key_path(&directory).exists());
+    }
+
+    #[tokio::test]
+    async fn adopt_profile_identity_rekeys_provisional_profile_onto_stable_device_id() {
+        let directory =
+            std::env::temp_dir().join(format!("hacc-adopt-identity-{}", std::process::id()));
+        let mut config = AppConfig::default();
+        config.remember_address_for("192.0.2.44:5555", None);
+        assert!(config.devices.contains_key("192.0.2.44:5555"));
+        let state = Arc::new(AppState::new(
+            Arc::new(FakeRunner::new()),
+            config,
+            Box::new(|_| {}),
+            directory,
+        ));
+
+        assert!(
+            state
+                .adopt_profile_identity("192.0.2.44:5555", "TESTSERIAL0002")
+                .await
+        );
+
+        let cfg = state.config.read().await;
+        let profile = cfg
+            .devices
+            .get("TESTSERIAL0002")
+            .expect("profile must live under the stable device id");
+        assert_eq!(profile.last_address.as_deref(), Some("192.0.2.44:5555"));
+        assert!(!cfg.devices.contains_key("192.0.2.44:5555"));
+    }
+
+    #[tokio::test]
+    async fn adopt_profile_identity_without_provisional_profile_reports_no_change() {
+        let directory =
+            std::env::temp_dir().join(format!("hacc-adopt-none-{}", std::process::id()));
+        let state = Arc::new(AppState::new(
+            Arc::new(FakeRunner::new()),
+            AppConfig::default(),
+            Box::new(|_| {}),
+            directory,
+        ));
+        assert!(
+            !state
+                .adopt_profile_identity("192.0.2.44:5555", "TESTSERIAL0002")
+                .await
+        );
     }
 
     #[test]

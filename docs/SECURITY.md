@@ -32,7 +32,7 @@
 ## 3. Tauri hardening
 - CSP: `default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost`.
 - `withGlobalTauri: false`.
-- Capabilities: `core:default`, `dialog:allow-save`, `updater:default`, and `process:allow-restart` for signed update installation. Settings persistence stays in Rust; no `shell:*`, broad `fs:*`, or clipboard plugin permissions.
+- Capabilities: `core:default`, the three notification permissions used by `nativeNotifications.ts` (`allow-is-permission-granted`, `allow-request-permission`, `allow-notify`), `updater:default`, and `process:allow-restart` for signed update installation. File dialogs open from Rust (`app.dialog()`), which is not capability-gated, so no `dialog:*` permission is granted to the webview. Settings persistence stays in Rust; no `shell:*`, broad `fs:*`, or clipboard plugin permissions. The exact set is locked by the `capability_grants_match_reviewed_set` test (reviewed 2026-10-14).
 - Hardened runtime entitlements: none beyond default unless required (document each).
 
 ## 4. Secrets storage
@@ -45,13 +45,13 @@
 | QR pairing password | memory only; CSPRNG, new per attempt, expires after 2 min |
 
 ## 5. Release checklist
-- [ ] No secrets in repo (`gitleaks` in CI)
-- [ ] CSP verified in built app
-- [ ] Capabilities reviewed against this doc
-- [ ] `cargo audit` / `npm audit` clean or exceptions documented
+- [x] No secrets in repo (2026-10-14: CI Security audits job — Gitleaks with `fetch-depth: 0` — passes on `main`; local full-history scan found no leaks)
+- [x] CSP verified in built app (2026-10-14: policy present in the packaged binary, served as the `Content-Security-Policy` header on `tauri://` HTML responses; frontend has no remote fetch/XHR/WebSocket/eval usage; locked by the `csp_matches_reviewed_policy` test)
+- [x] Capabilities reviewed against this doc (2026-10-14: exact grant set locked by `capability_grants_match_reviewed_set`)
+- [x] `cargo audit` / `npm audit` clean or exceptions documented (2026-10-14: zero production npm vulnerabilities; RustSec exceptions documented in §6; both enforced in the CI Security audits job)
 - [ ] Termux services verified bound to 127.0.0.1
-- [ ] Diagnostics bundle redaction verified
-- [ ] Vulnerability reporting process in root `SECURITY.md`
+- [x] Diagnostics bundle redaction verified (2026-10-14: real archive exported from the packaged app with seeded Bearer/JWT/API-key/Telegram-bot/password/secret values and IPs — all rendered `[REDACTED]`/`[IP REDACTED]`, `adbPath` → `[REDACTED PATH]`)
+- [x] Vulnerability reporting process in root `SECURITY.md` (private GitHub vulnerability reporting + contact fallback documented)
 
 ## 6. Strict Dependency Remediation
 

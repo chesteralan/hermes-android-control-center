@@ -35,8 +35,12 @@ const TERMUX_STORAGE_CHECK: &str = "appops get com.termux MANAGE_EXTERNAL_STORAG
 fn termux_storage_granted(output: &str) -> bool {
     output.lines().any(|line| {
         let line = line.trim();
-        (line.contains("MANAGE_EXTERNAL_STORAGE") && line.contains("mode=allowed"))
-            || (line.contains("READ_EXTERNAL_STORAGE") && line.contains("granted=true"))
+        let manage_allowed = line.contains("MANAGE_EXTERNAL_STORAGE")
+            // Some OEM builds print the uid-mode grant as bare "allow"
+            // instead of the AOSP "mode=allowed" form.
+            && (line.contains("mode=allowed") || line.contains(": allow"));
+        let read_granted = line.contains("READ_EXTERNAL_STORAGE") && line.contains("granted=true");
+        manage_allowed || read_granted
     })
 }
 
@@ -107,6 +111,33 @@ PD_OVERRIDE_TARBALL_URL="$fallback" PD_OVERRIDE_TARBALL_SHA256="" proot-distro i
         escaped = escaped
     );
     format!("bash -lc {}", shell_escape(&inner))
+}
+
+/// Environment prelude for commands that run inside proot: replaces PATH
+/// with `path_prepend` + the Debian base and drops every Termux toolchain
+/// variable (Termux exports CC/android python env into ssh sessions and
+/// proot-distro login passes it through, which made builds inside Debian
+/// target aarch64-linux-android). Runs after `bash -lc` profile load.
+fn proot_env_prelude(path_prepend: &[String]) -> String {
+    let mut path = path_prepend.to_vec();
+    path.extend(
+        [
+            "/usr/local/sbin",
+            "/usr/local/bin",
+            "/usr/sbin",
+            "/usr/bin",
+            "/sbin",
+            "/bin",
+        ]
+        .iter()
+        .map(|entry| (*entry).to_string()),
+    );
+    format!(
+        "export PATH={}; unset CC CXX CPP CFLAGS CXXFLAGS CPPFLAGS LDFLAGS \
+         _PYTHON_HOST_PLATFORM _PYTHON_SYSCONFIGDATA_NAME UV_PYTHON \
+         UV_PYTHON_INSTALL_DIR PYTHONHOME PYTHONPATH; ",
+        path.join(":")
+    )
 }
 
 /// Download the reviewed installer over HTTPS and run it. Interactive
@@ -297,7 +328,10 @@ impl<R: Runtime> AndroidProvisionExecutor<R> {
             Some(_) => command.to_string(),
             None => {
                 let distro = shell_escape(&self.recipe.distro);
-                let inner = shell_escape(command);
+                let inner = shell_escape(&format!(
+                    "{}{command}",
+                    proot_env_prelude(&self.recipe.hermes_runtime.path_prepend)
+                ));
                 format!("proot-distro login {distro} -- bash -lc {inner}")
             }
         }
@@ -1508,7 +1542,7 @@ mod tests {
         device_awake_and_unlocked, distro_install_command, distro_repair_guidance,
         distro_rootfs_listed_installed, distro_rootfs_probe_command, distro_start_probe_command,
         doctor_warning_lines, forward_remote_stream, hermes_install_script_command,
-        termux_storage_granted, BootstrapTempFiles,
+        proot_env_prelude, termux_storage_granted, BootstrapTempFiles,
     };
     use crate::error::AppError;
     use crate::provision::types::{ProvisionEvent, ProvisionStepId};
@@ -1532,6 +1566,19 @@ mod tests {
             "android.permission.READ_EXTERNAL_STORAGE: granted=false\n"
         ));
         assert!(!termux_storage_granted(""));
+    }
+
+    #[test]
+    fn termux_storage_granted_accepts_uid_mode_allow_shorthand() {
+        // Observed on OPPO/Android 11: `appops get` prints the uid-mode line
+        // as plain "allow" (no "mode=" prefix) alongside an op-level default.
+        // The uid mode is the effective grant for All files access.
+        let oppo = "Uid mode: MANAGE_EXTERNAL_STORAGE: allow\n\
+                    MANAGE_EXTERNAL_STORAGE: default; time=+4m17s518ms ago\n";
+        assert!(termux_storage_granted(oppo));
+        let denied = "Uid mode: MANAGE_EXTERNAL_STORAGE: deny\n\
+                      MANAGE_EXTERNAL_STORAGE: default; time=+1d\n";
+        assert!(!termux_storage_granted(denied));
     }
 
     #[test]
@@ -1614,6 +1661,27 @@ mod tests {
         assert!(!distro_rootfs_listed_installed("missing\n"));
         assert!(!distro_rootfs_listed_installed(""));
         assert!(!distro_rootfs_listed_installed("installedish\n"));
+    }
+
+    #[test]
+    fn proot_env_prelude_replaces_path_and_strips_android_toolchain() {
+        let prelude = proot_env_prelude(&["/root/.local/bin".to_string()]);
+        assert!(
+            prelude.contains("export PATH=/root/.local/bin:/usr/local/sbin"),
+            "must replace PATH with prepend + Debian base: {prelude}"
+        );
+        assert!(
+            !prelude.contains("$PATH"),
+            "must not inherit Termux PATH: {prelude}"
+        );
+        assert!(
+            prelude.contains("unset CC CXX CPP CFLAGS"),
+            "must drop the Termux toolchain: {prelude}"
+        );
+        assert!(prelude.contains("_PYTHON_HOST_PLATFORM"));
+        assert!(prelude.contains("PYTHONHOME"));
+        let bare = proot_env_prelude(&[]);
+        assert!(bare.starts_with("export PATH=/usr/local/sbin"));
     }
 
     #[test]

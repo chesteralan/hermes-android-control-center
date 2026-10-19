@@ -5,6 +5,10 @@
   --color-surface: #12151a;
   --color-surface-2: #181c22;
   --color-border: #262b33;
+  /* Form-control boundary: ≥3:1 against bg and surface (WCAG 1.4.11).
+     Input fills match the card background, so the border alone identifies
+     the field. Decorative borders keep --color-border. */
+  --color-border-strong: #5a6478;
   --color-text: #e6e8eb;
   --color-muted: #8b93a1;
   --color-accent: #7aa2f7;
@@ -34,4 +38,13 @@ body {
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
+}
+
+/* Form controls need a ≥3:1 boundary (WCAG 1.4.11): their fill matches the
+   card background, so the border alone identifies the field. Rules outside
+   Tailwind's cascade layer beat the .border-border utility. */
+input[class*="border-border"],
+textarea[class*="border-border"],
+select[class*="border-border"] {
+  border-color: var(--color-border-strong);
 }
