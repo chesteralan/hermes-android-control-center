@@ -569,6 +569,7 @@ pub async fn import_provision_recipe<R: Runtime>(
         .file()
         .add_filter("Provisioning recipes", &["toml"])
         .pick_file(move |path| {
+            // Best-effort: the awaiting command may have been cancelled.
             let _ = sender.send(path);
         });
     let Some(file_path) = receiver
@@ -603,6 +604,7 @@ pub async fn export_provision_recipe<R: Runtime>(
         .add_filter("Provisioning recipes", &["toml"])
         .set_file_name(format!("{}.toml", recipe.id))
         .save_file(move |path| {
+            // Best-effort: the awaiting command may have been cancelled.
             let _ = sender.send(path);
         });
     let Some(file_path) = receiver
@@ -765,6 +767,7 @@ pub async fn run_provision<R: Runtime>(
         Ok(progress) => progress,
         Err(error) => {
             state.streams.finish(&run_id);
+            // Cleanup after the primary load error (returned below)
             if let Err(lock_error) =
                 remove_active_provisioning_run(&state.provisioning_runs, &device_id)
             {
@@ -800,11 +803,15 @@ pub async fn run_provision<R: Runtime>(
             &store,
         )
         .await;
+        // Plan failures already reached the UI as StepFailed events and are
+        // persisted in the progress store; this log adds device context.
         if let Err(error) = result {
             tracing::warn!(device_id = %active_device_id, error = %error, "provisioning plan stopped");
         }
         forwarder.await.ok();
         app.state::<AppState>().streams.finish(&stream_id);
+        // Logged at error level: a stuck entry would block the next run for
+        // this phone until restart.
         if let Err(error) = remove_active_provisioning_run(
             &app.state::<AppState>().provisioning_runs,
             &active_device_id,

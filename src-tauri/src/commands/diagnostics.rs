@@ -325,6 +325,7 @@ pub async fn export_diagnostics(
         .add_filter("ZIP archives", &["zip"])
         .set_file_name("hermes-control-center-diagnostics.zip")
         .save_file(move |path| {
+            // Best-effort: the awaiting command may have been cancelled.
             let _ = sender.send(path);
         });
     let Some(file_path) = receiver

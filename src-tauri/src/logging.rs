@@ -41,6 +41,7 @@ pub fn init(log_dir: &Path, level: LogLevelSetting) -> LogLevelSetter {
     let file_layer = match open_log_file(log_dir) {
         Ok(appender) => {
             let (writer, guard) = tracing_appender::non_blocking(appender);
+            // Best-effort: init runs once; a second call keeps the first guard.
             let _ = GUARD.set(guard);
             Some(fmt::layer().with_writer(writer).with_ansi(false))
         }
@@ -49,6 +50,7 @@ pub fn init(log_dir: &Path, level: LogLevelSetting) -> LogLevelSetter {
             None
         }
     };
+    // Reported to stderr; startup continues without a subscriber rather than aborting.
     if let Err(error) = Registry::default()
         .with(filter)
         .with(fmt::layer())
@@ -63,6 +65,7 @@ pub fn init(log_dir: &Path, level: LogLevelSetting) -> LogLevelSetter {
         default_hook(info);
     }));
     Box::new(move |lvl| {
+        // Reported to stderr; the previous level stays in effect.
         if let Err(error) = handle.modify(|f| *f = EnvFilter::new(directive(lvl))) {
             eprintln!("Could not change application log level: {error}");
         }

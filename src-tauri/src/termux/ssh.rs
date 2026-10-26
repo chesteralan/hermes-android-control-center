@@ -230,6 +230,7 @@ impl TermuxSshTransport {
                     },
                 }
             }
+            // Best-effort EOF/close: the peer may already be gone.
             let _ = channel.eof().await;
             let _ = channel.close().await;
         });
@@ -303,6 +304,7 @@ impl DeviceTransport for TermuxSshTransport {
             loop {
                 let msg = tokio::select! {
                     _ = cancel.cancelled() => {
+                        // Best-effort TERM/close on cancel; teardown follows either way.
                         let _ = channel.signal(Sig::TERM).await;
                         let _ = channel.close().await;
                         break;
@@ -334,11 +336,14 @@ impl DeviceTransport for TermuxSshTransport {
                 }
             }
             if let Some(line) = out.finish() {
+                // Best-effort: the receiver may have closed mid-stream.
                 let _ = tx.send(StreamEvent::Stdout { line }).await;
             }
             if let Some(line) = err.finish() {
+                // Best-effort: the receiver may have closed mid-stream.
                 let _ = tx.send(StreamEvent::Stderr { line }).await;
             }
+            // Best-effort Exit event; the receiver may already be gone.
             let _ = tx
                 .send(StreamEvent::Exit {
                     code,
@@ -373,6 +378,33 @@ mod tests {
             seen_fingerprint(&seen),
             Err(AppError::Io(message)) if message.contains("host-key verification")
         ));
+    }
+
+    #[tokio::test]
+    async fn unreachable_local_sshd_reports_termux_unavailable() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let data_dir = std::env::temp_dir().join(format!(
+            "hacc-ssh-unavailable-{}-{timestamp}",
+            std::process::id()
+        ));
+        let client_key = crate::termux::keys::load_or_create(&data_dir).unwrap();
+        let known_hosts = KnownHosts::load(&data_dir);
+
+        let err = match connect(port, "termux", &client_key, &known_hosts, "brief-case-7").await {
+            Err(e) => e,
+            Ok(_) => panic!("connecting to a closed localhost port must not succeed"),
+        };
+        assert!(matches!(err, AppError::TermuxUnavailable { .. }));
+        crate::error::tests::assert_brief_payload(err, "Termux");
+
+        let _ = std::fs::remove_dir_all(data_dir);
     }
 
     #[derive(Clone)]

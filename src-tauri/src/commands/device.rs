@@ -38,6 +38,8 @@ pub async fn connect_device<R: Runtime>(
         let mut cfg = state.config.write().await;
         let known_id = state.devices.id_for(&address);
         cfg.remember_address_for(&address, known_id.as_deref());
+        // Best-effort: logged; connect already succeeded and the in-memory
+        // config already remembers the address.
         if let Err(e) = config_store::save(&app, &cfg) {
             tracing::warn!(error = %e, "could not persist known address");
         }
@@ -138,6 +140,7 @@ pub async fn get_device_info<R: Runtime>(
         let profile_changed = state.adopt_profile_identity(&serial, id).await;
         if profile_changed {
             let cfg = state.config.read().await;
+            // Best-effort: logged; the in-memory profile already has the re-keyed id.
             if let Err(e) = config_store::save(&app, &cfg) {
                 tracing::warn!(error = %e, "could not persist re-keyed device profile");
             }
@@ -169,6 +172,8 @@ pub async fn start_qr_pairing(
 
     tauri::async_runtime::spawn(async move {
         qr_pair::run(&client, &creds, qr_pair::QR_TIMEOUT, cancel, move |ev| {
+            // Best-effort: the pairing view may already be closed; cancel still
+            // reaches the run via the cancellation token.
             let _ = on_event.send(ev);
         })
         .await;

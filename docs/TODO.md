@@ -20,6 +20,8 @@ Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `rol
 
 ## Recently Completed
 
+- [x] [M10-T1 — Error audit](tasks/M10-production.md) closed (2026-10-26): post-merge panic/swallow re-audit classified all 477 grep hits (96 production: 11 documented, 7 infallible-commented, 78 newly-commented benign drops, 0 NEW-fix) with a full per-site table; 9/10 brief §16 failure cases reproduced through their generation paths (case 8 `Hermes not found` documented as having no production construction site); ErrorPanel expandable Details verified. 363 Rust + 197 frontend tests; remaining live phone runs are phone-gated and tracked as blocked rows in the M10-T1 matrix.
+
 - [x] M11 T2/T14 wizard → per-phone profile handoff (2026-10-26): the provisioning wizard's Verify + start step now persists the recipe-derived `HermesConfig` into the phone's `DeviceProfile.hermes` override once the gateway confirms Running (`AppState::save_device_hermes_config`: create-if-missing, validated, saved to `settings.json`). M5 commands already consume `effective_hermes_config(device_id)`, so per-phone runtime config takes effect with no consumption-side change; the wizard output pane streams the save (or a non-fatal warning on save failure). 3 new config unit tests; 360 Rust + 197 frontend tests, Clippy, fmt, typecheck pass. Connected-phone acceptance of the saved override remains.
 
 - [x] Local QA pass — M10-T5 resilience rows, M10-T4 audit, M16-T3 download docs (2026-10-14): **T5** — adb server kill recovers (tracker respawned, app stable), quit during 3 live log streams leaves 0 orphans, and 3 phones streaming survive one dropping and auto-reconnecting without touching the others, all driven by the new committed `scripts/stub-adb.py` stub (framed `track-devices`, sectioned device-info shell, live logcat, invocation log proving serial-scoped targeting). **T4** — keyboard/AX/contrast audit on the packaged app: visible focus ring, ⌘K filter, About-dialog Tab trap (wrap verified on the real-click path), full ARIA exposure (dialog semantics, tab group names, aria-live toasts, aria-keyshortcuts), every text pair passes WCAG AA; one finding fixed — form-control boundaries were 1.3:1 vs the required 3:1, now `--color-border-strong` (3.1:1) on inputs/textareas/selects. **M16-T3** — README `## Download` section with platform/arch/min-OS table, per-platform install + update guidance (deb/rpm package-manager note), SHA256SUMS/GPG/Authenticode/notarization verification anchors, and the stable-vs-prerelease updater policy; the literal `releases/latest` link waits on the first signed release.
@@ -71,9 +73,9 @@ Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `rol
 - [x] [M10-T1 — Observable logging setup and reload failures](tasks/M10-production.md): file/subscriber/reload errors are reported instead of silently ignored; console fallback is retained and broader startup QA remains open.
 - [x] [M10-T1 — Consistent shell-exit and device-error classification](tasks/M10-production.md): command-not-found exits stay ordinary command results; missing-device streams report device errors.
 - [x] [M10-T1 — Final streamed ADB stderr classification and details](tasks/M10-production.md): split-chunk errors without a final newline retain device-error classification and output; ordinary command exits remain unchanged.
-- [x] [M10-T1 — Terminal input errors precede connection setup](tasks/M10-production.md): blank execute/stream requests are rejected before ADB/SSH/API setup; broader error audit remains open.
-- [x] [M10-T1 — Provisioning-run lock poisoning returns an error](tasks/M10-production.md): IPC reports poisoned state and cleanup failures are logged; the wider error audit remains open.
-- [x] [M10-T1 — Shared export destination validation and write-error coverage](tasks/M10-production.md): log, terminal, and diagnostics exports reject relative/empty/root paths; broader error audit and native-dialog QA remain open.
+- [x] [M10-T1 — Terminal input errors precede connection setup](tasks/M10-production.md): blank execute/stream requests are rejected before ADB/SSH/API setup; audit closed 2026-10-26.
+- [x] [M10-T1 — Provisioning-run lock poisoning returns an error](tasks/M10-production.md): IPC reports poisoned state and cleanup failures are logged; audit closed 2026-10-26.
+- [x] [M10-T1 — Shared export destination validation and write-error coverage](tasks/M10-production.md): log, terminal, and diagnostics exports reject relative/empty/root paths; audit closed 2026-10-26; native-dialog QA remains open.
 - [x] [M10-T6 — Quoted diagnostics secret redaction and synthetic ZIP regression coverage](tasks/M10-production.md): JSON/log secrets, escaped quoted values, Bearer headers, and both IP-consent settings verified; packaged-app archive QA completed 2026-10-14 (see Recently Completed), closing the ticket.
 - [x] [M3-T10 — macOS live terminal and logcat QA](tasks/M3-basic-terminal-logs.md): stdout/stderr, exit status, streamed output, Cancel, and Logs Start/Stop/Clear verified on CPH2239.
 - [x] M0-S3 verified the sanitized `track_frames.bin` header (`0074` = 116 payload bytes) and added an exact-length parser assertion. The broader capture ticket remains in progress.
@@ -83,7 +85,7 @@ Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `rol
 - [x] M13-T1 local startup test rejects an unrelated loopback HTTP service without spawning Hermes; on-device conflict behavior remains open.
 - [x] [M10-T16 — Contribution guide, security reporting policy, and MIT license](tasks/M10-production.md).
 - [x] M13-T6 local macOS validation passes (182 Rust tests, 92 frontend tests, lint, typecheck, formatting, and Clippy); platform/device QA remains open.
-- [x] M10-T1 removed a guarded production chat `exit_code.unwrap()`; the wider panic/error-propagation audit remains in progress.
+- [x] M10-T1 removed a guarded production chat `exit_code.unwrap()`; the wider panic/error-propagation audit was later re-verified and closed 2026-10-26 (see the M10-T1 closeout above).
 - [x] [M10-T14 — Synchronized application versions and Keep a Changelog](tasks/M10-production.md)
 - [x] [M8-T1 — Hermes Control API service skeleton](tasks/M8-control-api.md): Python package, aiohttp entrypoint, config/install script, and loopback/token bind guard.
 - [x] [M8-T2–T9 — Endpoints, schemas, supervision, desktop transports, app install, and Settings switch](tasks/M8-control-api.md)
@@ -95,7 +97,6 @@ Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `rol
 
 ## In Progress
 
-- [~] [M10-T1 — Error audit](tasks/M10-production.md)
 - [~] [M10-T2 — Isolated GLib backport passes optimized library tests and 241 Linux app tests/Clippy; dependency policy resolved 2026-10-12 and `cargo deny check` passes; CSP/capability/diagnostics/CI-scanner reviews completed 2026-10-14 — only the glib unsoundness remediation path remains](tasks/M10-production.md)
 - [~] [M10-T4 — Keyboard command palette and shortcut guide](tasks/M10-production.md): local keyboard/AX/contrast audit done 2026-10-14 (focus ring, ⌘K filter, dialog Tab trap, ARIA exposure, all text AA); form-boundary contrast fixed via `--color-border-strong`; manual VoiceOver walkthrough and Windows/Linux shortcut checks remain.
 - [~] [M10-T7 — Existing setup path; automatic wizard awaits M11](tasks/M10-production.md)

@@ -692,14 +692,13 @@ mod tests {
             map_device_error("s", "error: device offline", Some(1)),
             AppError::DeviceOffline { .. }
         ));
-        assert!(matches!(
-            map_device_error(
-                "s",
-                "error: device unauthorized.\nThis adb server's $ADB_VENDOR_KEYS is not set",
-                Some(1)
-            ),
-            AppError::DeviceUnauthorized { .. }
-        ));
+        let unauthorized = map_device_error(
+            "s",
+            "error: device unauthorized.\nThis adb server's $ADB_VENDOR_KEYS is not set",
+            Some(1),
+        );
+        assert!(matches!(unauthorized, AppError::DeviceUnauthorized { .. }));
+        crate::error::tests::assert_brief_payload(unauthorized, "unauthorized");
         assert!(matches!(
             map_device_error("s", "error: device 's' not found", Some(1)),
             AppError::DeviceNotFound { .. }

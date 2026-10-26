@@ -90,12 +90,14 @@ pub fn run() {
                     if lifecycle.should_hide_on_close() =>
                 {
                     api.prevent_close();
+                    // Best-effort: nothing further to do if the OS refuses to hide.
                     let _ = window.hide();
                 }
                 tauri::WindowEvent::Focused(false) | tauri::WindowEvent::Resized(_)
                     if lifecycle
                         .should_hide_on_minimize(window.is_minimized().unwrap_or(false)) =>
                 {
+                    // Best-effort: nothing further to do if the OS refuses to hide.
                     let _ = window.hide();
                 }
                 _ => {}

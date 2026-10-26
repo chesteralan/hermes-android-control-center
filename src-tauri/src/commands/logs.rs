@@ -123,6 +123,7 @@ pub async fn export_logs(
         .add_filter("Log files", &[format.as_str()])
         .set_file_name(file_name)
         .save_file(move |path| {
+            // Best-effort: the awaiting command may have been cancelled.
             let _ = sender.send(path);
         });
     let Some(file_path) = receiver

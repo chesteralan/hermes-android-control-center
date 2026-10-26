@@ -281,6 +281,7 @@ impl AdbClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::tests::assert_brief_payload;
     use crate::process::FakeRunner;
 
     fn client(f: &FakeRunner) -> AdbClient {
@@ -413,6 +414,35 @@ mod tests {
         );
         let err = client(&f).connect("192.0.2.10:5555").await.unwrap_err();
         assert!(matches!(err, AppError::ConnectionRefused { .. }));
+        assert_brief_payload(err, "refused");
+    }
+
+    #[tokio::test]
+    async fn connect_maps_wireless_debugging_disabled() {
+        let f = FakeRunner::new();
+        f.on(
+            "connect 192.168.0.107:5555",
+            Ok(RawOutput::ok(
+                "failed to connect to '192.168.0.107:5555': No route to host",
+            )),
+        );
+        let err = client(&f).connect("192.168.0.107:5555").await.unwrap_err();
+        assert!(matches!(err, AppError::WirelessDebuggingDisabled { .. }));
+        assert_brief_payload(err, "Wireless");
+    }
+
+    #[tokio::test]
+    async fn connect_maps_output_timeout() {
+        let f = FakeRunner::new();
+        f.on(
+            "connect 192.168.0.107:5555",
+            Ok(RawOutput::ok(
+                "cannot connect to 192.168.0.107:5555: Operation timed out",
+            )),
+        );
+        let err = client(&f).connect("192.168.0.107:5555").await.unwrap_err();
+        assert!(matches!(err, AppError::Timeout { .. }));
+        assert_brief_payload(err, "timed out");
     }
 
     #[tokio::test]
@@ -464,6 +494,7 @@ mod tests {
             .details()
             .unwrap()
             .contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE"));
+        assert_brief_payload(error, "failed");
     }
 
     #[test]
@@ -561,6 +592,7 @@ mod tests {
         );
         let err = client(&f).shell("S", "echo", QUICK).await.unwrap_err();
         assert!(matches!(err, AppError::DeviceOffline { .. }));
+        assert_brief_payload(err, "offline");
     }
 
     #[tokio::test]

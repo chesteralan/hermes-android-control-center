@@ -131,6 +131,8 @@ pub async fn run(
         address: pairing_addr.clone(),
     });
 
+    // Not a swallow: the failure is emitted to the pairing view as a Failed
+    // event with its full payload before the run ends.
     if let Err(e) = client.pair(&pairing_addr, &creds.password).await {
         emit(QrPairEvent::Failed {
             error: e.to_payload(),

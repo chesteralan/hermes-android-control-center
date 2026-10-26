@@ -4,11 +4,11 @@
 
 ## Quality
 
-### [~] M10-T1 Error audit
+### [x] M10-T1 Error audit
 - Every brief §16 case reproduced and verified to show human message + Details: adb not installed, adb not found, device offline, unauthorized, connection refused, wireless debugging disabled, Termux unavailable, Hermes not found, command failed, network timeout.
 - grep audit: no `unwrap()`/`expect()` in non-test Rust except proven-infallible with comment; no swallowed `Err`.
-- **Progress:** A Rust payload regression test now checks that each listed failure category serializes a human-readable message and non-empty expandable details. Removed a guarded production `exit_code.unwrap()` from chat error formatting. End-to-end reproduction and the remaining non-test Rust panic/error-propagation audit remain open.
-- **Progress:** The Rust error-payload test covers the ten listed ADB/Termux/Hermes failure categories and asserts each serialized payload has a human message and expandable details. The non-test panic/error-propagation grep audit and end-to-end reproductions remain open.
+- **Progress:** A Rust payload regression test now checks that each listed failure category serializes a human-readable message and non-empty expandable details. Removed a guarded production `exit_code.unwrap()` from chat error formatting. End-to-end reproduction and the remaining non-test Rust panic/error-propagation audit remain open (both superseded by the 2026-10-26 re-audit and §16 reproduction entries below).
+- **Progress:** The Rust error-payload test covers the ten listed ADB/Termux/Hermes failure categories and asserts each serialized payload has a human message and expandable details. The non-test panic/error-propagation grep audit and end-to-end reproductions remain open (both superseded by the 2026-10-26 entries below).
 - **Progress (2026-10-08):** Log, terminal, and diagnostics exports now share an absolute-file destination guard and propagate filesystem write failures. Tests reject relative, empty, and root paths, verify exact exported bytes, and exercise a missing-parent write error. All 254 Rust tests, formatting, and strict Clippy pass. This closes the local export-path/error slice, not the wider panic audit or native-dialog QA matrix.
 - **Progress (2026-10-08):** Execute/stream terminal IPC handlers now reject empty and whitespace-only commands before selecting or connecting any transport. Reused the ADB transport validator through a shared transport-level helper; retained its defensive execute/stream checks. Fourteen transport tests cover the input guard and existing execution/streaming behavior; all 256 Rust tests, formatting, and strict Clippy pass. The remaining panic audit and live failure reproductions are still open.
 - **Progress (2026-10-08):** Reproduced and fixed streamed ADB device-offline failures being reported as plain exits when stderr had no final newline. Final partial stderr now participates in classification, and structured device-error Details retain the captured ADB stderr. FakeRunner regressions verify split-chunk/no-newline output and ordinary command-failure output ordering; all six ADB shell tests, 258 Rust tests, formatting, and strict Clippy pass. The wider audit and live failure matrix remain open.
@@ -29,6 +29,159 @@
   - `commands/settings.rs`: `.unwrap()` after fetching a just-mutated profile — upgraded to `.expect("profile was mutated above and is still present")` with inline justification.
   - `commands/provision.rs`: `.expect("provider validated above")` — guarded by earlier provider validation against `HERMES_PROVIDER_ENV_KEYS`. Justification comment added.
   - No swallowed `Err` or un-documented panics remain in non-test production Rust. End-to-end failure reproduction and live failure matrix remain open.
+- **Progress (2026-10-26):** Post-merge panic/swallow re-audit (M10-T1) completed on branch `feat/m10-t1-error-audit`, re-sweeping the tree ~2.3k lines past the 2026-10-13 baseline. Inventory: the three brief grep patterns produced **477 hits** — **381 test** (rule 1, out of scope), **96 production**. Production classification: **11 `documented`** (all baseline sites re-verified with their justification comments present: `lib.rs` tauri build, `state.rs` five PtySessionRegistry locks, `commands/device.rs` two `qr_sessions` locks, `commands/sessions.rs` serialize, `commands/settings.rs` profile fetch, `commands/provision.rs` provider lookup), **7 `infallible-commented`** (FakeRunner in-memory `HashMap` locks; struct-level justification added), **78 `NEW-document`** (rule-5 benign drops — best-effort cleanup, teardown channel sends, logged `if let Err` — each now carries an inline comment stating why ignoring is safe), and **0 `NEW-fix`**: no production `unwrap()`/`expect()` capable of failing on I/O, device input, or parsing was found. No behavior changed; this pass only adds justification comments. Full classification table below (production sites listed per statement; adjacent pairs share a row; test hits grouped per file — every inventory hit is accounted for).
+
+| File:line | Site (short code) | Category |
+| --- | --- | --- |
+| adb/qr_pair.rs:136 | `if let Err(e) = client.pair(...)` | NEW-document |
+| commands/chat.rs:251 | `let _ = on_event.send(HermesChatEvent::Error { message });` | NEW-document |
+| commands/chat.rs:254 | `let _ = on_event.send(HermesChatEvent::Complete { ... });` | NEW-document |
+| commands/device.rs:43 | `if let Err(e) = config_store::save(&app, &cfg) {` | NEW-document |
+| commands/device.rs:144 | `if let Err(e) = config_store::save(&app, &cfg) {` | NEW-document |
+| commands/device.rs:170 | `state.qr_sessions.lock().unwrap().insert(...)` | documented |
+| commands/device.rs:177 | `let _ = on_event.send(ev);` | NEW-document |
+| commands/device.rs:195 | `state.qr_sessions.lock().unwrap().remove(...)` | documented |
+| commands/diagnostics.rs:329 | `let _ = sender.send(path);` | NEW-document |
+| commands/logs.rs:127 | `let _ = sender.send(path);` | NEW-document |
+| commands/provision.rs:423 | `.expect("provider validated above");` | documented |
+| commands/provision.rs:573 | `let _ = sender.send(path);` | NEW-document |
+| commands/provision.rs:608 | `let _ = sender.send(path);` | NEW-document |
+| commands/provision.rs:772 | `if let Err(lock_error) = remove_active_provisioning_run(...)` | NEW-document |
+| commands/provision.rs:809 | `if let Err(error) = result {` | NEW-document |
+| commands/provision.rs:816 | `if let Err(error) = remove_active_provisioning_run(...)` | NEW-document |
+| commands/sessions.rs:212 | `.expect("session API request serializes");` | documented |
+| commands/settings.rs:118 | `.expect("profile was mutated above and is still present");` | documented |
+| commands/terminal.rs:43 | `let _ = sender.send(path);` | NEW-document |
+| commands/terminal.rs:158 | `let _ = on_event.send(TerminalPtyEvent::Closed);` | NEW-document |
+| lib.rs:94 | `let _ = window.hide();` | NEW-document |
+| lib.rs:101 | `let _ = window.hide();` | NEW-document |
+| lib.rs:179 | `.expect("error while building Hermes Control Center");` | documented |
+| lifecycle.rs:246 | `let _ = app.emit(MENU_COMMAND_EVENT, command);` | NEW-document |
+| lifecycle.rs:310 | `if let Err(error) = tray.set_tooltip(...)` | NEW-document |
+| lifecycle.rs:316 | `if let Err(error) = tray.set_icon(Some(icon)) {` | NEW-document |
+| lifecycle.rs:328 | `let _ = window.unminimize();` | NEW-document |
+| lifecycle.rs:331 | `let _ = window.show();` | NEW-document |
+| lifecycle.rs:333 | `let _ = window.set_focus();` | NEW-document |
+| lifecycle.rs:365 | `let _ = tokio::time::timeout(...)` | NEW-document |
+| logging.rs:45 | `let _ = GUARD.set(guard);` | NEW-document |
+| logging.rs:54 | `if let Err(error) = Registry::default()...try_init()` | NEW-document |
+| logging.rs:69 | `if let Err(error) = handle.modify(...)` | NEW-document |
+| logs/api_ws.rs:50 | `let _ = socket.close(None).await;` | NEW-document |
+| monitor.rs:19 | `if let Err(e) = app.emit(EVT_DEVICES, list) {` | NEW-document |
+| monitor.rs:111 | `if let Err(e) = crate::config_store::save(&app, &cfg) {` | NEW-document |
+| monitor.rs:164 | `let _ = emit_app.emit(EVT_RECONNECT, s);` | NEW-document |
+| platform.rs:165 | `let _ = (program, args);` | NEW-document |
+| process.rs:143-144 | `let _ = child.kill()/wait()` after read error | NEW-document |
+| process.rs:149-150 | `let _ = child.kill()/wait()` after timeout | NEW-document |
+| process.rs:222 | `let _ = Box::into_pin(child.kill()).await;` (cancel/close) | NEW-document |
+| process.rs:228 | `let _ = Box::into_pin(child.kill()).await;` (cancelled) | NEW-document |
+| process.rs:233 | `let _ = Box::into_pin(child.kill()).await;` (tx closed) | NEW-document |
+| process.rs:238 | `let _ = tx.send(StreamChunk::Exit(code)).await;` | NEW-document |
+| process.rs:280 | FakeRunner `responses.lock().unwrap()` | infallible-commented |
+| process.rs:290 | FakeRunner `streams.lock().unwrap()` | infallible-commented |
+| process.rs:296 | FakeRunner `calls.lock().unwrap()` | infallible-commented |
+| process.rs:308 | FakeRunner `calls.lock().unwrap()` | infallible-commented |
+| process.rs:310 | FakeRunner `responses.lock().unwrap()` | infallible-commented |
+| process.rs:324 | FakeRunner `calls.lock().unwrap()` | infallible-commented |
+| process.rs:329 | FakeRunner `streams.lock().unwrap()` | infallible-commented |
+| provision/executor.rs:245-246 | `let _ = std::fs::remove_file(...)` in `Drop` | NEW-document |
+| provision/executor.rs:545 | `let _ = events.send(...)` bootstrap status | NEW-document |
+| provision/executor.rs:608 | `if let Err(cleanup_error) = cleanup {` | NEW-document |
+| provision/executor.rs:776 | `let _ = events.send(...)` stdout lines | NEW-document |
+| provision/executor.rs:787 | `let _ = events.send(...)` stderr lines | NEW-document |
+| provision/executor.rs:797 | `let _ = events.send(...)` exit event | NEW-document |
+| provision/executor.rs:825 | `let _ = events.try_send(...)` APK progress | NEW-document |
+| provision/executor.rs:1130 | `let _ = events.send(...)` digest line | NEW-document |
+| provision/executor.rs:1164 | `let _ = events.send(...)` host-key reset line | NEW-document |
+| provision/executor.rs:1194 | `let _ = events.send(...)` settings status | NEW-document |
+| provision/executor.rs:1213 | `let _ = self.adb_shell_cancellable(WAKEUP)` | NEW-document |
+| provision/executor.rs:1280 | `let _ = events.send(...)` storage-prompt line | NEW-document |
+| provision/executor.rs:1547 | `let _ = events.send(...)` saved-settings line | NEW-document |
+| provision/executor.rs:1565 | `let _ = events.send(...)` save-failure line | NEW-document |
+| provision/plan.rs:439 | `let _ = events.send(StepFailed)` (check) | NEW-document |
+| provision/plan.rs:455 | `let _ = events.send(StepDone)` (check) | NEW-document |
+| provision/plan.rs:463 | `let _ = events.send(Output)` doctor warning | NEW-document |
+| provision/plan.rs:477 | `let _ = events.send(StepDone)` (warnings) | NEW-document |
+| provision/plan.rs:488 | `let _ = events.send(StepBlocked)` | NEW-document |
+| provision/plan.rs:507 | `let _ = events.send(ConsentRequired)` | NEW-document |
+| provision/plan.rs:520 | `let _ = events.send(StepStarted)` | NEW-document |
+| provision/plan.rs:532 | `let _ = events.send(StepDone)` (run) | NEW-document |
+| provision/plan.rs:542 | `let _ = events.send(PhoneActionNeeded)` | NEW-document |
+| provision/plan.rs:566 | `let _ = events.send(StepFailed)` (run) | NEW-document |
+| provision/plan.rs:584 | `let _ = events.send(PlanDone)` | NEW-document |
+| secrets.rs:204 | `let _ = std::fs::remove_file(temporary);` | NEW-document |
+| state.rs:43 | `sessions.lock().unwrap().insert(...)` | documented |
+| state.rs:58 | `sessions.lock().unwrap().get(...)` | documented |
+| state.rs:66 | `sessions.lock().unwrap().remove(id)` | documented |
+| state.rs:69 | `let _ = entry.control.send(PtyInput::Close).await;` | NEW-document |
+| state.rs:81 | `sessions.lock().unwrap()` (close_device) | documented |
+| state.rs:96 | `sessions.lock().unwrap()` (close_all) | documented |
+| termux/forward.rs:69 | `let _ = client.raw(forward_remove...)` | NEW-document |
+| termux/ssh.rs:234-235 | `let _ = channel.eof()/close()` after PTY loop | NEW-document |
+| termux/ssh.rs:308-309 | `let _ = channel.signal(TERM)/close()` on cancel | NEW-document |
+| termux/ssh.rs:340 | `let _ = tx.send(StreamEvent::Stdout { line })` | NEW-document |
+| termux/ssh.rs:344 | `let _ = tx.send(StreamEvent::Stderr { line })` | NEW-document |
+| termux/ssh.rs:347 | `let _ = tx.send(StreamEvent::Exit { ... })` | NEW-document |
+| transport/api.rs:194 | `let _ = socket.close(None).await;` | NEW-document |
+| transport/api.rs:213 | `let _ = sender.send(StreamEvent::Error { ... })` | NEW-document |
+| adb/client.rs:305-576 (9 sites) | test-module hits | test |
+| adb/locate.rs:97 (1 site) | test-module hits | test |
+| adb/parse.rs:596-799 (13 sites) | test-module hits | test |
+| adb/qr_pair.rs:210-309 (6 sites) | test-module hits | test |
+| adb/reconnect.rs:168-366 (10 sites) | test-module hits | test |
+| adb/tracker.rs:151-160 (3 sites) | test-module hits | test |
+| commands/chat.rs:305 (1 site) | test-module hits | test |
+| commands/control_api.rs:228 (1 site) | test-module hits | test |
+| commands/diagnostics.rs:403-530 (20 sites) | test-module hits | test |
+| commands/hermes.rs:522-645 (8 sites) | test-module hits | test |
+| commands/logs.rs:242-327 (7 sites) | test-module hits | test |
+| commands/mod.rs:48-77 (6 sites) | test-module hits | test |
+| commands/provision.rs:840-1132 (23 sites) | test-module hits | test |
+| commands/sessions.rs:524-823 (12 sites) | test-module hits | test |
+| config.rs:644-1300 (17 sites) | test-module hits | test |
+| devices.rs:312-436 (7 sites) | test-module hits | test |
+| error.rs:258-271 (3 sites) | test-module hits | test |
+| hermes/status.rs:357-398 (2 sites) | test-module hits | test |
+| lib.rs:222-254 (3 sites) | test-module hits | test |
+| lifecycle.rs:417-418 (2 sites) | test-module hits | test |
+| logging.rs:86-121 (12 sites) | test-module hits | test |
+| logs/batcher.rs:69-87 (7 sites) | test-module hits | test |
+| logs/logcat.rs:185-292 (10 sites) | test-module hits | test |
+| logs/parse.rs:364-376 (2 sites) | test-module hits | test |
+| logs/transport_command.rs:214-405 (16 sites) | test-module hits | test |
+| platform.rs:207 (1 site) | test-module hits | test |
+| platform/windows.rs:93-103 (4 sites) | test-module hits | test |
+| process.rs:366-636 (22 sites) | test-module hits (incl. `cfg(all(test, unix/windows))` blocks) | test |
+| provision/apk.rs:624-793 (14 sites) | test-module hits | test |
+| provision/executor.rs:1909-1984 (10 sites) | test-module hits | test |
+| provision/plan.rs:624-1002 (29 sites) | test-module hits | test |
+| provision/recipe.rs:259-340 (12 sites) | test-module hits | test |
+| secrets.rs:228-273 (16 sites) | test-module hits | test |
+| state.rs:361-441 (5 sites) | test-module hits | test |
+| streams.rs:164-165 (2 sites) | test-module hits | test |
+| termux/forward.rs:105-106 (2 sites) | test-module hits | test |
+| termux/keys.rs:66-81 (7 sites) | test-module hits | test |
+| termux/known_hosts.rs:83-110 (11 sites) | test-module hits | test |
+| termux/ssh.rs:371-656 (34 sites) | test-module hits | test |
+| transport/adb_shell.rs:171-351 (8 sites) | test-module hits | test |
+| transport/api.rs:256-279 (2 sites) | test-module hits | test |
+| transport/mod.rs:102 (1 site) | test-module hits | test |
+- **Progress (2026-10-26):** All ten brief §16 failure cases addressed through their generation paths (real classifier/transport code fed with real-world output strings, then asserted through the shared `assert_brief_payload` helper: non-empty human message containing the case's readable marker **and** non-empty expandable Details). Nine cases reproduced locally with FakeRunner/pure-function/localhost fixtures (portable — no subprocesses, no phone); one case (`Hermes not found`) has **no production construction site** and is documented as blocked below.
+
+| Case | Reproduced locally via | Evidence (test name) | Live e2e status |
+| --- | --- | --- | --- |
+| ADB not installed | `adb::locate::detect` with a configured path whose `exists` check fails → `AdbNotFound` | `adb::locate::tests::configured_path_is_authoritative` | blocked (phone-gated): reproduced locally; live phone run pending |
+| ADB not found | `adb::locate::detect` with `NoEnv` and no existing candidate → `AdbNotFound { searched }` (`!searched.is_empty()` asserted) | `adb::locate::tests::not_found_lists_searched_paths` | blocked (phone-gated): reproduced locally; live phone run pending |
+| Device offline | `AdbClient::shell` fed FakeRunner stderr `error: device offline` → `classify_device_error` | `adb::client::tests::shell_maps_offline` | blocked (phone-gated): reproduced locally; live phone run pending |
+| Device unauthorized | `map_device_error` classifier fed `error: device unauthorized.` (the `devices -l` state parser itself only yields `DeviceState::Unauthorized`, never an `AppError`) | `adb::parse::tests::device_error_mapping` | blocked (phone-gated): reproduced locally; live phone run pending |
+| Connection refused | `AdbClient::connect("192.168.0.107:5555")` fed adb's `failed to connect … Connection refused` output → `parse_connect` | `adb::client::tests::connect_parses_output_even_on_exit_zero` | blocked (phone-gated): reproduced locally; live phone run pending |
+| Wireless debugging disabled | `AdbClient::connect` fed the matcher's own literal `No route to host` → `parse_connect` | `adb::client::tests::connect_maps_wireless_debugging_disabled` | blocked (phone-gated): reproduced locally; live phone run pending (requires phone radio with wireless debugging off) |
+| Termux unavailable | `termux::ssh::connect` to a closed localhost port with nothing listening → `unavailable()` at `termux/ssh.rs:53` | `termux::ssh::tests::unreachable_local_sshd_reports_termux_unavailable` | blocked (phone-gated): reproduced locally; live phone run pending (sshd stopped on device) |
+| Hermes not found | not reproducible — `AppError::HermesNotFound` has **no production construction site** (repo-wide `rg` finds it only in `error.rs` definition/Display/details and `error.rs`'s own test constructions); Hermes detection (`hermes/detect.rs`, `hermes/status.rs`) returns reports/status and missing-process failures surface as `CommandFailed` (`commands/hermes.rs`), never this variant. Constructed-payload coverage asserted by the existing ten-category test. | `error::tests::brief_connection_errors_include_expandable_details` (constructed coverage; no generation path exists to drive) | blocked: no production generation site (live failure matrix n/a — variant unreachable in code) |
+| Command failed | `AdbClient::install_apk` fed FakeRunner non-zero exit + `INSTALL_FAILED_UPDATE_INCOMPATIBLE` stderr → `CommandFailed` | `adb::client::tests::install_apk_uses_device_scoped_argv_and_propagates_failure` | blocked (phone-gated): reproduced locally; live phone run pending |
+| Network timeout | `AdbClient::connect` fed adb's `Operation timed out` output → `parse_connect` classifies `Timeout` | `adb::client::tests::connect_maps_output_timeout` | blocked (phone-gated): reproduced locally; live phone run pending |
+
+- **Progress (2026-10-26): Closeout — M10-T1 complete.** The 2026-10-13 grep audit is re-verified post-merge (477 hits classified, 0 `NEW-fix`, full table above); all ten brief §16 cases are addressed through their generation paths (9 reproduced locally with the evidence tests in the matrix above; case 8 `Hermes not found` documented as having no production construction site — covered by constructed-payload assertions only); and the expandable Details UI requirement is verified in the frontend suite (ErrorPanel `aria-expanded` regression, 197 frontend tests; 363 Rust tests total). The only remaining work is the live phone QA column of the §16 matrix — every locally-reproducible row is covered; residue is blocked on live-device or host QA (see matrix; e.g. real wireless-debugging radio state, on-device Termux sshd, physical unplug). With all remaining items captured as explicitly blocked phone-gated rows, M10-T1 is closed.
 
 ### [~] M10-T2 Security review
 - Complete SECURITY.md checklist; `cargo audit`, `cargo deny`, `npm audit --omit=dev` in CI; CSP locked down in `tauri.conf.json`.

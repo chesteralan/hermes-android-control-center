@@ -65,6 +65,7 @@ impl PtySessionRegistry {
         // send is performed after the lock is released.
         let entry = self.sessions.lock().unwrap().remove(id);
         if let Some(entry) = entry {
+            // Best-effort: the PTY session task may already be gone.
             let _ = entry.control.send(PtyInput::Close).await;
             true
         } else {
