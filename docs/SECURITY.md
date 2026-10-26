@@ -71,6 +71,29 @@ explicit, reviewed decision:
   dependency of `glib-macros 0.18` in Tauri's GTK3 stack with no compatible
   upgrade, and the advisory reports no vulnerability.
 
+Remediation pass on 2026-10-26 after new RustSec advisories (published
+2026-10-09 through 2026-10-23) failed the CI security job:
+
+- **Upgraded (vulnerabilities fixed):** `crypto-bigint` 0.7.5 → 0.7.10
+  (`RUSTSEC-2026-0387`, also yanked), `ctutils` 0.4.2 → 0.4.6
+  (`RUSTSEC-2026-0385`), `tokio` 1.53.1 → 1.54.1 (`RUSTSEC-2026-0386`
+  unsoundness), and the app's own `zip` 2.4.2 → 9.1.2 (`RUSTSEC-2026-0367`
+  / `0368` / `0369` for our diagnostics/APK archives) — the zip 2 → 9 API
+  surface used here (`ZipWriter`, `SimpleFileOptions`, `ZipArchive`) compiled
+  unchanged and all 360 tests pass.
+- **Ignored with justification (`deny.toml`, mirrored in the CI audit step's
+  `ignore` input):** `RUSTSEC-2026-0367/0368/0369` still apply to `zip 4.6.1`,
+  pulled in by `tauri-plugin-updater 2.13.1` (`zip ^4`). No release on the `^4`
+  line is patched — the fix exists only in `zip >= 9.0.0` — and every published
+  plugin version (2.13.x, 2.14.0, 3.0.0-alpha) still requires `^4`. The updater
+  extracts only signature-verified release archives. Drop the ignore when the
+  plugin line moves to a patched zip.
+- **Ignored with justification:** `RUSTSEC-2026-0370/0371/0372`
+  (`zvariant` / `zbus_names` / `zvariant_derive` unmaintained — merged into
+  `zbus 6.0.0` upstream). Transitive via `notify-rust` in the pinned
+  `tauri-plugin-notification 2.4.0`; no compatible upgrade exists and the
+  advisories report no vulnerability.
+
 No relabeled third-party licenses, unchecked source substitutions, or
 dependency forks were adopted. `RUSTSEC-2024-0429` (`glib` unsoundness) remains
 a visible audit warning: it is an unsoundness advisory, not a vulnerability,
