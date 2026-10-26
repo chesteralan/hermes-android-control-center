@@ -74,6 +74,7 @@ mod tests {
         let err = detect(Some(&cfg), Arc::new(f), &NoEnv, |_| false)
             .await
             .unwrap_err();
+        crate::error::tests::assert_brief_payload(err.clone(), "ADB");
         match err {
             AppError::AdbNotFound { searched } => assert_eq!(searched, vec!["/custom/adb"]),
             other => panic!("{other:?}"),
@@ -104,6 +105,7 @@ mod tests {
         let err = detect(None, Arc::new(FakeRunner::new()), &NoEnv, |_| false)
             .await
             .unwrap_err();
+        crate::error::tests::assert_brief_payload(err.clone(), "ADB");
         assert!(matches!(err, AppError::AdbNotFound { searched } if !searched.is_empty()));
     }
 }

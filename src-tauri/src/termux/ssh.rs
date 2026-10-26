@@ -380,6 +380,33 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn unreachable_local_sshd_reports_termux_unavailable() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let data_dir = std::env::temp_dir().join(format!(
+            "hacc-ssh-unavailable-{}-{timestamp}",
+            std::process::id()
+        ));
+        let client_key = crate::termux::keys::load_or_create(&data_dir).unwrap();
+        let known_hosts = KnownHosts::load(&data_dir);
+
+        let err = match connect(port, "termux", &client_key, &known_hosts, "brief-case-7").await {
+            Err(e) => e,
+            Ok(_) => panic!("connecting to a closed localhost port must not succeed"),
+        };
+        assert!(matches!(err, AppError::TermuxUnavailable { .. }));
+        crate::error::tests::assert_brief_payload(err, "Termux");
+
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
     #[derive(Clone)]
     struct TestServer {
         signals: tokio_mpsc::UnboundedSender<Sig>,

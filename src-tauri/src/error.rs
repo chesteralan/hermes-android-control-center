@@ -209,8 +209,27 @@ impl From<std::io::Error> for AppError {
 pub type AppResult<T> = Result<T, AppError>;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// Brief §16 payload assertion shared by every generation-path case test:
+    /// human message non-empty, carrying the expected marker, plus expandable Details.
+    pub(crate) fn assert_brief_payload(err: AppError, needle: &str) {
+        let payload = err.to_payload();
+        assert!(
+            !payload.message.trim().is_empty(),
+            "empty human message for {err:?}"
+        );
+        assert!(
+            payload.message.contains(needle),
+            "message {:?} lacks human-readable marker {needle:?}",
+            payload.message
+        );
+        let details = payload
+            .details
+            .expect("brief §16 requires expandable Details");
+        assert!(!details.trim().is_empty(), "empty details for {err:?}");
+    }
 
     fn all_variants() -> Vec<AppError> {
         vec![

@@ -166,6 +166,20 @@
 | transport/adb_shell.rs:171-351 (8 sites) | test-module hits | test |
 | transport/api.rs:256-279 (2 sites) | test-module hits | test |
 | transport/mod.rs:102 (1 site) | test-module hits | test |
+- **Progress (2026-10-26):** All ten brief §16 failure cases addressed through their generation paths (real classifier/transport code fed with real-world output strings, then asserted through the shared `assert_brief_payload` helper: non-empty human message containing the case's readable marker **and** non-empty expandable Details). Nine cases reproduced locally with FakeRunner/pure-function/localhost fixtures (portable — no subprocesses, no phone); one case (`Hermes not found`) has **no production construction site** and is documented as blocked below.
+
+| Case | Reproduced locally via | Evidence (test name) | Live e2e status |
+| --- | --- | --- | --- |
+| ADB not installed | `adb::locate::detect` with a configured path whose `exists` check fails → `AdbNotFound` | `adb::locate::tests::configured_path_is_authoritative` | open: reproduced locally; live phone run pending |
+| ADB not found | `adb::locate::detect` with `NoEnv` and no existing candidate → `AdbNotFound { searched }` (`!searched.is_empty()` asserted) | `adb::locate::tests::not_found_lists_searched_paths` | open: reproduced locally; live phone run pending |
+| Device offline | `AdbClient::shell` fed FakeRunner stderr `error: device offline` → `classify_device_error` | `adb::client::tests::shell_maps_offline` | open: reproduced locally; live phone run pending |
+| Device unauthorized | `map_device_error` classifier fed `error: device unauthorized.` (the `devices -l` state parser itself only yields `DeviceState::Unauthorized`, never an `AppError`) | `adb::parse::tests::device_error_mapping` | open: reproduced locally; live phone run pending |
+| Connection refused | `AdbClient::connect("192.168.0.107:5555")` fed adb's `failed to connect … Connection refused` output → `parse_connect` | `adb::client::tests::connect_parses_output_even_on_exit_zero` | open: reproduced locally; live phone run pending |
+| Wireless debugging disabled | `AdbClient::connect` fed the matcher's own literal `No route to host` → `parse_connect` | `adb::client::tests::connect_maps_wireless_debugging_disabled` | open: reproduced locally; live phone run pending (requires phone radio with wireless debugging off) |
+| Termux unavailable | `termux::ssh::connect` to a closed localhost port with nothing listening → `unavailable()` at `termux/ssh.rs:53` | `termux::ssh::tests::unreachable_local_sshd_reports_termux_unavailable` | open: reproduced locally; live phone run pending (sshd stopped on device) |
+| Hermes not found | not reproducible — `AppError::HermesNotFound` has **no production construction site** (repo-wide `rg` finds it only in `error.rs` definition/Display/details and `error.rs`'s own test constructions); Hermes detection (`hermes/detect.rs`, `hermes/status.rs`) returns reports/status and missing-process failures surface as `CommandFailed` (`commands/hermes.rs`), never this variant. Constructed-payload coverage asserted by the existing ten-category test. | `error::tests::brief_connection_errors_include_expandable_details` (constructed coverage; no generation path exists to drive) | blocked: no production generation site (live failure matrix n/a — variant unreachable in code) |
+| Command failed | `AdbClient::install_apk` fed FakeRunner non-zero exit + `INSTALL_FAILED_UPDATE_INCOMPATIBLE` stderr → `CommandFailed` | `adb::client::tests::install_apk_uses_device_scoped_argv_and_propagates_failure` | open: reproduced locally; live phone run pending |
+| Network timeout | `AdbClient::connect` fed adb's `Operation timed out` output → `parse_connect` classifies `Timeout` | `adb::client::tests::connect_maps_output_timeout` | open: reproduced locally; live phone run pending |
 
 ### [~] M10-T2 Security review
 - Complete SECURITY.md checklist; `cargo audit`, `cargo deny`, `npm audit --omit=dev` in CI; CSP locked down in `tauri.conf.json`.
