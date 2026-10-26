@@ -767,8 +767,7 @@ pub async fn run_provision<R: Runtime>(
         Ok(progress) => progress,
         Err(error) => {
             state.streams.finish(&run_id);
-            // Cleanup after the primary load error below; a lock failure is
-            // logged rather than masking that error.
+            // Cleanup after the primary load error (returned below)
             if let Err(lock_error) =
                 remove_active_provisioning_run(&state.provisioning_runs, &device_id)
             {

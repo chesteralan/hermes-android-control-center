@@ -407,12 +407,12 @@ mod tests {
     async fn connect_parses_output_even_on_exit_zero() {
         let f = FakeRunner::new();
         f.on(
-            "connect 192.168.0.107:5555",
+            "connect 192.0.2.10:5555",
             Ok(RawOutput::ok(
-                "failed to connect to '192.168.0.107:5555': Connection refused",
+                "failed to connect to '192.0.2.10:5555': Connection refused",
             )),
         );
-        let err = client(&f).connect("192.168.0.107:5555").await.unwrap_err();
+        let err = client(&f).connect("192.0.2.10:5555").await.unwrap_err();
         assert!(matches!(err, AppError::ConnectionRefused { .. }));
         assert_brief_payload(err, "refused");
     }
