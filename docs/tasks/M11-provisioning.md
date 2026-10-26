@@ -29,8 +29,12 @@ Remaining implementation and acceptance work:
   shell/device-info/push operations now race against the cancellation token; SSH commands already
   stream with cancellation. Preflight checks, disconnect/app-exit recovery, and connected-phone
   interruption QA remain.
-- T2/T14: persist and consume recipe-derived HermesConfig per phone after success. M9's profile
-  boundary is not implemented; changing the global config would incorrectly affect other phones.
+- T2/T14: recipe-derived HermesConfig is persisted into the phone's profile after
+  success (2026-10-26): on Running confirmation the Verify + start step calls
+  `AppState::save_device_hermes_config` (create-if-missing, validated, saved to
+  `settings.json` as `devices[device_id].hermes`), and M5 commands already consume
+  `effective_hermes_config(device_id)`. Connected-phone acceptance of the saved
+  override remains.
 - T2/T11: the native APT recipe no longer pauses for manual repository setup — it runs the
   official installer script (`hermes_install.script_url`) inside Termux over SSH, like the
   proot recipe runs it inside Debian. The signed-repository path stays unbundled until a
@@ -154,7 +158,7 @@ autostart = true
 Alternative recipe `termux-native-apt` (marked **experimental**: the upstream Termux package is currently reported broken): adds the Hermes APT repo with key fingerprint pinned to `C572 B5FD D1A2 9CCF A9A9 12B6 840B 0848 E139 156D` (abort on mismatch), `pkg install hermes-agent`, environment `Termux`, aarch64 only.
 - Bundled recipes + user recipes (create/edit/duplicate/import/export TOML).
 - Validation: distro name `[a-z0-9_-]+`, package names `[a-z0-9.+-]+`, `script_url` must be `https://`.
-- Recipe applied fills `HermesConfig` (environment, commands, log files) after success.
+- Recipe applied fills `HermesConfig` (environment, commands, log files) after success — implemented 2026-10-26: persisted into the phone's `DeviceProfile.hermes` by the Verify + start step (see T14).
 - **Tests:** parse both bundled recipes, validate, round-trip, invalid values.
 
 ### [~] M11-T3 Step 1 — Preflight
@@ -226,7 +230,7 @@ Alternative recipe `termux-native-apt` (marked **experimental**: the upstream Te
 - Check: script present + executable, Termux:Boot installed.
 
 ### [~] M11-T14 Step 12 — Verify + start
-- Run Termux check (M4-T4), Hermes detection, start Hermes, wait for Running, stream first log lines; save `HermesConfig` into the phone's profile (M9).
+- Run Termux check (M4-T4), Hermes detection, start Hermes, wait for Running, stream first log lines; save `HermesConfig` into the phone's profile (M9) — implemented 2026-10-26: on Running confirmation the executor persists the recipe-derived config as the profile override (`AppState::save_device_hermes_config`), streaming the result into the wizard output pane (a save failure warns without failing the step).
 
 ## Frontend
 

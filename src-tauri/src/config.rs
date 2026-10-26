@@ -550,6 +550,26 @@ impl AppConfig {
         }
         true
     }
+
+    /// Store a recipe-derived Hermes config as the phone's profile override,
+    /// creating the profile when it does not exist yet. An invalid override
+    /// is rejected before the config is modified.
+    pub fn set_device_hermes_override(
+        &mut self,
+        device_id: &str,
+        hermes: HermesConfig,
+    ) -> AppResult<()> {
+        validate_hermes_config(&hermes)?;
+        let profile = self
+            .devices
+            .entry(device_id.to_string())
+            .or_insert_with(|| DeviceProfile {
+                device_id: device_id.to_string(),
+                ..Default::default()
+            });
+        profile.hermes = Some(hermes);
+        Ok(())
+    }
 }
 
 /// Host part of an `ip:port` address (whole string when no port present).
@@ -1228,5 +1248,78 @@ mod tests {
         // Color and others still preserved
         assert_eq!(profile.color.as_deref(), Some("#445566"));
         assert_eq!(profile.log_command.as_deref(), Some("tail log"));
+    }
+
+    #[test]
+    fn set_device_hermes_override_creates_profile_and_preserves_existing_fields() {
+        let mut cfg = AppConfig::default();
+        cfg.devices.insert(
+            "SERIAL1".into(),
+            DeviceProfile {
+                device_id: "SERIAL1".into(),
+                alias: Some("OnePlus".into()),
+                ..Default::default()
+            },
+        );
+        let hermes = HermesConfig {
+            gateway_command: "hermes gateway run".into(),
+            process_match: "hermes gateway run".into(),
+            ..Default::default()
+        };
+
+        cfg.set_device_hermes_override("SERIAL1", hermes.clone())
+            .unwrap();
+        let profile = cfg.devices.get("SERIAL1").unwrap();
+        assert_eq!(profile.hermes.as_ref(), Some(&hermes));
+        assert_eq!(profile.alias.as_deref(), Some("OnePlus"));
+
+        cfg.set_device_hermes_override("SERIAL2", hermes.clone())
+            .unwrap();
+        let created = cfg
+            .devices
+            .get("SERIAL2")
+            .expect("profile must be created when missing");
+        assert_eq!(created.device_id, "SERIAL2");
+        assert_eq!(created.hermes.as_ref(), Some(&hermes));
+    }
+
+    #[test]
+    fn set_device_hermes_override_replaces_existing_override() {
+        let mut cfg = AppConfig::default();
+        let first = HermesConfig {
+            gateway_command: "first gateway".into(),
+            ..Default::default()
+        };
+        let second = HermesConfig {
+            gateway_command: "second gateway".into(),
+            ..Default::default()
+        };
+
+        cfg.set_device_hermes_override("SERIAL1", first).unwrap();
+        cfg.set_device_hermes_override("SERIAL1", second.clone())
+            .unwrap();
+
+        let effective = cfg.effective_hermes_config("SERIAL1");
+        assert_eq!(effective.gateway_command, "second gateway");
+    }
+
+    #[test]
+    fn set_device_hermes_override_rejects_invalid_config_without_mutating() {
+        let mut cfg = AppConfig::default();
+        let invalid = HermesConfig {
+            environment: HermesEnvironment::ProotDistro {
+                distro: "bad distro!".into(),
+            },
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            cfg.set_device_hermes_override("SERIAL1", invalid),
+            Err(AppError::Config(_))
+        ));
+        assert!(
+            !cfg.devices.contains_key("SERIAL1"),
+            "an invalid override must not create or modify a profile"
+        );
     }
 }

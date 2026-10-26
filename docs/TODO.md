@@ -1,12 +1,12 @@
 # Open Work
 
-Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-13. The linked milestone task files remain the source of truth; update this index when their status changes.
+Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-26. The linked milestone task files remain the source of truth; update this index when their status changes.
 
 Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need new evidence or a supported environment before implementation can proceed.
 
-## Open Findings — Wave 1 live multi-device QA (2026-10-19)
+## Wave 1 live multi-device QA findings (2026-10-19) — all fixed
 
-Recorded from live QA on two connected phones (OnePlus CPH2239, Android 11; Samsung SM-T225, Android 14) against the packaged release build. Each finding has reproduction evidence in the referenced task file. Status: 1–4 fixed and live-verified on 2026-10-19 (uncommitted); 5–7 open.
+Recorded from live QA on two connected phones (OnePlus CPH2239, Android 11; Samsung SM-T225, Android 14) against the packaged release build. Each finding has reproduction evidence in the referenced task file. Status: all seven findings fixed; 1–6 live-verified on 2026-10-19 and committed (`e1ab0b2`); 7 fixed with unit tests (route persistence + logs store) in the same commit.
 
 1. **[FIXED] Device profiles are keyed by address, not stable `device_id` (M9-T2 regression).** After the config v2→v3 migration, `settings.json` `devices` contained nine profiles keyed like `192.168.0.107:43237`; neither real phone had a profile under `ro.serialno`. **Fix:** `remember_address_for(address, device_id)` keys profiles by identity when known; `AppConfig::rekey_profile` moves/merges address-keyed ghosts onto the stable id; `AppState::adopt_profile_identity` is invoked from identity-learning sites (`learn_device_id`, `get_device_info`) and persists. **Verified live:** v2→v3 migration → learn → rekey → both phones keyed by their hardware serials with current `last_address`. 8 unit tests (config×6, state×2). Unmatchable stale-port ghosts remain until Forget (see finding 5).
 2. **[FIXED] Reconnect supervisor and manual Retry failed to rebind after mDNS-alias loss.** Root cause: finding 1 — `reconnect_target` reads `profiles[device_id].last_address`, which missed for real devices and fell back to the dead serial. **Verified live:** transport drop → Reconnecting 1/8 → auto-Connected in ~6 s with no manual Connect.
@@ -18,9 +18,9 @@ Recorded from live QA on two connected phones (OnePlus CPH2239, Android 11; Sams
 
 Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `role="tab"` div dispatches to its first button child (the × close button), and backgrounded pixel clicks no-op on this WKWebView — direct tab-click behavior needs a human verification (pending). cua-driver also lost its Accessibility grant during the session (re-grant in System Settings if further GUI automation is needed).
 
-Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `role="tab"` div dispatches to its first button child (the × close button), and backgrounded pixel clicks no-op on this WKWebView — direct tab-click behavior needs a human verification (pending).
-
 ## Recently Completed
+
+- [x] M11 T2/T14 wizard → per-phone profile handoff (2026-10-26): the provisioning wizard's Verify + start step now persists the recipe-derived `HermesConfig` into the phone's `DeviceProfile.hermes` override once the gateway confirms Running (`AppState::save_device_hermes_config`: create-if-missing, validated, saved to `settings.json`). M5 commands already consume `effective_hermes_config(device_id)`, so per-phone runtime config takes effect with no consumption-side change; the wizard output pane streams the save (or a non-fatal warning on save failure). 3 new config unit tests; 360 Rust + 197 frontend tests, Clippy, fmt, typecheck pass. Connected-phone acceptance of the saved override remains.
 
 - [x] Local QA pass — M10-T5 resilience rows, M10-T4 audit, M16-T3 download docs (2026-10-14): **T5** — adb server kill recovers (tracker respawned, app stable), quit during 3 live log streams leaves 0 orphans, and 3 phones streaming survive one dropping and auto-reconnecting without touching the others, all driven by the new committed `scripts/stub-adb.py` stub (framed `track-devices`, sectioned device-info shell, live logcat, invocation log proving serial-scoped targeting). **T4** — keyboard/AX/contrast audit on the packaged app: visible focus ring, ⌘K filter, About-dialog Tab trap (wrap verified on the real-click path), full ARIA exposure (dialog semantics, tab group names, aria-live toasts, aria-keyshortcuts), every text pair passes WCAG AA; one finding fixed — form-control boundaries were 1.3:1 vs the required 3:1, now `--color-border-strong` (3.1:1) on inputs/textareas/selects. **M16-T3** — README `## Download` section with platform/arch/min-OS table, per-platform install + update guidance (deb/rpm package-manager note), SHA256SUMS/GPG/Authenticode/notarization verification anchors, and the stable-vs-prerelease updater policy; the literal `releases/latest` link waits on the first signed release.
 
@@ -103,13 +103,13 @@ Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `rol
 - [~] [M10-T9 — Tray status, named stop alerts, and persistent gateway timeline; packaged notification/runtime QA remains](tasks/M10-production.md)
 - [~] [M10-T10–T13 — Signing, universal build, updater, and release workflow](tasks/M10-production.md)
 - [~] [M10-T15 — Root README](tasks/M10-production.md)
+- [~] M11 T2/T14 per-phone HermesConfig persistence: DeviceProfile schema, IPC, profile editor, and the wizard → profile handoff (recipe-derived `HermesConfig` saved into `devices[device_id].hermes` on Verify + start success, 2026-10-26) are implemented; connected-phone acceptance of the saved override remains.
 
 ## Blocked
 
 - [!] [M4-T5 — Optional bootstrap via RUN_COMMAND](tasks/M4-termux-bridge.md): Android denied the intent because the ADB-shell sender lacks `com.termux.permission.RUN_COMMAND`; manual SSH setup remains supported.
 - [!] M0-S3/S4 remaining fixture and provisioning acceptance: `adb devices -l` is empty; USB, unauthorized/offline, pairing failures, reset-phone install, and reboot captures require a connected Android phone.
 - [!] M11 phone acceptance: factory setup, rerun/idempotency, interruption recovery, Termux:Boot, permission prompts, and on-phone cleanup require a connected Android phone.
-- [~] M11 T2/T14 per-phone HermesConfig persistence: M9-T2 DeviceProfile schema and IPC are implemented (config v3, effective_config merge, CRUD commands, profile editor UI); the M11 wizard handoff (saving recipe-derived HermesConfig into the phone's profile) remains open.
 - [!] M11 T2/T11 signed APT repository install: no verified repository URL exists, so the automated signed-repo flow (key URL + repo entry) remains unbundled. The wizard no longer blocks on this — the native recipe installs via the official `script_url` in Termux.
 - [!] M13-T1/T6 live compatibility checks: only Hermes v0.21.4 has been tested on-device; upstream lists v0.21.6, but setting a supported range and verifying gateway-created sessions requires a phone. Windows/Linux session and performance QA also requires those platforms.
 - [!] M14-T3/T4 Windows/Linux/Wayland tray and release QA: this workspace is on macOS; native runtime behavior cannot be certified without those desktop environments.
@@ -121,11 +121,11 @@ Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `rol
 ### M10 — Hardening & Production
 
 - [~] [M10-T3 — Performance budgets](tasks/M10-production.md): connected-device rows measured 2026-10-19 — connected-idle 0.0 % CPU / 71–72 MB RSS (2 phones), device-info refresh 0.41 s (budget 2 s), terminal throughput 20 000 lines rendered in 0.8 s end-to-end (budget 1 000 l/s). Log-throughput row is source-limited: a phone-side shell generator tops out ≈300 l/s while UI latency stays 0.27–0.37 s; the 2 000 l/s budget remains covered only by the synthetic M7-T10 benchmark.
-- [~] [M10-T5 — Resilience QA matrix](tasks/M10-production.md): real-phone rows verified 2026-10-19 — phone sleep/wake, Wi-Fi switch (loss detected <1 s, backoff recovery), wireless-debugging toggle with port change (33843→37809) rebinds to the same tab/device, and one phone dropping leaves the other streaming uninterrupted. Quit-during-stream with real logcat found the ⌘Q child-leak (finding 4). Termux-killed, Hermes-crash, and 3-real-phone rows remain open (bridge/phone availability).
+- [~] [M10-T5 — Resilience QA matrix](tasks/M10-production.md): real-phone rows verified 2026-10-19 — phone sleep/wake, Wi-Fi switch (loss detected <1 s, backoff recovery), wireless-debugging toggle with port change (33843→37809) rebinds to the same tab/device, and one phone dropping leaves the other streaming uninterrupted. Quit-during-stream with real logcat found the ⌘Q child-leak (finding 4 — fixed same day, live-verified 0 orphans). Termux-killed, Hermes-crash, and 3-real-phone rows remain open (bridge/phone availability).
 
 ### M9 — Multi-Device
 
-Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested. T4 (device tab bar with per-tab views and localStorage persistence) is implemented and tested locally. T5 (per-tab log viewer state, limits config, tab close cleanup) is implemented and tested locally. T6 (Overview grid) is implemented and tested locally. T7 (reconnect isolation, profile-address targeting, device-keyed reconnect events) and T8 (phone-identifying confirmations, snippet broadcast) are implemented and tested locally. T9 live QA ran on 2026-10-19 with two connected phones — most rows pass, but it surfaced the profile-keying regression (finding 1) and reconnect/stream-rebind gaps (findings 2–3); the 3-phone row and the M11 handoff cross-check remain open.
+Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (device_id keys in streams, sessions, effective config). T2 (DeviceProfile schema/persistence/IPC) and T3 (profile editor UI) are implemented and tested. T4 (device tab bar with per-tab views and localStorage persistence) is implemented and tested locally. T5 (per-tab log viewer state, limits config, tab close cleanup) is implemented and tested locally. T6 (Overview grid) is implemented and tested locally. T7 (reconnect isolation, profile-address targeting, device-keyed reconnect events) and T8 (phone-identifying confirmations, snippet broadcast) are implemented and tested locally. T9 live QA ran on 2026-10-19 with two connected phones — findings 1–3 and 5–7 from that pass are fixed and committed (`e1ab0b2`); the 3-phone row and the M11 handoff cross-check (handoff implemented 2026-10-26, needs a phone) remain open.
 
 - [~] [M9-T1 — Backend isolation audit and completion](tasks/M9-multi-device.md)
 - [~] [M9-T2 — DeviceProfile schema, persistence, and effective config](tasks/M9-multi-device.md)
@@ -135,7 +135,7 @@ Task breakdown written 2026-10-12; T1 backend isolation groundwork is complete (
 - [~] [M9-T6 — Overview view](tasks/M9-multi-device.md)
 - [~] [M9-T7 — Independent reconnect verification](tasks/M9-multi-device.md)
 - [~] [M9-T8 — Destructive actions and limited broadcast](tasks/M9-multi-device.md)
-- [~] [M9-T9 — Multi-device QA (2 phones live 2026-10-19; 3-phone row pending)](tasks/M9-multi-device.md): two-phone rows verified live (tabs, per-device buffers/sessions, Overview cards, action targeting, confirmations naming the target, drop/reconnect isolation, wireless port-change rebind); findings 1–3, 7 came out of this pass. Remaining: 3-real-phone streaming row, human tab-click verification, M11 wizard profile handoff cross-check.
+- [~] [M9-T9 — Multi-device QA (2 phones live 2026-10-19; 3-phone row pending)](tasks/M9-multi-device.md): two-phone rows verified live (tabs, per-device buffers/sessions, Overview cards, action targeting, confirmations naming the target, drop/reconnect isolation, wireless port-change rebind); findings 1–3, 5–7 came out of this pass and are fixed. Remaining: 3-real-phone streaming row, human tab-click verification, M11 wizard profile-handoff cross-check on a phone (handoff implemented 2026-10-26).
 
 ### M11 — New Phone Provisioning
 

@@ -1524,6 +1524,40 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 emit_output(step, &result, &events).await;
                 let lower = result.stdout.to_ascii_lowercase();
                 if result.exit_code == Some(0) && lower.contains("running") {
+                    let device_id = state.device_id_for(&self.serial);
+                    match state
+                        .save_device_hermes_config(&self.app, &device_id, config)
+                        .await
+                    {
+                        Ok(()) => {
+                            let _ = events
+                                .send(ProvisionEvent::Output {
+                                    step,
+                                    event: StreamEvent::Stdout {
+                                        line: "Saved Hermes settings to this phone's profile."
+                                            .into(),
+                                    },
+                                })
+                                .await;
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                %device_id,
+                                error = %error,
+                                "could not save Hermes config to device profile"
+                            );
+                            let _ = events
+                                .send(ProvisionEvent::Output {
+                                    step,
+                                    event: StreamEvent::Stderr {
+                                        line: format!(
+                                            "Hermes is running, but its settings could not be saved to this phone's profile: {error}"
+                                        ),
+                                    },
+                                })
+                                .await;
+                        }
+                    }
                     Ok(ProvisionStepRunOutcome::Done)
                 } else {
                     Ok(ProvisionStepRunOutcome::PhoneActionNeeded(

@@ -76,18 +76,18 @@
 
 ### [~] M9-T9 Multi-device QA
 - Run the TESTING.md multi-device rows: 3 phones streaming logs; drop/reconnect one phone; actions always hit the targeted phone; resource limits hold.
-- Cross-check that M11 wizard saves profiles per phone (hands off to M11-T2/T14 once implemented).
+- Cross-check that M11 wizard saves profiles per phone (handoff implemented 2026-10-26 — the wizard's Verify + start persists the recipe-derived `HermesConfig` into `devices[device_id].hermes`; the cross-check now only needs a phone).
 - **Live check:** two connected phones (CPH2239 Android 11 + SM-T225 Android 14) verified 2026-10-19 — see the live QA record below. The 3-phone streaming row still needs a third phone (the stub-based 3-phone row is recorded in M10-T5).
 
 ## Exit check
 
 - [ ] Two or more phones appear as tabs; each keeps its own view, terminal sessions, and log buffer across switching and app restart. *(Tabs/sessions/buffers ✓ live; per-tab view memory now persists and restores across restart (fixed 2026-10-19, `hacc.tabRoutes` + `startupRoute`); direct tab-click still needs a human check because automation hits the tab's × child.)*
-- [ ] Per-phone profiles (alias, color, Hermes/Termux overrides, auto-connect) persist and take effect via `effective_config`; legacy settings migrated. *(FAIL — profiles are address-keyed ghosts; see M9-T2 regression note.)*
+- [ ] Per-phone profiles (alias, color, Hermes/Termux overrides, auto-connect) persist and take effect via `effective_config`; legacy settings migrated. *(Fixed 2026-10-19: profiles re-keyed onto stable ids, live-verified on both phones; alias/color/override editing and the wizard handoff are unit-tested, live override QA pending.)*
 - [ ] Wireless port change on one phone rebinds its tab, sessions, host key, and history to the same `device_id`. *(✓ live: wireless debugging toggled, connect port 33843→37809, same tab/identity, no duplicate.)*
 - [ ] One phone offline/hung never blocks the other phones' status, streams, or reconnect attempts (verified with fakes and live). *(✓ live: SM drop/offline left CPH streaming uninterrupted; supervisor backoff ran 1..8 per phone.)*
 - [ ] Overview shows a live card per phone. *(✓ live: battery/storage/gateway per card, Open switches tabs.)*
 - [ ] Every destructive confirmation names the target phone; broadcast is limited to predefined actions with multi-select. *(✓ live: "Close SM T225 (SM_T225)?" dialog; disconnect dialog content covered by unit tests.)*
-- [ ] M11-T2/T14 can persist per-phone HermesConfig (dependency verified). *(Blocked by the profile-keying regression above.)*
+- [ ] M11-T2/T14 can persist per-phone HermesConfig (dependency verified). *(✓ implemented 2026-10-26 — wizard Verify + start saves the recipe-derived `HermesConfig` into `devices[device_id].hermes`; phone cross-check pending.)*
 
 ## Live QA record (2026-10-19)
 
@@ -95,4 +95,4 @@
 - **Passing rows:** tab strip + dedupe; per-device log buffers (0 lines vs live stream, then 1.5k vs 6k concurrently); log stream survives navigation and keeps buffering; terminal targeting (`echo TARGET:$(getprop ro.serialno)` on CPH2239's tab → `TARGET:<ro.serialno>` (the correct OnePlus serial), exit 0); Overview live cards; close-tab confirmation names the phone; SM drop left CPH streaming 2,170→6,290+ lines uninterrupted; reconnect supervisor engaged within 1 s of Wi-Fi loss with schedule 1/2/5/10/30 s and recovered after Wi-Fi returned; wireless-debugging toggle → new port → same tab rebind; tab order + last-selected tab restored after restart; Connect form validates and attaches (recovered the phone after finding 2).
 - **Failures/regressions:** profile migration keying (finding 1), alias-loss auto-recovery + Retry (finding 2 — supervisor exhausted 8/8 and Retry stayed Disconnected while `adb devices` listed the phone under its IP serial; explicit Connect succeeded), stale log stream after serial change (finding 3), per-tab route memory not persisted across restart (finding 7). Tray counted transports (finding 6).
 - **Not verifiable by automation:** direct tab-click select behavior — WebKit AXPress on `role="tab"` dispatches to the × child button, and backgrounded pixel clicks no-op on this WKWebView; awaiting a human click check.
-- **Deferred:** M11 wizard profile-handoff cross-check (Wave 3), 3-phone streaming row (needs a third phone).
+- **Deferred:** M11 wizard profile-handoff cross-check on a phone (handoff implemented 2026-10-26), 3-phone streaming row (needs a third phone).
