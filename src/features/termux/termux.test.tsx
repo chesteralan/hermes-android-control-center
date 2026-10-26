@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { device } from "../../test/fixtures";
@@ -73,6 +73,52 @@ describe("TermuxSetupCard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Verify" }));
     expect(await screen.findByText(/Ready — commands can run inside Termux/)).toBeInTheDocument();
     expect(screen.queryByText("pkg install -y openssh")).not.toBeInTheDocument();
+  });
+
+  it("re-verifies automatically when the active device tab changes", async () => {
+    const fn = mockIpc({
+      get_termux_public_key: () => KEY,
+      check_termux: () => ({ ready: true, distros: [], items: [] }),
+    });
+    const phoneA = device({ serial: "serial-A", deviceId: "PHONE_A" });
+    const phoneB = device({ serial: "serial-B", deviceId: "PHONE_B" });
+    const { rerender } = render(<TermuxSetupCard device={phoneA} />);
+    await screen.findByText(/Ready — commands can run inside Termux/);
+
+    rerender(<TermuxSetupCard device={phoneB} />);
+    await waitFor(() => {
+      const checks = fn.mock.calls.filter((call) => call[0] === "check_termux");
+      expect(checks).toHaveLength(2);
+      expect(checks[1]).toEqual(["check_termux", { serial: "serial-B" }]);
+    });
+  });
+
+  it("does not show the previous device's status while the new one verifies", async () => {
+    let resolveSecond: ((value: TermuxCheck) => void) | undefined;
+    let calls = 0;
+    mockIpc({
+      get_termux_public_key: () => KEY,
+      check_termux: () => {
+        calls += 1;
+        if (calls === 1) {
+          return { ready: true, distros: [], items: [] } satisfies TermuxCheck;
+        }
+        return new Promise<TermuxCheck>((resolve) => {
+          resolveSecond = resolve;
+        });
+      },
+    });
+    const phoneA = device({ serial: "serial-A", deviceId: "PHONE_A" });
+    const phoneB = device({ serial: "serial-B", deviceId: "PHONE_B" });
+    const { rerender } = render(<TermuxSetupCard device={phoneA} />);
+    await screen.findByText(/Ready — commands can run inside Termux/);
+
+    rerender(<TermuxSetupCard device={phoneB} />);
+    await waitFor(() => expect(calls).toBe(2));
+    expect(screen.queryByText(/Ready — commands can run inside Termux/)).not.toBeInTheDocument();
+
+    resolveSecond?.({ ready: true, distros: [], items: [] });
+    await screen.findByText(/Ready — commands can run inside Termux/);
   });
 
   it("auto-verifies on mount and offers the repair button when the bridge fails", async () => {

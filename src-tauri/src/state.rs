@@ -4,12 +4,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use russh::keys::PrivateKey;
+use tauri::{AppHandle, Runtime};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use crate::adb::parse::device_id_from_serial;
 use crate::adb::{locate, AdbClient, AdbInfo};
-use crate::config::{AppConfig, HermesTransportKind, LogLevelSetting};
+use crate::config::{AppConfig, HermesConfig, HermesTransportKind, LogLevelSetting};
+use crate::config_store;
 use crate::devices::DeviceRegistry;
 use crate::error::{AppError, AppResult};
 use crate::platform::RealEnv;
@@ -317,6 +319,30 @@ impl AppState {
             t.cancel();
         }
     }
+
+    /// Apply a learned hardware identity to the device profile: re-key any
+    /// provisional address-keyed profile onto the stable `device_id`.
+    /// Returns whether the config changed (caller persists it).
+    pub async fn adopt_profile_identity(&self, serial: &str, device_id: &str) -> bool {
+        let mut cfg = self.config.write().await;
+        cfg.rekey_profile(serial, device_id)
+    }
+
+    /// Persist a recipe-derived Hermes config as the device profile's Hermes
+    /// override, creating the profile when it does not exist yet.
+    pub async fn save_device_hermes_config<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        device_id: &str,
+        hermes: HermesConfig,
+    ) -> AppResult<()> {
+        let mut config = self.config.read().await.clone();
+        config.set_device_hermes_override(device_id, hermes)?;
+        config_store::save(app, &config)?;
+        tracing::info!(device_id = %device_id, "saved Hermes config to device profile");
+        *self.config.write().await = config;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -349,6 +375,52 @@ mod tests {
         assert!(matches!(state.ssh_key(), Err(AppError::Io(message))
             if message.contains("Restart the application")));
         assert!(!keys::key_path(&directory).exists());
+    }
+
+    #[tokio::test]
+    async fn adopt_profile_identity_rekeys_provisional_profile_onto_stable_device_id() {
+        let directory =
+            std::env::temp_dir().join(format!("hacc-adopt-identity-{}", std::process::id()));
+        let mut config = AppConfig::default();
+        config.remember_address_for("192.0.2.44:5555", None);
+        assert!(config.devices.contains_key("192.0.2.44:5555"));
+        let state = Arc::new(AppState::new(
+            Arc::new(FakeRunner::new()),
+            config,
+            Box::new(|_| {}),
+            directory,
+        ));
+
+        assert!(
+            state
+                .adopt_profile_identity("192.0.2.44:5555", "TESTSERIAL0002")
+                .await
+        );
+
+        let cfg = state.config.read().await;
+        let profile = cfg
+            .devices
+            .get("TESTSERIAL0002")
+            .expect("profile must live under the stable device id");
+        assert_eq!(profile.last_address.as_deref(), Some("192.0.2.44:5555"));
+        assert!(!cfg.devices.contains_key("192.0.2.44:5555"));
+    }
+
+    #[tokio::test]
+    async fn adopt_profile_identity_without_provisional_profile_reports_no_change() {
+        let directory =
+            std::env::temp_dir().join(format!("hacc-adopt-none-{}", std::process::id()));
+        let state = Arc::new(AppState::new(
+            Arc::new(FakeRunner::new()),
+            AppConfig::default(),
+            Box::new(|_| {}),
+            directory,
+        ));
+        assert!(
+            !state
+                .adopt_profile_identity("192.0.2.44:5555", "TESTSERIAL0002")
+                .await
+        );
     }
 
     #[test]

@@ -147,6 +147,28 @@ impl DeviceRegistry {
             .or_else(|| g.last_seen.get(serial).and_then(|d| d.device_id.clone()))
     }
 
+    /// The current serial for a learned `device_id`, if any — used to keep
+    /// per-device streams pointed at the live transport after a rebind.
+    pub fn serial_for(&self, device_id: &str) -> Option<String> {
+        let g = self.lock_inner();
+        g.ids
+            .iter()
+            .find(|(_, id)| id.as_str() == device_id)
+            .map(|(serial, _)| serial.clone())
+            .or_else(|| {
+                g.devices
+                    .iter()
+                    .find(|(_, d)| d.device_id.as_deref() == Some(device_id))
+                    .map(|(serial, _)| serial.clone())
+            })
+            .or_else(|| {
+                g.last_seen
+                    .iter()
+                    .find(|(_, d)| d.device_id.as_deref() == Some(device_id))
+                    .map(|(serial, _)| serial.clone())
+            })
+    }
+
     pub fn set_device_id(&self, serial: &str, id: &str) -> bool {
         let mut g = self.lock_inner();
         g.ids.insert(serial.to_string(), id.to_string());
@@ -249,6 +271,38 @@ mod tests {
 
     fn snap(text: &str) -> Vec<AndroidDevice> {
         parse_devices(text)
+    }
+
+    #[test]
+    fn serial_for_resolves_current_serial_from_learned_device_id() {
+        let registry = DeviceRegistry::new();
+        registry.apply_snapshot(snap("192.0.2.10:5555 device\n"));
+        assert!(registry.set_device_id("192.0.2.10:5555", "SER1"));
+        assert_eq!(
+            registry.serial_for("SER1").as_deref(),
+            Some("192.0.2.10:5555")
+        );
+        assert_eq!(registry.serial_for("NOPE"), None);
+    }
+
+    #[test]
+    fn serial_for_prefers_live_device_over_lost_entry() {
+        let registry = DeviceRegistry::new();
+        registry.apply_snapshot(snap("adb-SER1-aaaa._adb-tls-connect._tcp device\n"));
+        // mDNS serials learn their device_id at parse time, so set_device_id
+        // reports no change; the id map is populated either way.
+        registry.set_device_id("adb-SER1-aaaa._adb-tls-connect._tcp", "SER1");
+        registry.apply_snapshot(snap("192.0.2.20:5555 device\n"));
+        assert!(registry.set_device_id("192.0.2.20:5555", "SER2"));
+        // SER1 is only known through the previous snapshot's id map now.
+        assert_eq!(
+            registry.serial_for("SER1").as_deref(),
+            Some("adb-SER1-aaaa._adb-tls-connect._tcp")
+        );
+        assert_eq!(
+            registry.serial_for("SER2").as_deref(),
+            Some("192.0.2.20:5555")
+        );
     }
 
     #[test]

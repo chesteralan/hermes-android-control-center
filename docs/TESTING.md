@@ -118,6 +118,25 @@ Still requires a connected phone (blocked rows): idle CPU/RAM with a device
 connected and no streams, log/terminal throughput, device-info refresh, and the
 3-phone streaming row.
 
+### Connected-device results — 2026-10-19, macOS arm64, 2 phones attached
+
+Packaged release build; OnePlus CPH2239T2 (Android 11) + Samsung SM-T225
+(Android 14), both wireless. Harness notes: AX automation drives the packaged
+app (WebKit AXPress dispatches the tab strip's `role="tab"` press to its child
+× button, and backgrounded pixel clicks no-op on WKWebView — tab switches were
+exercised via Overview→Open and Device-list row select; a human tab-click check
+is pending).
+
+| Row | Result |
+|---|---|
+| Idle CPU (connected, no streams) | Pass — 0.0 % across 5 samples × 2 s (budget 1 %) |
+| Idle memory (connected, no streams) | Pass — 71–72 MB RSS (budget 200 MB) |
+| Device info refresh over Wi-Fi | Pass — 0.41 s click→rendered value (budget 2 s); the Dashboard storage row rounds to whole GiB, so sub-GiB deltas are invisible without a larger change |
+| Terminal throughput | Pass — device generated 20 000 lines in 0.21 s; fully streamed and rendered within 0.8 s end-to-end (budget 1 000 l/s), AX stayed responsive during |
+| Log throughput (2 000 l/s, 60 s) | Source-limited — phone-side shell `log` generators reach ≈36 l/s each, ≈300 l/s total at 30-way parallelism; the app held 0.27–0.37 s AX latency at that rate with no growth. Full budget still covered only by the synthetic M7-T10 benchmark (120k lines/60 s, no frame > 100 ms) |
+| 3 phones streaming | Blocked — 2 real phones (stub-based 3-phone row recorded under M10-T5) |
+| Orphans after quit | ⌘Q path fails with real streams — tracker + both logcat children orphaned (reproduced 3×; see M10-T5); SIGTERM probe path remains clean |
+
 ## 7. Cross-Platform QA (M12)
 
 Hosted [run 37611442113](https://github.com/chesteralan/hermes-android-control-center/actions/runs/37611442113)

@@ -99,7 +99,18 @@ fn learn_device_id<R: Runtime>(app: AppHandle<R>, serial: String) {
             .await
         {
             let id = out.stdout.trim();
-            if !id.is_empty() && id != "unknown" && state.devices.set_device_id(&serial, id) {
+            if id.is_empty() || id == "unknown" {
+                return;
+            }
+            let registry_changed = state.devices.set_device_id(&serial, id);
+            let profile_changed = state.adopt_profile_identity(&serial, id).await;
+            if profile_changed {
+                let cfg = state.config.read().await;
+                if let Err(e) = crate::config_store::save(&app, &cfg) {
+                    tracing::warn!(error = %e, "could not persist re-keyed device profile");
+                }
+            }
+            if registry_changed || profile_changed {
                 emit_devices(&app);
             }
         }

@@ -77,6 +77,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: src-tauri
+          # zip 4.6.1 is pinned by tauri-plugin-updater 2.13.1 (zip ^4); no
+          # release on the ^4 line carries the extract() fixes (patched >=9.0.0
+          # only) and every published plugin version still requires ^4. Our own
+          # zip dependency is 9.1.2 (fixed). Documented in docs/SECURITY.md §6.
+          ignore: RUSTSEC-2026-0367,RUSTSEC-2026-0368,RUSTSEC-2026-0369
 
       - name: Check Rust dependency policy
         uses: EmbarkStudios/cargo-deny-action@v2

@@ -13,6 +13,13 @@ import { ErrorPanel } from "../../components/ErrorPanel";
 import { ipc, type LogExportFormat } from "../../lib/ipc";
 import { deviceKey, useActiveDevice } from "../../stores/devices";
 import { useLogs } from "../../stores/logs";
+import {
+  DEFAULT_LOGS_UI,
+  LEVEL_FILTERS,
+  useLogsUi,
+  type LevelFilter,
+  type LogsUiState,
+} from "../../stores/logsUi";
 import type { LogLevel, LogLine, LogSourceKind } from "../../types";
 import type { LogSearchWorkerRequest, LogSearchWorkerResponse } from "./logSearch.worker";
 import { NoDeviceState } from "../device/NoDeviceState";
@@ -20,43 +27,12 @@ import { NoDeviceState } from "../device/NoDeviceState";
 const ROW = 20;
 const WORKER_SEARCH_LINE_THRESHOLD = 10_000;
 const NO_LINES: LogLine[] = [];
-const LEVEL_FILTERS = ["info", "warn", "error", "debug", "unknown"] as const;
-type LevelFilter = (typeof LEVEL_FILTERS)[number];
 const LOG_SOURCES: Array<{ value: LogSourceKind; label: string }> = [
   { value: "logcat", label: "Android logcat" },
   { value: "hermesGateway", label: "Hermes gateway" },
   { value: "hermesToolCalls", label: "Hermes tool calls" },
   { value: "supervisor", label: "Supervisor" },
 ];
-
-interface PauseSnapshot {
-  deviceKey: string;
-  lines: LogLine[];
-  lastSequence: number;
-}
-
-/** Per-phone viewer state so switching device tabs never leaks search/pause. */
-interface LogsUiState {
-  follow: boolean;
-  pause: PauseSnapshot | null;
-  searchInput: string;
-  searchQuery: string;
-  regexEnabled: boolean;
-  caseSensitive: boolean;
-  matchCursor: number;
-  selectedLevels: Set<LevelFilter>;
-}
-
-const DEFAULT_LOGS_UI: LogsUiState = {
-  follow: true,
-  pause: null,
-  searchInput: "",
-  searchQuery: "",
-  regexEnabled: false,
-  caseSensitive: false,
-  matchCursor: 0,
-  selectedLevels: new Set(LEVEL_FILTERS),
-};
 
 const levelStyle: Record<LogLevel, string> = {
   debug: "text-muted",
@@ -146,8 +122,7 @@ export function LogsView() {
   const { start, stop, clear } = useLogs();
   const lines = entry?.lines ?? NO_LINES;
   const streaming = !!entry?.streamId;
-  const [uiByDevice, setUiByDevice] = useState<Record<string, LogsUiState>>({});
-  const ui = uiByDevice[key] ?? DEFAULT_LOGS_UI;
+  const ui = useLogsUi((s) => s.byDevice[key] ?? DEFAULT_LOGS_UI);
   const follow = ui.follow;
   const searchInput = ui.searchInput;
   const searchQuery = ui.searchQuery;
@@ -156,8 +131,7 @@ export function LogsView() {
   const matchCursor = ui.matchCursor;
   const selectedLevels = ui.selectedLevels;
   const pauseSnapshot = ui.pause;
-  const patchUi = (patch: Partial<LogsUiState>) =>
-    setUiByDevice((s) => ({ ...s, [key]: { ...(s[key] ?? DEFAULT_LOGS_UI), ...patch } }));
+  const patchUi = (patch: Partial<LogsUiState>) => useLogsUi.getState().patch(key, patch);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportScope, setExportScope] = useState<"visible" | "all">("visible");
   const [exportFormat, setExportFormat] = useState<LogExportFormat>("log");
@@ -183,11 +157,7 @@ export function LogsView() {
 
   useEffect(() => {
     const timeout = window.setTimeout(
-      () =>
-        setUiByDevice((s) => ({
-          ...s,
-          [key]: { ...(s[key] ?? DEFAULT_LOGS_UI), searchQuery: searchInput },
-        })),
+      () => useLogsUi.getState().patch(key, { searchQuery: searchInput }),
       180,
     );
     return () => window.clearTimeout(timeout);

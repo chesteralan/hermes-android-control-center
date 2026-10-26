@@ -36,7 +36,8 @@ pub async fn connect_device<R: Runtime>(
 
     {
         let mut cfg = state.config.write().await;
-        cfg.remember_address(&address);
+        let known_id = state.devices.id_for(&address);
+        cfg.remember_address_for(&address, known_id.as_deref());
         if let Err(e) = config_store::save(&app, &cfg) {
             tracing::warn!(error = %e, "could not persist known address");
         }
@@ -133,7 +134,15 @@ pub async fn get_device_info<R: Runtime>(
 ) -> Result<DeviceInfo, AppError> {
     let info = state.adb_client().await?.device_info(&serial).await?;
     if let Some(id) = &info.device_id {
-        if state.devices.set_device_id(&serial, id) {
+        let registry_changed = state.devices.set_device_id(&serial, id);
+        let profile_changed = state.adopt_profile_identity(&serial, id).await;
+        if profile_changed {
+            let cfg = state.config.read().await;
+            if let Err(e) = config_store::save(&app, &cfg) {
+                tracing::warn!(error = %e, "could not persist re-keyed device profile");
+            }
+        }
+        if registry_changed || profile_changed {
             monitor::emit_devices(&app);
         }
     }

@@ -152,12 +152,22 @@ pub async fn start_log_stream(
     let src: Box<dyn LogSource> = match source {
         LogSourceKind::Logcat => {
             let client = state.adb_client().await?;
-            Box::new(LogcatSource::new(
-                client,
-                state.runner.clone(),
-                &serial,
-                &config.logs.logcat_filter,
-            ))
+            let devices = state.devices.clone();
+            let stream_device_id = device_id.clone();
+            let fallback_serial = serial.clone();
+            Box::new(
+                LogcatSource::new(
+                    client,
+                    state.runner.clone(),
+                    &serial,
+                    &config.logs.logcat_filter,
+                )
+                .with_serial_resolver(Arc::new(move || {
+                    devices
+                        .serial_for(&stream_device_id)
+                        .unwrap_or_else(|| fallback_serial.clone())
+                })),
+            )
         }
         LogSourceKind::HermesGateway
         | LogSourceKind::HermesToolCalls

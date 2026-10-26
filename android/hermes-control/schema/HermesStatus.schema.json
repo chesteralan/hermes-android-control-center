@@ -55,7 +55,7 @@
       ]
     },
     "source": {
-      "description": "\"termuxSsh\" or \"adb\" (limited).",
+      "description": "\"termuxSsh\", \"api\", or \"adb\" (limited).",
       "type": "string"
     },
     "supervisor": {

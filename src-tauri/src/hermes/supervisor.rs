@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn script_runs_wrapped_gateway_and_honours_stop_flag() {
         let s = script(&HermesConfig::default());
-        assert!(s.contains("proot-distro login debian -- bash -c 'export PATH=/root/.local/bin:$PATH; exec hermes gateway run'"));
+        assert!(s.contains("proot-distro login debian -- bash -c 'export PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; unset CC CXX CPP CFLAGS CXXFLAGS CPPFLAGS LDFLAGS _PYTHON_HOST_PLATFORM _PYTHON_SYSCONFIGDATA_NAME UV_PYTHON UV_PYTHON_INSTALL_DIR PYTHONHOME PYTHONPATH; exec hermes gateway run'"));
         assert!(s.contains("hermes.stop"));
         assert!(s.contains(VERSION));
         assert!(s.contains("restarting in ${d}s"));

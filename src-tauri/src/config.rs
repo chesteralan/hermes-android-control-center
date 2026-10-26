@@ -472,27 +472,126 @@ impl AppConfig {
     }
 
     pub fn remember_address(&mut self, address: &str) {
+        self.remember_address_for(address, None);
+    }
+
+    /// Remember a connected address, keying the device profile by the stable
+    /// `device_id` when it is already known. Without identity the profile is
+    /// provisionally keyed by the address until [`Self::rekey_profile`] runs.
+    pub fn remember_address_for(&mut self, address: &str, device_id: Option<&str>) {
         if !self.known_addresses.iter().any(|k| k.address == address) {
             self.known_addresses.push(KnownAddress {
                 address: address.to_string(),
                 auto_connect: true,
             });
         }
-        let device_id = crate::adb::parse::device_id_from_serial(address)
+        // Wireless debugging re-randomizes its port; a new port on the same
+        // host supersedes every older port so auto-connect stops retrying
+        // (and stop minting) dead addresses.
+        let host = host_of(address);
+        self.known_addresses
+            .retain(|k| k.address == address || host_of(&k.address) != host);
+        let key = device_id
+            .map(str::to_string)
+            .or_else(|| crate::adb::parse::device_id_from_serial(address))
             .unwrap_or_else(|| address.to_string());
         let profile = self
             .devices
-            .entry(device_id.clone())
+            .entry(key.clone())
             .or_insert_with(|| DeviceProfile {
-                device_id,
+                device_id: key.clone(),
                 ..Default::default()
             });
         profile.last_address = Some(address.to_string());
+        // Same rule for provisional ghosts: keep this key, drop other ports
+        // of the same host, never touch other hosts.
+        self.devices.retain(|k, p| {
+            k == &key || p.last_address.as_deref().is_none_or(|a| host_of(a) != host)
+        });
     }
+
+    /// Move a provisional (address-keyed) profile onto its stable `device_id`
+    /// once identity is learned, merging into any existing stable profile.
+    /// Returns whether the config changed.
+    pub fn rekey_profile(&mut self, old_key: &str, device_id: &str) -> bool {
+        if old_key == device_id {
+            return false;
+        }
+        let Some(mut ghost) = self.devices.remove(old_key) else {
+            return false;
+        };
+        let stale_host = ghost
+            .last_address
+            .as_deref()
+            .map(host_of)
+            .map(str::to_string);
+        match self.devices.get_mut(device_id) {
+            // User edits (alias/color/overrides) live on the stable profile;
+            // the ghost only carries connection history, so it wins for
+            // last_address (freshest evidence) and ORs auto_connect.
+            Some(stable) => {
+                if ghost.last_address.is_some() {
+                    stable.last_address = ghost.last_address;
+                }
+                stable.auto_connect |= ghost.auto_connect;
+            }
+            None => {
+                ghost.device_id = device_id.to_string();
+                self.devices.insert(device_id.to_string(), ghost);
+            }
+        }
+        // While adopting identity, also drop stale-port ghosts for the same
+        // host — they are superseded connection history with no user edits.
+        if let Some(host) = stale_host {
+            let stable_key = device_id.to_string();
+            self.devices.retain(|k, p| {
+                k == &stable_key || p.last_address.as_deref().is_none_or(|a| host_of(a) != host)
+            });
+        }
+        true
+    }
+
+    /// Store a recipe-derived Hermes config as the phone's profile override,
+    /// creating the profile when it does not exist yet. An invalid override
+    /// is rejected before the config is modified.
+    pub fn set_device_hermes_override(
+        &mut self,
+        device_id: &str,
+        hermes: HermesConfig,
+    ) -> AppResult<()> {
+        validate_hermes_config(&hermes)?;
+        let profile = self
+            .devices
+            .entry(device_id.to_string())
+            .or_insert_with(|| DeviceProfile {
+                device_id: device_id.to_string(),
+                ..Default::default()
+            });
+        profile.hermes = Some(hermes);
+        Ok(())
+    }
+}
+
+/// Host part of an `ip:port` address (whole string when no port present).
+fn host_of(address: &str) -> &str {
+    address.rsplit_once(':').map(|(h, _)| h).unwrap_or(address)
 }
 
 /// v2 migrated knownAddresses into per-device profiles in v3.
 fn migrate_v2_to_v3(cfg: &mut AppConfig) {
+    // Port churn accumulates one entry per historical port; keep only the
+    // newest address per host before migrating (list order is append-time).
+    let mut kept: Vec<KnownAddress> = Vec::new();
+    let mut seen_hosts: Vec<&str> = Vec::new();
+    for known in cfg.known_addresses.iter().rev() {
+        let host = host_of(&known.address);
+        if !seen_hosts.contains(&host) {
+            seen_hosts.push(host);
+            kept.push(known.clone());
+        }
+    }
+    kept.reverse();
+    cfg.known_addresses = kept;
     for known in &cfg.known_addresses {
         let device_id = crate::adb::parse::device_id_from_serial(&known.address)
             .unwrap_or_else(|| known.address.clone());
@@ -636,6 +735,205 @@ mod tests {
         cfg.remember_address("192.0.2.1:5555");
         assert_eq!(cfg.known_addresses.len(), 1);
         assert_eq!(cfg.devices.len(), 1);
+    }
+
+    #[test]
+    fn remember_address_for_dedupes_other_ports_on_same_host() {
+        let mut cfg = AppConfig::default();
+        cfg.remember_address_for("192.0.2.1:5555", None);
+        cfg.remember_address_for("192.0.2.2:5555", None);
+        cfg.remember_address_for("192.0.2.1:5556", None);
+        let addresses: Vec<_> = cfg
+            .known_addresses
+            .iter()
+            .map(|k| k.address.as_str())
+            .collect();
+        assert_eq!(
+            addresses,
+            ["192.0.2.2:5555", "192.0.2.1:5556"],
+            "a new port on the same host replaces the old port; other hosts survive"
+        );
+        // The superseded port's profile is pruned as well.
+        assert!(!cfg.devices.contains_key("192.0.2.1:5555"));
+        assert!(cfg.devices.contains_key("192.0.2.1:5556"));
+        assert!(cfg.devices.contains_key("192.0.2.2:5555"));
+    }
+
+    #[test]
+    fn rekey_profile_prunes_stale_port_profiles_on_same_host() {
+        let mut cfg = AppConfig::default();
+        // Ghosts left by earlier port rotations plus one for the live address.
+        cfg.devices.insert(
+            "192.0.2.9:1111".into(),
+            DeviceProfile {
+                device_id: "192.0.2.9:1111".into(),
+                last_address: Some("192.0.2.9:1111".into()),
+                ..Default::default()
+            },
+        );
+        cfg.devices.insert(
+            "192.0.2.9:2222".into(),
+            DeviceProfile {
+                device_id: "192.0.2.9:2222".into(),
+                last_address: Some("192.0.2.9:2222".into()),
+                ..Default::default()
+            },
+        );
+        cfg.devices.insert(
+            "192.0.2.8:3333".into(),
+            DeviceProfile {
+                device_id: "192.0.2.8:3333".into(),
+                last_address: Some("192.0.2.8:3333".into()),
+                ..Default::default()
+            },
+        );
+        assert!(cfg.rekey_profile("192.0.2.9:2222", "SER9"));
+        assert!(cfg.devices.contains_key("SER9"));
+        assert!(
+            !cfg.devices.contains_key("192.0.2.9:1111"),
+            "stale same-host ghost is pruned by re-keying"
+        );
+        assert!(
+            cfg.devices.contains_key("192.0.2.8:3333"),
+            "other hosts are never touched"
+        );
+    }
+
+    #[test]
+    fn migrates_v2_keeps_newest_port_per_host() {
+        let v2 = serde_json::json!({
+            "version": 2,
+            "knownAddresses": [
+                { "address": "192.0.2.10:1111", "autoConnect": true },
+                { "address": "192.0.2.11:2222", "autoConnect": true },
+                { "address": "192.0.2.10:3333", "autoConnect": true }
+            ]
+        });
+        let cfg = AppConfig::from_json(v2);
+        let addresses: Vec<_> = cfg
+            .known_addresses
+            .iter()
+            .map(|k| k.address.as_str())
+            .collect();
+        assert_eq!(
+            addresses,
+            ["192.0.2.11:2222", "192.0.2.10:3333"],
+            "only the newest port per host is kept"
+        );
+        assert!(!cfg.devices.contains_key("192.0.2.10:1111"));
+        assert!(cfg.devices.contains_key("192.0.2.10:3333"));
+    }
+
+    #[test]
+    fn remember_address_for_keys_profile_by_device_id_when_identity_known() {
+        let mut cfg = AppConfig::default();
+        cfg.remember_address_for("192.0.2.5:5555", Some("TESTSERIAL0002"));
+        let profile = cfg
+            .devices
+            .get("TESTSERIAL0002")
+            .expect("profile must be keyed by the stable device id");
+        assert_eq!(profile.device_id, "TESTSERIAL0002");
+        assert_eq!(profile.last_address.as_deref(), Some("192.0.2.5:5555"));
+        assert!(
+            !cfg.devices.contains_key("192.0.2.5:5555"),
+            "no address-keyed ghost when identity is known"
+        );
+        assert_eq!(cfg.known_addresses.len(), 1);
+    }
+
+    #[test]
+    fn remember_address_for_without_identity_falls_back_to_address() {
+        let mut cfg = AppConfig::default();
+        cfg.remember_address_for("192.0.2.5:5555", None);
+        assert!(cfg.devices.contains_key("192.0.2.5:5555"));
+    }
+
+    #[test]
+    fn rekey_profile_moves_ghost_profile_to_stable_device_id() {
+        let mut cfg = AppConfig::default();
+        cfg.remember_address_for("192.0.2.5:5555", None);
+        assert!(cfg.rekey_profile("192.0.2.5:5555", "TESTSERIAL0002"));
+        let profile = cfg
+            .devices
+            .get("TESTSERIAL0002")
+            .expect("ghost must be moved to the stable device id key");
+        assert_eq!(profile.device_id, "TESTSERIAL0002");
+        assert_eq!(profile.last_address.as_deref(), Some("192.0.2.5:5555"));
+        assert!(profile.auto_connect);
+        assert!(
+            !cfg.devices.contains_key("192.0.2.5:5555"),
+            "ghost key must be removed after re-keying"
+        );
+    }
+
+    #[test]
+    fn rekey_profile_merges_into_existing_stable_profile_preserving_edits() {
+        let mut cfg = AppConfig::default();
+        cfg.devices.insert(
+            "TESTSERIAL0002".into(),
+            DeviceProfile {
+                device_id: "TESTSERIAL0002".into(),
+                alias: Some("Tablet".into()),
+                color: Some("#123456".into()),
+                last_address: None,
+                auto_connect: false,
+                ..Default::default()
+            },
+        );
+        cfg.remember_address_for("192.0.2.5:5555", None);
+        assert!(cfg.rekey_profile("192.0.2.5:5555", "TESTSERIAL0002"));
+        let profile = cfg.devices.get("TESTSERIAL0002").unwrap();
+        assert_eq!(
+            profile.alias.as_deref(),
+            Some("Tablet"),
+            "user edits survive"
+        );
+        assert_eq!(profile.color.as_deref(), Some("#123456"));
+        assert_eq!(
+            profile.last_address.as_deref(),
+            Some("192.0.2.5:5555"),
+            "the freshly connected address becomes last_address"
+        );
+        assert!(profile.auto_connect, "connection history is OR-merged");
+        assert!(!cfg.devices.contains_key("192.0.2.5:5555"));
+        assert_eq!(cfg.devices.len(), 1, "exactly one profile remains");
+    }
+
+    #[test]
+    fn rekey_profile_without_ghost_is_noop() {
+        let mut cfg = AppConfig::default();
+        cfg.devices.insert(
+            "TESTSERIAL0002".into(),
+            DeviceProfile {
+                device_id: "TESTSERIAL0002".into(),
+                alias: Some("Tablet".into()),
+                ..Default::default()
+            },
+        );
+        assert!(!cfg.rekey_profile("192.0.2.5:5555", "TESTSERIAL0002"));
+        assert_eq!(cfg.devices.len(), 1);
+        assert_eq!(
+            cfg.devices["TESTSERIAL0002"].alias.as_deref(),
+            Some("Tablet"),
+            "stable profile untouched"
+        );
+    }
+
+    #[test]
+    fn migrated_address_profile_rekeys_once_identity_is_learned() {
+        let v2 = serde_json::json!({
+            "version": 2,
+            "knownAddresses": [
+                { "address": "192.0.2.10:5555", "autoConnect": true }
+            ]
+        });
+        let mut cfg = AppConfig::from_json(v2);
+        assert!(cfg.devices.contains_key("192.0.2.10:5555"));
+        assert!(cfg.rekey_profile("192.0.2.10:5555", "TESTSERIAL0001"));
+        let profile = cfg.devices.get("TESTSERIAL0001").expect("stable key");
+        assert_eq!(profile.last_address.as_deref(), Some("192.0.2.10:5555"));
+        assert!(profile.auto_connect);
+        assert!(!cfg.devices.contains_key("192.0.2.10:5555"));
     }
 
     #[test]
@@ -950,5 +1248,78 @@ mod tests {
         // Color and others still preserved
         assert_eq!(profile.color.as_deref(), Some("#445566"));
         assert_eq!(profile.log_command.as_deref(), Some("tail log"));
+    }
+
+    #[test]
+    fn set_device_hermes_override_creates_profile_and_preserves_existing_fields() {
+        let mut cfg = AppConfig::default();
+        cfg.devices.insert(
+            "SERIAL1".into(),
+            DeviceProfile {
+                device_id: "SERIAL1".into(),
+                alias: Some("OnePlus".into()),
+                ..Default::default()
+            },
+        );
+        let hermes = HermesConfig {
+            gateway_command: "hermes gateway run".into(),
+            process_match: "hermes gateway run".into(),
+            ..Default::default()
+        };
+
+        cfg.set_device_hermes_override("SERIAL1", hermes.clone())
+            .unwrap();
+        let profile = cfg.devices.get("SERIAL1").unwrap();
+        assert_eq!(profile.hermes.as_ref(), Some(&hermes));
+        assert_eq!(profile.alias.as_deref(), Some("OnePlus"));
+
+        cfg.set_device_hermes_override("SERIAL2", hermes.clone())
+            .unwrap();
+        let created = cfg
+            .devices
+            .get("SERIAL2")
+            .expect("profile must be created when missing");
+        assert_eq!(created.device_id, "SERIAL2");
+        assert_eq!(created.hermes.as_ref(), Some(&hermes));
+    }
+
+    #[test]
+    fn set_device_hermes_override_replaces_existing_override() {
+        let mut cfg = AppConfig::default();
+        let first = HermesConfig {
+            gateway_command: "first gateway".into(),
+            ..Default::default()
+        };
+        let second = HermesConfig {
+            gateway_command: "second gateway".into(),
+            ..Default::default()
+        };
+
+        cfg.set_device_hermes_override("SERIAL1", first).unwrap();
+        cfg.set_device_hermes_override("SERIAL1", second.clone())
+            .unwrap();
+
+        let effective = cfg.effective_hermes_config("SERIAL1");
+        assert_eq!(effective.gateway_command, "second gateway");
+    }
+
+    #[test]
+    fn set_device_hermes_override_rejects_invalid_config_without_mutating() {
+        let mut cfg = AppConfig::default();
+        let invalid = HermesConfig {
+            environment: HermesEnvironment::ProotDistro {
+                distro: "bad distro!".into(),
+            },
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            cfg.set_device_hermes_override("SERIAL1", invalid),
+            Err(AppError::Config(_))
+        ));
+        assert!(
+            !cfg.devices.contains_key("SERIAL1"),
+            "an invalid override must not create or modify a profile"
+        );
     }
 }
