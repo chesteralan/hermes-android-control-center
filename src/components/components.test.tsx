@@ -18,8 +18,11 @@ describe("ErrorPanel", () => {
     );
     expect(screen.getByRole("alert")).toHaveTextContent("Unable to connect to Android device.");
     expect(screen.queryByText(/device offline/)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Details" }));
+    const toggle = screen.getByRole("button", { name: "Details" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(toggle);
     expect(screen.getByText(/device offline/)).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
   it("hides the details toggle when there are none", () => {
