@@ -15,6 +15,10 @@ src-tauri/target
 src-tauri/gen
 src-tauri/bindings
 
+# Isolated worktrees and SDD scratch
+.worktrees/
+.superpowers/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
