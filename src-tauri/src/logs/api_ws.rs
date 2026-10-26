@@ -46,6 +46,7 @@ impl LogSource for ApiWsLogSource {
                     loop {
                         let message = tokio::select! {
                             _ = cancel.cancelled() => {
+                                // Best-effort close on cancel; the socket drops regardless.
                                 let _ = socket.close(None).await;
                                 return;
                             }

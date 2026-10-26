@@ -241,6 +241,7 @@ struct BootstrapTempFiles(PathBuf);
 
 impl Drop for BootstrapTempFiles {
     fn drop(&mut self) {
+        // Best-effort cleanup in Drop; the primary error is reported by the caller.
         let _ = std::fs::remove_file(&self.0);
         let _ = std::fs::remove_file(self.0.with_extension("pub"));
     }
@@ -540,6 +541,7 @@ pub(crate) async fn run_termux_bootstrap<R: Runtime>(
             if marker != last_marker {
                 last_marker = marker.to_string();
                 if !marker.is_empty() {
+                    // Best-effort progress line; failure below decides the step.
                     let _ = events
                         .send(ProvisionEvent::Output {
                             step: ProvisionStepId::BootstrapSsh,
@@ -602,6 +604,7 @@ pub(crate) async fn bootstrap_ssh_with_cleanup<R: Runtime>(
     match result {
         Ok(()) => cleanup,
         Err(error) => {
+            // Best-effort cleanup is logged; the bootstrap error is returned.
             if let Err(cleanup_error) = cleanup {
                 tracing::warn!(error = %cleanup_error, "failed to remove Termux bootstrap files");
             }
@@ -769,6 +772,7 @@ async fn emit_output(
     events: &mpsc::Sender<ProvisionEvent>,
 ) {
     for line in result.stdout.lines() {
+        // Best-effort: the UI subscriber may already be gone.
         let _ = events
             .send(ProvisionEvent::Output {
                 step,
@@ -779,6 +783,7 @@ async fn emit_output(
             .await;
     }
     for line in result.stderr.lines() {
+        // Best-effort: the UI subscriber may already be gone.
         let _ = events
             .send(ProvisionEvent::Output {
                 step,
@@ -788,6 +793,7 @@ async fn emit_output(
             })
             .await;
     }
+    // Best-effort: the UI subscriber may already be gone.
     let _ = events
         .send(ProvisionEvent::Output {
             step,
@@ -815,6 +821,7 @@ fn emit_apk_download_progress(
         }
         None => format!("{downloaded_mib:.1} MiB downloaded"),
     };
+    // Best-effort progress: try_send drops when the channel is full or closed.
     let _ = events.try_send(ProvisionEvent::Output {
         step,
         event: StreamEvent::Stdout {
@@ -1119,6 +1126,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         downloaded.file_name, downloaded.version_name, downloaded.sha256
                     )
                 };
+                // Best-effort info line; the install result below decides the step.
                 let _ = events
                     .send(ProvisionEvent::Output {
                         step,
@@ -1152,6 +1160,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 if state.known_hosts.expected(&device_id)?.is_some() {
                     state.ssh.drop_device(&self.serial).await;
                     state.known_hosts.forget(&device_id)?;
+                    // Best-effort info line after a successful host-key reset.
                     let _ = events.send(ProvisionEvent::Output {
                         step,
                         event: StreamEvent::Stdout {
@@ -1181,6 +1190,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         client.shell(&self.serial, &command, COMMAND_TIMEOUT),
                     )
                     .await?;
+                    // Best-effort per-command status line.
                     let _ = events
                         .send(ProvisionEvent::Output {
                             step,
@@ -1199,6 +1209,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                 Ok(ProvisionStepRunOutcome::Done)
             }
             ProvisionStepId::LaunchTermux => {
+                // Best-effort wakeup; the unlock check below decides the outcome.
                 let _ = self
                     .adb_shell_cancellable("input keyevent KEYCODE_WAKEUP", &cancel)
                     .await;
@@ -1265,6 +1276,7 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                     cancellable(&cancel, client.shell(&self.serial, typed, COMMAND_TIMEOUT))
                         .await?,
                 )?;
+                // Best-effort info line; the probe loop below decides the step.
                 let _ = events
                     .send(ProvisionEvent::Output {
                         step,
@@ -1530,6 +1542,8 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                         .await
                     {
                         Ok(()) => {
+                            // Best-effort: the save already succeeded; this only
+                            // informs the viewer.
                             let _ = events
                                 .send(ProvisionEvent::Output {
                                     step,
@@ -1546,6 +1560,8 @@ impl<R: Runtime> ProvisionStepExecutor for AndroidProvisionExecutor<R> {
                                 error = %error,
                                 "could not save Hermes config to device profile"
                             );
+                            // Best-effort: surfacing the save failure to the viewer;
+                            // it is already logged above.
                             let _ = events
                                 .send(ProvisionEvent::Output {
                                     step,

@@ -435,6 +435,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
                 progress.last_error = Some(error.user_message());
                 plan.current_step = None;
                 store.save(progress)?;
+                // Best-effort UI event; the error is returned to the command layer.
                 let _ = events
                     .send(ProvisionEvent::StepFailed {
                         step: step.id,
@@ -450,6 +451,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
                 step.detail = None;
                 progress.mark_done(step.id);
                 store.save(progress)?;
+                // Best-effort UI event; progress is persisted in the store.
                 let _ = events
                     .send(ProvisionEvent::StepDone { step: step.id })
                     .await;
@@ -457,6 +459,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
             }
             ProvisionCheck::DoneWithWarnings(warnings) => {
                 for warning in warnings {
+                    // Best-effort UI event; progress is persisted in the store.
                     let _ = events
                         .send(ProvisionEvent::Output {
                             step: step.id,
@@ -470,6 +473,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
                 step.detail = None;
                 progress.mark_done(step.id);
                 store.save(progress)?;
+                // Best-effort UI event; progress is persisted in the store.
                 let _ = events
                     .send(ProvisionEvent::StepDone { step: step.id })
                     .await;
@@ -480,6 +484,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
                 step.detail = Some(reason.clone());
                 plan.current_step = None;
                 store.save(progress)?;
+                // Best-effort UI event; the outcome is returned to the command layer.
                 let _ = events
                     .send(ProvisionEvent::StepBlocked {
                         step: step.id,
@@ -498,6 +503,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
             if !approved_steps.contains(&step.id) {
                 step.state = ProvisionStepState::Todo;
                 plan.current_step = None;
+                // Best-effort UI event; the outcome is returned to the command layer.
                 let _ = events
                     .send(ProvisionEvent::ConsentRequired {
                         step: step.id,
@@ -510,6 +516,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
 
         step.state = ProvisionStepState::Running;
         step.detail = None;
+        // Best-effort UI event; the step runs regardless.
         let _ = events
             .send(ProvisionEvent::StepStarted { step: step.id })
             .await;
@@ -521,6 +528,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
                 step.state = ProvisionStepState::Done;
                 progress.mark_done(step.id);
                 store.save(progress)?;
+                // Best-effort UI event; progress is persisted in the store.
                 let _ = events
                     .send(ProvisionEvent::StepDone { step: step.id })
                     .await;
@@ -530,6 +538,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
                 step.detail = Some(message.clone());
                 plan.current_step = None;
                 store.save(progress)?;
+                // Best-effort UI event; the outcome is returned to the command layer.
                 let _ = events
                     .send(ProvisionEvent::PhoneActionNeeded {
                         step: step.id,
@@ -553,6 +562,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
                 progress.last_error = Some(error.user_message());
                 plan.current_step = None;
                 store.save(progress)?;
+                // Best-effort UI event; the error is returned to the command layer.
                 let _ = events
                     .send(ProvisionEvent::StepFailed {
                         step: step.id,
@@ -570,6 +580,7 @@ pub async fn run_plan<E: ProvisionStepExecutor>(
             return Ok(ProvisionRunOutcome::StepDone { step: step.id });
         }
     }
+    // Best-effort UI event; the outcome is returned to the command layer.
     let _ = events.send(ProvisionEvent::PlanDone).await;
     Ok(ProvisionRunOutcome::PlanDone)
 }

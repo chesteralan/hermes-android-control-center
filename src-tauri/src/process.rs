@@ -139,11 +139,13 @@ impl ProcessRunner for TokioRunner {
         let status = match tokio::time::timeout(timeout, collect).await {
             Ok(Ok(status)) => status,
             Ok(Err(error)) => {
+                // Best-effort kill/reap after the read error; that error is returned.
                 let _ = Box::into_pin(child.kill()).await;
                 let _ = child.wait().await;
                 return Err(error.into());
             }
             Err(_) => {
+                // Best-effort kill/reap after timeout; the Timeout error is returned.
                 let _ = Box::into_pin(child.kill()).await;
                 let _ = child.wait().await;
                 return Err(AppError::Timeout {
@@ -216,19 +218,23 @@ impl ProcessRunner for TokioRunner {
                 }
             }
             if cancel.is_cancelled() || tx.is_closed() {
+                // Best-effort kill; the wait below reaps the child either way.
                 let _ = Box::into_pin(child.kill()).await;
             }
             let code = tokio::select! {
                 result = child.wait() => result.ok().and_then(|result| result.code()),
                 _ = cancel.cancelled() => {
+                    // Best-effort kill on cancel; the wait below reaps the child.
                     let _ = Box::into_pin(child.kill()).await;
                     child.wait().await.ok().and_then(|result| result.code())
                 }
                 _ = tx.closed() => {
+                    // Best-effort kill once the receiver is gone; the wait reaps the child.
                     let _ = Box::into_pin(child.kill()).await;
                     child.wait().await.ok().and_then(|result| result.code())
                 }
             };
+            // Best-effort: the receiver may already be closed; the child is reaped above.
             let _ = tx.send(StreamChunk::Exit(code)).await;
         });
 
@@ -251,6 +257,10 @@ fn describe(program: &Path, args: &[String]) -> String {
 }
 
 /// Test double: returns scripted outputs keyed by the joined argv.
+///
+/// Its mutex acquisitions guard in-memory `HashMap`s only — short critical
+/// sections with no I/O, so they cannot panic inside the lock (M10-T1 audit;
+/// baseline 2026-10-13).
 #[derive(Default, Clone)]
 pub struct FakeRunner {
     responses: Arc<Mutex<HashMap<String, Vec<AppResult<RawOutput>>>>>,

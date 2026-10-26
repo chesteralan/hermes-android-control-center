@@ -230,6 +230,7 @@ impl TermuxSshTransport {
                     },
                 }
             }
+            // Best-effort EOF/close: the peer may already be gone.
             let _ = channel.eof().await;
             let _ = channel.close().await;
         });
@@ -303,6 +304,7 @@ impl DeviceTransport for TermuxSshTransport {
             loop {
                 let msg = tokio::select! {
                     _ = cancel.cancelled() => {
+                        // Best-effort TERM/close on cancel; teardown follows either way.
                         let _ = channel.signal(Sig::TERM).await;
                         let _ = channel.close().await;
                         break;
@@ -334,11 +336,14 @@ impl DeviceTransport for TermuxSshTransport {
                 }
             }
             if let Some(line) = out.finish() {
+                // Best-effort: the receiver may have closed mid-stream.
                 let _ = tx.send(StreamEvent::Stdout { line }).await;
             }
             if let Some(line) = err.finish() {
+                // Best-effort: the receiver may have closed mid-stream.
                 let _ = tx.send(StreamEvent::Stderr { line }).await;
             }
+            // Best-effort Exit event; the receiver may already be gone.
             let _ = tx
                 .send(StreamEvent::Exit {
                     code,

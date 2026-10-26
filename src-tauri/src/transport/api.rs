@@ -190,6 +190,7 @@ impl DeviceTransport for ApiTransport {
             loop {
                 let message = tokio::select! {
                     _ = cancel.cancelled() => {
+                        // Best-effort close on cancel; the socket drops regardless.
                         let _ = socket.close(None).await;
                         break;
                     }
@@ -207,6 +208,8 @@ impl DeviceTransport for ApiTransport {
                         }
                     }
                     Err(error) => {
+                        // Best-effort: a failed send means the caller stopped
+                        // listening; the loop breaks either way.
                         let _ = sender
                             .send(StreamEvent::Error {
                                 error: ErrorPayload {

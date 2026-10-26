@@ -242,6 +242,7 @@ pub fn install_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             _ => None,
         };
         if let Some(command) = command {
+            // Best-effort: no listener once the webview has already closed.
             let _ = app.emit(MENU_COMMAND_EVENT, command);
         }
     });
@@ -305,11 +306,13 @@ pub fn update_tray_status<R: Runtime>(app: &AppHandle<R>, devices: &[AndroidDevi
         return;
     };
     let status = aggregate_tray_status(devices);
+    // Best-effort: logged; the next device change retries the tray refresh.
     if let Err(error) = tray.set_tooltip(Some(tray_tooltip(status, distinct_phone_count(devices))))
     {
         tracing::warn!(%error, "failed to update tray status tooltip");
     }
     if let Some(icon) = tray_status_icon(status) {
+        // Best-effort: logged; the next device change retries the tray refresh.
         if let Err(error) = tray.set_icon(Some(icon)) {
             tracing::warn!(%error, "failed to update tray status icon");
         }
@@ -321,9 +324,12 @@ fn restore_main_window<R: Runtime>(app: &AppHandle<R>) {
         return;
     };
     if window.is_minimized().unwrap_or(false) {
+        // Best-effort restore; no user data at stake if the WM refuses.
         let _ = window.unminimize();
     }
+    // Best-effort restore; no user data at stake if the WM refuses.
     let _ = window.show();
+    // Best-effort focus; the window is visible either way.
     let _ = window.set_focus();
 }
 
@@ -355,6 +361,7 @@ pub(crate) fn request_quit<R: Runtime>(app: AppHandle<R>) -> bool {
             app.state::<AppState>().release_device(&serial).await;
         }
         let streams = app.state::<AppState>().streams.clone();
+        // Best-effort drain wait: exit proceeds after 3 s even if streams linger.
         let _ = tokio::time::timeout(Duration::from_secs(3), async {
             while !streams.is_empty() {
                 tokio::time::sleep(Duration::from_millis(25)).await;

@@ -161,6 +161,7 @@ pub async fn prepare_process(program: &Path, args: &[String]) -> crate::error::A
     #[cfg(target_os = "windows")]
     windows::prepare_adb_server(program, args).await?;
     #[cfg(not(target_os = "windows"))]
+    // No-op on this platform; keeps the parameters named for the Windows path.
     let _ = (program, args);
     Ok(())
 }

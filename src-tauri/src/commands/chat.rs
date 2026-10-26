@@ -247,8 +247,10 @@ pub async fn start_hermes_chat(
                 .filter(|message| !message.trim().is_empty())
                 .or_else(|| (!stderr.trim().is_empty()).then(|| stderr.trim().to_string()))
                 .unwrap_or_else(|| format!("Hermes chat exited with code {code}."));
+            // Best-effort: the chat view may already be closed; nothing left to notify.
             let _ = on_event.send(HermesChatEvent::Error { message });
         }
+        // Best-effort: completion event; the receiver may already be gone.
         let _ = on_event.send(HermesChatEvent::Complete {
             session_id,
             exit_code,

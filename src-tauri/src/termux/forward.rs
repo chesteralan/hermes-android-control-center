@@ -65,6 +65,7 @@ impl ForwardManager {
         let mine: Vec<(String, u16)> = ports.keys().filter(|(s, _)| s == serial).cloned().collect();
         for key in mine {
             if let Some(local) = ports.remove(&key) {
+                // Best-effort: a stale forward clears on the next adb server restart.
                 let _ = client
                     .raw(
                         &args::forward_remove(serial, &format!("tcp:{local}")),

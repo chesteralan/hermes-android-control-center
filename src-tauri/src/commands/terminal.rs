@@ -39,6 +39,7 @@ pub async fn export_terminal_text(
         .add_filter("Text file", &["txt"])
         .set_file_name("terminal-session.txt")
         .save_file(move |path| {
+            // Best-effort: the awaiting command may have been cancelled.
             let _ = sender.send(path);
         });
     let Some(file_path) = receiver
@@ -152,6 +153,8 @@ pub async fn start_terminal_pty(
                 return;
             }
         }
+        // Best-effort: the frontend may have closed the terminal; session
+        // cleanup below runs either way.
         let _ = on_event.send(TerminalPtyEvent::Closed);
         task_sessions.close(&task_session_id).await;
     });

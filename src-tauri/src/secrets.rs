@@ -200,6 +200,7 @@ impl EncryptedSecrets {
             Ok(())
         })();
         if result.is_err() {
+            // Best-effort cleanup after the primary save error, which is returned.
             let _ = std::fs::remove_file(temporary);
         }
         result

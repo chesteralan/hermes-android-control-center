@@ -15,6 +15,7 @@ pub const EVT_RECONNECT: &str = "device://reconnect";
 pub fn emit_devices<R: Runtime>(app: &AppHandle<R>) {
     let list = app.state::<AppState>().devices.list();
     crate::lifecycle::update_tray_status(app, &list);
+    // Best-effort: logged; the next registry change re-emits the device list.
     if let Err(e) = app.emit(EVT_DEVICES, list) {
         tracing::warn!(error = %e, "emit devices failed");
     }
@@ -106,6 +107,7 @@ fn learn_device_id<R: Runtime>(app: AppHandle<R>, serial: String) {
             let profile_changed = state.adopt_profile_identity(&serial, id).await;
             if profile_changed {
                 let cfg = state.config.read().await;
+                // Best-effort: logged; the in-memory profile already holds the id.
                 if let Err(e) = crate::config_store::save(&app, &cfg) {
                     tracing::warn!(error = %e, "could not persist re-keyed device profile");
                 }
@@ -158,6 +160,7 @@ pub fn spawn_reconnect<R: Runtime>(app: AppHandle<R>, device: AndroidDevice) {
             move |s: ReconnectStatus| {
                 let st = emit_app.state::<AppState>();
                 st.devices.set_reconnect(s.clone());
+                // Best-effort: no listener once the UI has closed.
                 let _ = emit_app.emit(EVT_RECONNECT, s);
                 emit_devices(&emit_app);
             },
