@@ -178,6 +178,12 @@ describe("NoDeviceState", () => {
     expect(useUi.getState().pairTab).toBe("code");
   });
 
+  it("offers a setup guide entry that opens the first-run flow", async () => {
+    render(<NoDeviceState />);
+    await userEvent.click(screen.getByRole("button", { name: "Start setup guide" }));
+    expect(useUi.getState().onboardingOpen).toBe(true);
+  });
+
   it("offers a Dashboard setup entry when connected-device info confirms Termux is absent", async () => {
     mockIpc({
       get_device_info: () => info({ termux: { ...info().termux!, installed: false } }),

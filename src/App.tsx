@@ -12,9 +12,11 @@ import { OverviewView } from "./features/overview/OverviewView";
 import { PairDialog } from "./features/device/PairDialog";
 import { SettingsView } from "./features/settings/SettingsView";
 import { TerminalView } from "./features/terminal/TerminalView";
+import { OnboardingView } from "./features/onboarding/OnboardingView";
 import { useDevices } from "./stores/devices";
 import { useSettings } from "./stores/settings";
 import { useRoute, type Route } from "./stores/route";
+import { useUi } from "./stores/ui";
 
 function View({ route }: { route: Route }) {
   switch (route) {
@@ -41,16 +43,29 @@ export default function App() {
   const route = useRoute((s) => s.route);
   const { subscribe, detectAdb, refresh } = useDevices();
   const loadSettings = useSettings((s) => s.load);
+  const evaluateAutoShow = useUi((s) => s.evaluateAutoShow);
+  const onboardingOpen = useUi((s) => s.onboardingOpen);
   const autoStartLogs = useSettings(
     (s) => s.draft?.logs.autoStart ?? s.saved?.logs.autoStart ?? false,
   );
 
   useEffect(() => {
     const unsubscribe = subscribe();
-    void loadSettings();
-    void detectAdb().then(refresh);
+    void Promise.allSettled([loadSettings(), detectAdb().then(refresh)]).then(() =>
+      evaluateAutoShow(Object.keys(useDevices.getState().devices).length),
+    );
     return unsubscribe;
-  }, [subscribe, detectAdb, refresh, loadSettings]);
+  }, [subscribe, detectAdb, refresh, loadSettings, evaluateAutoShow]);
+
+  if (onboardingOpen) {
+    return (
+      <>
+        <OnboardingView />
+        <PairDialog />
+        <Toasts />
+      </>
+    );
+  }
 
   return (
     <>
