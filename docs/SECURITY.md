@@ -93,13 +93,31 @@ Remediation pass on 2026-10-26 after new RustSec advisories (published
   `zbus 6.0.0` upstream). Transitive via `notify-rust` in the pinned
   `tauri-plugin-notification 2.4.0`; no compatible upgrade exists and the
   advisories report no vulnerability.
+- **Accepted with justification (`deny.toml`, reviewed 2026-10-27):**
+  `RUSTSEC-2024-0429` (`glib 0.18.5` `VariantStrIter` iterator unsoundness).
+  The advisory is INFO/unsound, not a vulnerability; it is Linux-only (macOS
+  and Windows do not link glib), runtime-triggered inside `g_variant` string
+  iteration, and no code in this repository calls glib Variant APIs. `glib
+  0.18.5` is the latest release compatible with `gtk ^0.18`, which every
+  released Tauri version still requires (2.12.5 and 3.0.0-alpha.5), and the
+  gtk-rs `0.18` branches are frozen — no compatible upstream patch exists.
+  **Removal trigger:** drop the ignore when Tauri ships `gtk >= 0.19` (the
+  coordinated migration is in draft PRs: tauri #16170, wry #1843, tao #1332,
+  webkit2gtk-rs #167, muda #403, tray-icon #369, libappindicator-rs #53; the
+  team committed to the upgrade in tauri #16264 on 2026-10-12), then
+  `cargo update` and re-verify the advisory clears. The third-party
+  `glib-0.18-backport` source evaluated on 2026-10-08 was not adopted: it
+  keeps version 0.18.5 (so the audit still warns) and would add source-policy
+  and maintenance burden for an advisory of limited reach.
 
 No relabeled third-party licenses, unchecked source substitutions, or
-dependency forks were adopted. `RUSTSEC-2024-0429` (`glib` unsoundness) remains
-a visible audit warning: it is an unsoundness advisory, not a vulnerability,
-and fixing it requires the GTK3/GLib line described below. A backport must
-retain upstream notices and have a reproducible source, patch provenance,
-regression coverage, and native platform validation.
+dependency forks were adopted. `RUSTSEC-2024-0429` (`glib` unsoundness) is an
+accepted risk as of 2026-10-27: an ignored advisory in `deny.toml` with the
+justification and removal trigger above. It remains a visible `cargo audit`
+warning (`cargo audit` does not read `deny.toml` and the CI audit step does
+not ignore it) — that is intentional; the finding is acknowledged, not
+suppressed, and is tracked for removal when Tauri's gtk 0.19 migration
+ships.
 
 HTTP downloads and the updater use `native-tls`: platform certificate verification
 and hostname checking remain enabled. macOS uses Security Framework, Windows uses
@@ -123,12 +141,14 @@ and resolved by policy decision on 2026-10-12:
   drop-in dependency upgrade for the GTK3 stack. `glib-macros` also retains the
   unmaintained `proc-macro-error` dependency (`RUSTSEC-2024-0370`, ignored with
   justification in `deny.toml`).
-  **Open:** `RUSTSEC-2024-0429` (`glib` unsoundness) remains an audit warning
-  requiring a verified GLib backport or a maintained-bindings migration.
+  **Resolved by risk acceptance (2026-10-27):** `RUSTSEC-2024-0429` (`glib`
+  unsoundness) is ignored in `deny.toml` under the terms above; the exit path
+  is Tauri's upstream gtk 0.19/glib 0.22 migration, not a maintained backport.
 
 `cargo deny check` (advisories, bans, licenses, sources) passes with the updated
-policy. Long-term next steps are porting the GTK3 stack to maintained bindings or
-maintaining verified GLib backports. Security backports do not change the licenses
-of copied code. A Tauri 3 prerelease/GTK4 migration is a separate
-framework/toolchain/API change, not an automatic security patch; it also needs a
-fresh license-graph check.
+policy. The upstream remediation path is Tauri's coordinated gtk 0.19 migration
+(draft PRs listed above), after which the `RUSTSEC-2024-0429` ignore is removed
+and `cargo update` is expected to clear the warning. Security backports do not
+change the licenses of copied code. A Tauri 3 prerelease/GTK4 migration is a
+separate framework/toolchain/API change, not an automatic security patch; it
+also needs a fresh license-graph check.

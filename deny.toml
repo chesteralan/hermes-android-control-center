@@ -5,6 +5,22 @@ ignore = [
   # Transitive build-time dependency of glib-macros 0.18 (Tauri's GTK3 stack);
   # no upgraded release exists on the compatible line. Reviewed 2026-10-12.
   { id = "RUSTSEC-2024-0370", reason = "unmaintained transitive proc-macro dep of the Tauri/GTK3 stack with no compatible upgrade; build-time only, no known vulnerability" },
+  # RUSTSEC-2024-0429: glib VariantStrIter Iterator/DoubleEndedIterator
+  # unsoundness (INFO/unsound, not a vulnerability). Linux-only — macOS and
+  # Windows do not link glib — runtime-triggered in g_variant string iteration,
+  # and no code in this repository calls glib Variant APIs. glib 0.18.5 is the
+  # latest release compatible with gtk ^0.18, which every Tauri release still
+  # requires (2.12.5 stable and 3.0.0-alpha.5); the fix shipped only in glib
+  # >=0.20.0 and the gtk-rs 0.18 branches are frozen. Tauri's coordinated gtk
+  # 0.19/glib 0.22 migration is in draft PRs (tauri #16170, wry #1843,
+  # tao #1332, webkit2gtk-rs #167, muda #403, tray-icon #369,
+  # libappindicator-rs #53; commitment stated in tauri #16264). Remove this
+  # ignore when Tauri ships gtk >= 0.19. Note: cargo-deny does not report
+  # INFO/unsound-class advisories, so this entry renders as a benign
+  # "advisory-not-detected" note — it is the policy record for the advisory
+  # that cargo audit (local and the CI audit step) still reports by design.
+  # Reviewed 2026-10-27; see docs/SECURITY.md §6.
+  { id = "RUSTSEC-2024-0429", reason = "glib 0.18 VariantStrIter unsoundness is Linux-only, runtime-triggered, and unreachable from this codebase; 0.18.5 is the latest release compatible with Tauri's pinned gtk ^0.18 stack while the upstream gtk 0.19 migration lands" },
   # RUSTSEC-2026-0367/0368/0369: zip extract() symlink/permission/suid issues.
   # Our direct zip dep is 9.1.2 (fixed 2026-10-26); this copy is zip 4.6.1,
   # pinned by tauri-plugin-updater 2.13.1 (zip ^4) — no ^4 release is patched
