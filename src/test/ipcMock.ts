@@ -5,7 +5,7 @@ import { ACTIVE_KEY_STORAGE, useDevices } from "../stores/devices";
 import { useLogs } from "../stores/logs";
 import { useRoute } from "../stores/route";
 import { useSettings } from "../stores/settings";
-import { useUi } from "../stores/ui";
+import { ONBOARDING_DISMISS_STORAGE, useUi } from "../stores/ui";
 
 type Handler = (args: Record<string, unknown> | undefined) => unknown;
 
@@ -33,7 +33,8 @@ export function resetStores() {
   localStorage.removeItem(ACTIVE_KEY_STORAGE);
   useLogs.setState({ byDevice: {} });
   useSettings.setState({ saved: null, draft: null, error: null, saving: false });
-  useUi.setState({ pairTab: null });
+  useUi.setState({ pairTab: null, onboardingOpen: false });
+  localStorage.removeItem(ONBOARDING_DISMISS_STORAGE);
   useDeviceProfiles.setState({
     profiles: {},
     profileList: [],

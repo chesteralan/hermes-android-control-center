@@ -100,7 +100,7 @@ Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `rol
 ## In Progress
 
 - [~] [M10-T4 — Keyboard command palette and shortcut guide](tasks/M10-production.md): local keyboard/AX/contrast audit done 2026-10-14 (focus ring, ⌘K filter, dialog Tab trap, ARIA exposure, all text AA); form-boundary contrast fixed via `--color-border-strong`; manual VoiceOver walkthrough and Windows/Linux shortcut checks remain.
-- [~] [M10-T7 — Existing setup path; automatic wizard awaits M11](tasks/M10-production.md)
+- [~] [M10-T7 — First-run onboarding guide (fresh-profile takeover, setup choice, inline Termux/Hermes checks); packaged walkthrough remains](tasks/M10-production.md)
 - [~] [M10-T8 — About, version, and native app menu](tasks/M10-production.md)
 - [~] [M10-T9 — Tray status, named stop alerts, and persistent gateway timeline; packaged notification/runtime QA remains](tasks/M10-production.md)
 - [~] [M10-T10–T13 — Signing, universal build, updater, and release workflow](tasks/M10-production.md)

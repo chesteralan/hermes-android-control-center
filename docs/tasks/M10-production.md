@@ -281,7 +281,8 @@
 ### [~] M10-T7 First-run onboarding
 - Detect adb → pair/connect → "Set up this phone automatically" (M11 wizard) or "Already set up" (Termux setup check + Hermes detection) → done.
 - **Progress:** ADB detection, pairing/connection, Termux verification, and Hermes detection are available in the existing app flow.
-- **Remaining:** A consolidated first-run choice and automatic setup depend on the unimplemented M11 provisioning wizard.
+- **Progress (2026-10-27):** Consolidated first-run guide implemented. `OnboardingView` replaces the app shell on a fresh profile (zero devices and no recorded dismissal) with steps: adb detection (Detect again / Set ADB path remedies), phone pairing through the existing pair dialog, then the setup choice — "Set up this phone automatically" records dismissal and routes to the existing provisioning wizard, while "Already set up" runs inline Termux and Hermes checks (Finish when both pass, Finish anyway plus Open setup wizard when they fail or error). "Skip for now" and Finish persist the dismissal in localStorage; a "Start setup guide" button in the empty-device state re-opens the guide manually. Covered by 13 new tests (store/view unit tests, App takeover, manual entry); full frontend suite 210 passing, typecheck/lint/format clean.
+- **Remaining:** Packaged-build walkthrough on a fresh profile (M10 QA row); the automatic branch's depth is bounded by the M11 wizard's coverage.
 
 ### [~] M10-T8 App icon, About window, version display, menu bar items (Check for Updates, Settings ⌘,).
 - **Progress:** Existing app icons are bundled. About and the visible app version are implemented; native menu items provide About, Check for Updates, Settings (`CmdOrCtrl+,`), and Quit. The displayed version comes from `package.json`.

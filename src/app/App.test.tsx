@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { check } from "@tauri-apps/plugin-updater";
 import App from "../App";
 import { useRoute } from "../stores/route";
+import { ONBOARDING_DISMISS_STORAGE } from "../stores/ui";
+import { device, hermesStatus, info } from "../test/fixtures";
 import { mockIpc, resetStores } from "../test/ipcMock";
 
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
@@ -11,6 +13,8 @@ vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
 describe("App shell", () => {
   beforeEach(() => {
     resetStores();
+    // Shell tests cover the post-onboarding app; first-run tests clear this.
+    localStorage.setItem(ONBOARDING_DISMISS_STORAGE, "1");
     mockIpc({
       detect_adb: () => ({ path: "/opt/homebrew/bin/adb", version: "1.0.41", revision: null }),
       list_devices: () => [],
@@ -88,5 +92,48 @@ describe("App shell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Check for Updates" }));
     expect(await screen.findByText(/managed by your Linux package manager/)).toBeInTheDocument();
     expect(check).not.toHaveBeenCalled();
+  });
+});
+
+describe("first-run onboarding", () => {
+  beforeEach(() => {
+    resetStores();
+    mockIpc({
+      detect_adb: () => ({ path: "/opt/homebrew/bin/adb", version: "1.0.41", revision: null }),
+      list_devices: () => [],
+    });
+  });
+
+  it("takes over on a fresh profile until the guide is dismissed", async () => {
+    localStorage.removeItem(ONBOARDING_DISMISS_STORAGE);
+    render(<App />);
+    expect(
+      await screen.findByRole("heading", { name: "Set up your first phone" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the dashboard when the guide was dismissed", async () => {
+    localStorage.setItem(ONBOARDING_DISMISS_STORAGE, "1");
+    render(<App />);
+    expect(await screen.findByText("No phone connected")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Set up your first phone" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the dashboard when a phone is already known", async () => {
+    localStorage.removeItem(ONBOARDING_DISMISS_STORAGE);
+    mockIpc({
+      detect_adb: () => ({ path: "/opt/homebrew/bin/adb", version: "1.0.41", revision: null }),
+      list_devices: () => [device()],
+      get_device_info: () => info(),
+      get_hermes_status: () => hermesStatus(),
+    });
+    render(<App />);
+    expect(await screen.findByRole("navigation", { name: "Main" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Set up your first phone" }),
+    ).not.toBeInTheDocument();
   });
 });

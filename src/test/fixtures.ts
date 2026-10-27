@@ -1,4 +1,4 @@
-import type { AndroidDevice, DeviceInfo } from "../types";
+import type { AndroidDevice, DeviceInfo, HermesStatus } from "../types";
 
 export function device(over: Partial<AndroidDevice> = {}): AndroidDevice {
   return {
@@ -37,6 +37,23 @@ export function info(over: Partial<DeviceInfo> = {}): DeviceInfo {
       source: "sideloaded",
       companions: [],
     },
+    ...over,
+  };
+}
+
+export function hermesStatus(over: Partial<HermesStatus> = {}): HermesStatus {
+  return {
+    gateway: "running",
+    gatewayPid: 4242,
+    uptimeSecs: 120,
+    pythonVersion: "3.12",
+    processes: [],
+    platforms: [],
+    supervisor: { running: true, pid: 4242, recentRestarts: 0 },
+    warnings: [],
+    rawStatusOutput: null,
+    source: "termuxSsh",
+    checkedAt: 1761500000000,
     ...over,
   };
 }
