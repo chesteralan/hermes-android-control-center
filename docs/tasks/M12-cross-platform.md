@@ -40,8 +40,14 @@ Update (2026-10-12): the owner authorized a reviewed policy relaxation —
 `MPL-2.0` and `Apache-2.0 WITH LLVM-exception` are on the allowlist and
 `RUSTSEC-2024-0370` carries a justified ignore in `deny.toml`. `cargo deny check`
 now passes all categories; the Security job's Gitleaks failure was separately fixed
-with a full-history checkout. The `glib` unsoundness warning
-(`RUSTSEC-2024-0429`) remains open and is not covered by the relaxation.
+with a full-history checkout. At that time the `glib` unsoundness warning
+(`RUSTSEC-2024-0429`) remained open and was not covered by the relaxation.
+
+Update (2026-10-27): `RUSTSEC-2024-0429` received its own reviewed risk
+acceptance (justified ignore in `deny.toml`, removal trigger tied to Tauri's
+upstream gtk 0.19 migration) — see
+[strict remediation evidence](../SECURITY.md#6-strict-dependency-remediation).
+The `glib` warning remains visible in `cargo audit` output by design.
 
 A mocked-IPC browser smoke run at 1280x900 and the native 900x600 minimum verified
 vault consent, passphrase input clearing, locked state, package-update notice, and
