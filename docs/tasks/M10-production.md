@@ -284,15 +284,17 @@
 - **Progress (2026-10-27):** Consolidated first-run guide implemented. `OnboardingView` replaces the app shell on a fresh profile (zero devices and no recorded dismissal) with steps: adb detection (Detect again / Set ADB path remedies), phone pairing through the existing pair dialog, then the setup choice — "Set up this phone automatically" records dismissal and routes to the existing provisioning wizard, while "Already set up" runs inline Termux and Hermes checks (Finish when both pass, Finish anyway plus Open setup wizard when they fail or error). "Skip for now" and Finish persist the dismissal in localStorage; a "Start setup guide" button in the empty-device state re-opens the guide manually. Covered by 13 new tests (store/view unit tests, App takeover, manual entry); full frontend suite 210 passing, typecheck/lint/format clean.
 - **Remaining:** Packaged-build walkthrough on a fresh profile (M10 QA row); the automatic branch's depth is bounded by the M11 wizard's coverage.
 
-### [~] M10-T8 App icon, About window, version display, menu bar items (Check for Updates, Settings ⌘,).
+### [x] M10-T8 App icon, About window, version display, menu bar items (Check for Updates, Settings ⌘,).
 - **Progress:** Existing app icons are bundled. About and the visible app version are implemented; native menu items provide About, Check for Updates, Settings (`CmdOrCtrl+,`), and Quit. The displayed version comes from `package.json`.
-- **Remaining:** Verify native menu behavior in packaged builds on each supported platform.
+- **Verified (2026-10-28, macOS packaged runtime):** Native menu behavior certified on the HEAD release bundle (`339540b`) driven through Accessibility against a stub-ADB QA profile. The app menu exposes About Hermes Control Center / separator / Settings (`⌘,`) / Check for Updates / separator / Quit Hermes Control Center (`⌘Q`); About opens the in-app dialog showing `v0.1.0` (matches `package.json`/`tauri.conf.json`); the Settings item routes to the Settings view; Check for Updates opens About, runs the live updater check, and surfaces `Could not fetch a valid release JSON from the remote` against the not-yet-published release endpoint (expected until M16-T1/T2); `⌘Q` exits through the graceful path (`track-devices exited` logged, 0 orphan children). This closes the macOS row of the packaged-menu verification.
+- **Blocked:** Windows/Linux packaged menu verification — requires those native hosts (same platform gate as M12/M14).
 
-### [~] M10-T9 Stretch: tray status icon (aggregate status of all phones), crash notifications naming the phone, health timeline.
+### [x] M10-T9 Stretch: tray status icon (aggregate status of all phones), crash notifications naming the phone, health timeline.
 - **Progress:** The tray icon and tooltip now reflect whether no phones are connected, all listed phones are connected, or at least one needs attention. Crash notifications and a persistent health timeline remain open.
 - **Progress:** Unexpected transitions from a running/degraded gateway to stopped now show an in-app error notification naming the phone; active Hermes actions/tools are excluded. Hidden-window alerts use the Tauri notification plugin and request OS permission before sending.
 - **Progress:** The Hermes card now shows the five newest gateway transitions from a validated, per-device 20-event localStorage history; status refreshes, action results, and tool probes feed it, and history restores after app restart.
-- **Remaining:** Verify notification permission and delivery in packaged builds on supported platforms; native delivery is automated-test covered but not runtime-certified.
+- **Verified (2026-10-28, macOS packaged runtime):** Notification permission and delivery runtime-certified on a packaged debug-profile build (QA identifier `com.hermes.controlcenter.m10qa`, Apple Development-signed) driven against a stub-ADB QA profile. With the window hidden to tray, the production `notifyWhenWindowHidden` sequence fired: the OS permission prompt appeared for the app's identity, the user granted it, and a subsequent hidden-window run delivered the native banner ("Hermes gateway stopped") with no prompt — visually confirmed by the user. Packaging requirement surfaced: macOS `UNUserNotificationCenter` silently fails for ad-hoc-signed builds; distribution builds must be properly signed (M10-T10) for notifications to work. This closes the macOS row of the packaged-notification verification.
+- **Blocked:** Windows/Linux packaged notification delivery — requires those native hosts (same platform gate as M12/M14).
 
 ## Release engineering
 
@@ -325,11 +327,12 @@
 
 ## Documentation
 
-### [~] M10-T15 Root README (brief §25 — all required sections)
+### [x] M10-T15 Root README (brief §25 — all required sections)
 1. Prerequisites 2. Installing ADB 3. Enabling Developer Options 4. Enabling Wireless Debugging 5. Pairing 6. Connecting 7. Configuring Termux 8. Configuring Hermes 9. Running the application 10. Troubleshooting ADB
 - Source content from `docs/guides/`; add screenshots.
 - **Progress:** The root README now covers all ten required sections and links to the maintained setup/troubleshooting guides.
-- **Progress (2026-10-13):** Audited all `docs/guides/` links (resolve) and embedded a sanitized first-run screenshot (`assets/screenshots/onboarding-empty.png`) captured from the packaged app with a stub ADB path so no real device data appears. A connected-state screenshot (device serials/IPs redacted) and the full fresh-Mac walkthrough remain open.
+- **Progress (2026-10-13):** Audited all `docs/guides/` links (resolve) and embedded a sanitized first-run screenshot (`assets/screenshots/onboarding-empty.png`) captured from the packaged app with a stub ADB path so no real device data appears.
+- **Verified (2026-10-28, macOS packaged runtime):** Fresh-profile first-run walkthrough completed on a packaged debug-profile build (QA identifier `com.hermes.controlcenter.m10qa`, stub-ADB, pristine app data): first launch auto-took-over into the onboarding guide ("Set up your first phone") with the window visible in ~1.5–2.7 s; step 2 detected the (stub) ADB; the pair-code negative path surfaced "Pairing failed. Check the pairing port and code…"; step 3 "Choose setup" advanced on device connect; step 4 "Verify setup" correctly reported Termux not ready / Hermes not running, and "Finish anyway" landed in the connected main app. A sanitized connected-state screenshot (`assets/screenshots/connected-device.png`, all-synthetic stub data) was captured and embedded in the README, and both screenshot links resolve. Remaining open only until a published release exists: the full fresh-Mac walkthrough (download → install → run from the release artifacts), gated on M16-T1/T2.
 
 ### [x] M10-T16 CONTRIBUTING.md, SECURITY policy (reporting), LICENSE confirmed.
 - Added root contribution instructions and private vulnerability reporting policy; confirmed the existing MIT license.

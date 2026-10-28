@@ -1,6 +1,6 @@
 # Open Work
 
-Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-26. The linked milestone task files remain the source of truth; update this index when their status changes.
+Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-28. The linked milestone task files remain the source of truth; update this index when their status changes.
 
 Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need new evidence or a supported environment before implementation can proceed.
 
@@ -19,6 +19,8 @@ Recorded from live QA on two connected phones (OnePlus CPH2239, Android 11; Sams
 Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `role="tab"` div dispatches to its first button child (the × close button), and backgrounded pixel clicks no-op on this WKWebView — direct tab-click behavior needs a human verification (pending). cua-driver also lost its Accessibility grant during the session (re-grant in System Settings if further GUI automation is needed).
 
 ## Recently Completed
+
+- [x] [M10-T8/T9/T15 — Packaged-runtime closeout (2026-10-28)](tasks/M10-production.md): **T8** — native app menu certified on the packaged macOS build via Accessibility: About/Settings (`⌘,`)/Check for Updates/Quit (`⌘Q`) structure, About dialog showing `v0.1.0`, Settings routing to the Settings view, Check for Updates surfacing the expected pre-release endpoint error, and `⌘Q` graceful quit with 0 orphans. **T9** — notification permission and delivery runtime-certified on a packaged (Apple Development-signed) build: OS permission prompt granted, hidden-window run delivered the native banner through the production `notifyWhenWindowHidden` path; ad-hoc-signed builds silently fail `UNUserNotificationCenter`, so proper signing (M10-T10) is a packaging requirement. **T15** — fresh-profile first-run walkthrough on a packaged QA build (auto-onboarding takeover in ~1.5–2.7 s, ADB detection, pair-code negative path, choose/verify steps, finish → connected main app); new sanitized connected-state screenshot (`assets/screenshots/connected-device.png`) embedded in the README and all asset links verified. Windows/Linux rows and the published-release fresh-Mac walkthrough (M10 exit check) remain platform/release-gated.
 
 - [x] [M10-T2 — Security review closed (2026-10-27)](tasks/M10-production.md): the last open item — the `glib` unsoundness (`RUSTSEC-2024-0429`) remediation path — resolved as a reviewed risk acceptance. Re-verified upstream: no `glib 0.18.6`, gtk-rs `0.18` branches frozen since 2023-12-30, and every released Tauri line (2.12.5 stable, 3.0.0-alpha.5, wry 0.57.1) still requires `gtk ^0.18` → `glib ^0.18`; Tauri's coordinated gtk 0.19 migration is in draft PRs (tauri #16170, wry #1843, tao #1332, webkit2gtk-rs #167, muda #403, tray-icon #369, libappindicator-rs #53) with a team commitment recorded in tauri #16264. The advisory is INFO/unsound, Linux-only, runtime-triggered, and unreachable from this codebase. `deny.toml` now carries a justified ignore with a removal trigger (drop when Tauri ships `gtk >= 0.19`); SECURITY.md §6 records the decision. The third-party glib-0.18-backport was evaluated and not adopted. `cargo deny check` passes all categories; CI Security job passes on `main`. All earlier T2 items (CI scanners, built-app CSP review, capability review, diagnostics archive, dependency-policy resolution) were already closed on 2026-10-12/14.
 
@@ -101,10 +103,7 @@ Automation artifacts (not app defects): WebKit `AXPress` on the tab strip's `rol
 
 - [~] [M10-T4 — Keyboard command palette and shortcut guide](tasks/M10-production.md): local keyboard/AX/contrast audit done 2026-10-14 (focus ring, ⌘K filter, dialog Tab trap, ARIA exposure, all text AA); form-boundary contrast fixed via `--color-border-strong`; manual VoiceOver walkthrough and Windows/Linux shortcut checks remain.
 - [~] [M10-T7 — First-run onboarding guide (fresh-profile takeover, setup choice, inline Termux/Hermes checks); packaged walkthrough remains](tasks/M10-production.md)
-- [~] [M10-T8 — About, version, and native app menu](tasks/M10-production.md)
-- [~] [M10-T9 — Tray status, named stop alerts, and persistent gateway timeline; packaged notification/runtime QA remains](tasks/M10-production.md)
 - [~] [M10-T10–T13 — Signing, universal build, updater, and release workflow](tasks/M10-production.md)
-- [~] [M10-T15 — Root README](tasks/M10-production.md)
 - [~] M11 T2/T14 per-phone HermesConfig persistence: DeviceProfile schema, IPC, profile editor, and the wizard → profile handoff (recipe-derived `HermesConfig` saved into `devices[device_id].hermes` on Verify + start success, 2026-10-26) are implemented; connected-phone acceptance of the saved override remains.
 
 ## Blocked
