@@ -113,9 +113,9 @@ Mirrors Android's "Pair device with QR code" flow:
 - Device card (status, model, Android, IP) + placeholders for Hermes and Recent Logs.
 
 ## Exit check
-- [ ] Replace `adb devices`, `adb pair`, `adb connect`, `adb disconnect` with the UI on a real phone.
-- [ ] Pair a fresh phone via QR code and via pairing code, starting from the no-devices screen.
-- [ ] Toggle wireless debugging off → Disconnected → reconnect attempts → Retry works.
+- [x] Replace `adb devices`, `adb pair`, `adb connect`, `adb disconnect` with the UI on a real phone.
+- [~] Pair a fresh phone via QR code and via pairing code, starting from the no-devices screen. Both pairing paths were live-verified on 2026-10-29 (see the record below) on an already-paired phone; pairing from a factory-reset device remains phone-gated.
+- [x] Toggle wireless debugging off → Disconnected → reconnect attempts → Retry works.
 - [ ] CI green, tag `v0.1.0-alpha.2`.
 
 ## Live QA record (2026-10-07)
@@ -126,3 +126,12 @@ Mirrors Android's "Pair device with QR code" flow:
 - Fixed manual-disconnect tracking across ADB auto-reconnect, IP/mDNS serial aliases, and IDs learned after a refresh; Retry now refreshes the registry before starting a reconnect supervisor.
 - Verification: 241 Rust tests (single-threaded), 55 ADB tests, 7 device-registry tests, 17 device UI tests, formatting, and strict Clippy pass.
 - Still pending: fresh-phone pairing via QR and code, plus Wireless debugging off/on recovery. Only the already-paired CPH2239 was attached; no `v0.1.0-alpha.2` tag was created because the repository has advanced beyond that historical milestone. Current strict CI/release gates remain required before any public release.
+
+## Live QA record (2026-10-29)
+Ran the full exit check on the packaged macOS build (HEAD) with two live phones over Wireless debugging: OnePlus CPH2239 (Android 11) and Samsung SM-T225 (Android 14), both auto-connected at launch with the device list and tabs showing each phone's identity and state.
+- **UI replaces adb:** disconnecting the SM-T225 through the tab-close confirmation (named-phone dialog) left it **Disconnected** while the CPH2239 stayed connected; the reconnect supervisor ran its ladder ("Reconnecting (attempt 5/8, next in 30s)", then "Automatic reconnection gave up."), and the manual **Retry** restored **Connected** in ~5 s through the mDNS alias with a single device identity.
+- **mDNS Discover:** listed both connect services (`192.168.0.107:46047`, `192.168.0.108:42471`), matching `adb mdns services` exactly.
+- **QR pairing:** the phone scanned the app's QR dialog → pairing accepted at the adb level, a new transport (`192.168.0.108:43601`) connected, and the app's pair dialog auto-closed. The re-paired transport deduped under the same SM-T225 identity (still two phones/tabs — no phantom duplicate).
+- **Pairing-code pairing:** the app's Pairing-code tab invoked `adb pair` with the phone's code/port; the phone dismissed its pairing screen on acceptance and the app dialog closed without error (failure keeps the dialog open with "Pairing failed…", reproduced separately with the stub). Same caveat as 2026-10-07: this re-paired an already-trusted phone; a factory-fresh pairing still needs a reset device.
+- **Wireless-debugging toggle recovery:** toggling wireless debugging OFF dropped the transport (supervisor entered the reconnect ladder above); toggling ON re-advertised the service on a **rotated port (39671)**, and the supervisor auto-recovered through the mDNS alias without manual Retry.
+- The `v0.1.0-alpha.2` tag row remains release-gated and unchanged.
