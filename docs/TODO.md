@@ -1,8 +1,23 @@
 # Open Work
 
-Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-28. The linked milestone task files remain the source of truth; update this index when their status changes.
+Consolidated snapshot of unfinished task headings and milestone exit checks as of 2026-10-29. The linked milestone task files remain the source of truth; update this index when their status changes.
 
 Status: `[ ]` open, `[~]` in progress, `[!]` blocked. Items marked blocked need new evidence or a supported environment before implementation can proceed.
+
+## Live phone QA findings (2026-10-29, CPH2239, packaged build)
+
+Live pass over M2/M5/M7/M8/M13 against Hermes v0.21.4 in proot-distro Debian, driven through the packaged macOS build and real `adb`/SSH. Full evidence is in the per-milestone records (`tasks/M5-hermes.md`, `tasks/M7-logs.md`, `tasks/M8-control-api.md`, `tasks/M13-chat-sessions.md`).
+
+1. **[OPEN] Hermes Restart / Restart now always fail with exit 5.** `restart_command` builds `if ! S=$(cat ~/.hacc/hermes-supervisor.pid); [ -n "$S" ] && kill -0 "$S"; then … exit 5; fi`. The `!` negates the whole list, which succeeds when the supervisor is alive, so the "not supervised" branch always runs. Reproduced over SSH with a live pid file (`kill -0` = 0, branch still taken). Stop is unaffected because it uses the same check without `!`. Fix: group the check or test liveness directly; add a unit test that runs the generated script under `bash` with a live PID.
+2. **[OPEN] Session browser never shows sessions on a real phone.** `sessions.rs` starts `hermes serve` inside a short-lived `proot-distro login`; `proot --kill-on-exit` kills the server when the probe exits, and startup here exceeds the 40 s deadline. With a persistent server the app's own request script returns `/api/sessions` in 3 s. Fix the server lifecycle (start it detached inside the proot session or reuse a long-lived server) and surface the timeout instead of an empty list. The parser is compatible with the live v0.21.4 payload.
+3. **[OPEN] The Logs "Supervisor" source streams 0 lines and reports no error.** `TransportCommandLogSource::stream` discards every transport error (`Err(_) => {}`) and the UI has no "stream failed" state, so a bad command looks like an idle log. Surface the error and/or fix the command for the source.
+4. **[OPEN] Doctor cannot finish through the app.** The action timeout is 30 s; `hermes doctor` needs >120 s on this phone. Either raise/stream the timeout or label Doctor as long-running.
+5. **[OPEN] Provisioning accepts an unusable provider key silently.** The wizard completed with `OPENROUTER_API_KEY` = a 34-char placeholder (`fdadsf…`); the first chat then fails with `credentials or agent init failed` / provider `HTTP 401`. A key-shape check plus a live validation call at provisioning time would catch this earlier.
+6. **[OPEN] Logs export appends the extension twice** (`gateway-warn-only.log.log`) when the chosen file name already ends in `.log`/`.jsonl`. Cosmetic; fix in the save-panel default name.
+7. **[NOT A DEFECT] Desktop AX/screenshot failures during the pass** were caused by the macOS session locking (`CGSSessionScreenIsLocked`), not by the app; AX trees collapse to the menu bar and ScreenCaptureKit refuses windows while locked.
+
+M8 status: token auth, structured `/status`, and live `stop`/`start`/`restart` transitions verified over the Control API (new gateway PID, supervisor log evidence). The in-app install/`Test` buttons remain unverified; the phone has no `python-aiohttp` package, so the venv `pip install` path is the one that works.
+
 
 ## Wave 1 live multi-device QA findings (2026-10-19) — all fixed
 

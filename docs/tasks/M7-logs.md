@@ -57,3 +57,32 @@
 ## Exit check
 - [ ] All brief §8 requirements demonstrable on real Hermes logs.
 - **Remaining verification:** Run the source picker against live Hermes gateway/tool logs. The currently connected phone had an active Hermes session but no SSHD listener during the safe provisioning probe, so no live log command was sent.
+
+## Live QA — 2026-10-29 (CPH2239, packaged macOS build)
+
+Source: `Hermes gateway` (`tail -n 200 -F /root/.hermes/logs/gateway.log` inside proot) and
+`Supervisor` (`~/.hacc/supervisor.log`), driven through the app UI against Hermes v0.21.4.
+
+- **Stream start:** 105 tail lines rendered on source selection; new lines continued to arrive.
+- **Pause / resume:** pausing froze the view; after a real gateway restart (SIGUSR1, new PID) the
+  pause banner read `Resume · 9 new`; resuming appended the 9 buffered lines and live tailing
+  continued across the PID change.
+- **Search:** plain-text search matched; regex search matched; an invalid pattern (`[`) surfaced
+  `Invalid regular expression.` without breaking the stream.
+- **Level filter:** WARN/INFO/DEBUG/ERROR chips toggled and their per-level counts updated.
+- **Copy visible:** with WARN-only filtering, `Copy visible` put exactly the 10 visible WARN lines on
+  the clipboard; the raw export of the same view was `gateway-warn-only.log.log` (1 879 bytes).
+- **Export:** the native save panel wrote the filtered raw log and the toast reported
+  `Logs exported`. The dialog appends the selected extension to a name that already has it
+  (`...log.log`) — cosmetic, not a data problem.
+- **Tool calls / JSONL export:** not exercised (native-popup automation limits in this session).
+- **Supervisor source:** registers without an error but renders **0 lines**, even while
+  `~/.hacc/supervisor.log` has fresh entries. The source goes through
+  `TransportCommandLogSource::stream`, whose reconnect loop discards every error
+  (`Err(_) => reconnecting = connected`, `src-tauri/src/logs/transport_command.rs`) and never
+  surfaces a reason, so a failing command looks like an idle stream. No user-visible error is shown.
+- **Auto-start:** left off (`logs.autoStart: false`) for these runs; not re-verified live.
+
+Exit check stays `[~]`: the brief §8 behaviours are demonstrated on real gateway logs, but the
+supervisor source is a silent zero-line stream, and tool-call source plus JSONL export were not
+exercised on-device.

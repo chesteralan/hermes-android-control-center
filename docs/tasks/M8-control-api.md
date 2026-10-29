@@ -66,5 +66,37 @@
 
 ## Exit check
 
-- [~] Verify Hermes start/stop/restart state transitions on a connected Android device; API Test, token auth, structured status without SSH fallback, and gateway-log streaming have been exercised.
+- [~] Verify Hermes start/stop/restart state transitions on a connected Android device; API Test, token auth, structured status without SSH fallback, and gateway-log streaming have been exercised. Start/stop/restart transitions now verified live on 2026-10-29; the in-app Test button and install/upgrade path remain unverified.
 - **QA note:** On the OPPO CPH2239, the QA app reached Control API 0.1.0 through ADB forwarding; unauthenticated `/health` returned 401. With SSH fallback disabled, Hermes status refreshed to the same stopped gateway state observed over SSH. The gateway-log WebSocket delivered its 200-line tail and was stopped cleanly. Start/stop/restart transitions remain untested to avoid starting a real Hermes gateway and its integrations.
+
+## Live QA — 2026-10-29 (CPH2239, packaged macOS build)
+
+The service from `android/hermes-control/src` was run on the phone (Termux `python3` 3.14.8 with
+`aiohttp` 3.14.5 from PyPI; there is no `python-aiohttp` package in this mirror) with a loopback
+config on port 8765, token auth on, `environment = proot-distro`, `distro = debian`,
+`process_match = hermes/tools/python`, `gateway_match = "-I -c"`, and reached from macOS through
+`adb forward tcp:8765 tcp:8765`.
+
+- **Token auth:** `GET /health` without a token → **401**; with `Authorization: Bearer <token>` →
+  **200** `{"ok": true, "version": "0.1.0"}`.
+- **Structured status:** `GET /status` → `gateway: running`, `gatewayPid: 31689`, one process with
+  the Hermes python cmdline, `source: api`, no warnings. State is read without SSH.
+- **Stop:** `POST /stop` → exit 0, stdout `stopped`; status `stopped`, no PIDs; the supervisor log
+  recorded `gateway exited code=1` → `stopped on request`, and `pgrep` found 0 gateways.
+- **Start:** `POST /start` → exit 0, stdout = supervisor PID `5036`; status immediately `running`
+  with gateway PID `5048`.
+- **Restart (graceful):** `POST /restart` → exit 0, stdout `restarted`; status briefly `stopped`,
+  then `running` with a **new** PID `5078`; supervisor log
+  `gateway exited code=0` → `restarting in 2s` → `starting gateway`. This is the state transition
+  the exit check asked for.
+- **Not verified in-app:** the Settings install/upgrade flow and its "Test" button (the app had to
+  be driven through a native select, and the desktop session locked before this step). The service
+  was launched manually (`setsid … < /dev/null`) because `sv`/`runsvdir` are not available from a
+  non-login Termux SSH session (`SVDIR`/`PREFIX` unset in that context).
+- **Install script note:** `install.sh` requires `termux-services` (`pkg install termux-services`)
+  and a venv; on this phone `pkg install python-aiohttp` fails (package not in the mirror), while
+  `pip install aiohttp` resolves an `android_24_arm64_v8a` wheel, so the venv-based install path is
+  the one that works here.
+
+Exit check stays `[~]` only for the in-app Test and install/upgrade rows; token auth, structured
+status, and start/stop/restart transitions are now live-verified.
