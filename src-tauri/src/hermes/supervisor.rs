@@ -38,7 +38,11 @@ rm -f "$D/hermes-supervisor.pid"
 }
 
 fn sup_pid_check() -> String {
-    format!("S=$(cat ~/{DIR}/hermes-supervisor.pid 2>/dev/null); [ -n \"$S\" ] && kill -0 \"$S\" 2>/dev/null")
+    // Grouped so `! {sup}` negates the whole liveness test instead of just the
+    // assignment; a bare `A; B` list is decided by B alone.
+    format!(
+        "{{ S=$(cat ~/{DIR}/hermes-supervisor.pid 2>/dev/null); [ -n \"$S\" ] && kill -0 \"$S\" 2>/dev/null; }}"
+    )
 }
 
 fn gateway_pids(cfg: &HermesConfig) -> String {
@@ -125,6 +129,76 @@ mod tests {
         assert!(c.contains("nohup setsid sh ~/.hacc/hermes-supervisor.sh"));
         assert!(c.contains("supervisor already running"));
         assert!(c.contains("started outside the app"));
+    }
+
+    /// The restart guard must treat a live supervisor PID as supervised. The
+    /// generated script used to negate a `;` list (`! A; B`), so the condition
+    /// was decided by the *last* command and the "not supervised" branch ran
+    /// even when the PID was alive (live QA 2026-10-29, exit code 5).
+    #[cfg(unix)]
+    #[test]
+    fn restart_reaches_a_live_supervisor() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!("hacc-restart-sup-{}", std::process::id()));
+        let home = root.join("home");
+        let bin = root.join("bin");
+        std::fs::create_dir_all(home.join(".hacc")).unwrap();
+        std::fs::create_dir_all(&bin).unwrap();
+
+        let mut supervisor = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let mut gateway = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        std::fs::write(
+            home.join(".hacc/hermes-supervisor.pid"),
+            supervisor.id().to_string(),
+        )
+        .unwrap();
+
+        // `pgrep` is stubbed: the script only needs one live gateway PID.
+        let pgrep = bin.join("pgrep");
+        let mut stub = std::fs::File::create(&pgrep).unwrap();
+        writeln!(stub, "#!/bin/sh\necho {}", gateway.id()).unwrap();
+        drop(stub);
+        std::fs::set_permissions(&pgrep, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let output = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(restart_command(&HermesConfig::default(), false))
+            .env("HOME", &home)
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    bin.display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .output()
+            .unwrap();
+
+        let _ = supervisor.kill();
+        let _ = gateway.kill();
+        let _ = supervisor.wait();
+        let _ = gateway.wait();
+        let _ = std::fs::remove_dir_all(&root);
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            !stdout.contains("not supervised"),
+            "live supervisor must not hit the guard: {stdout}"
+        );
+        assert!(
+            stdout.contains("sent TERM"),
+            "restart must signal the gateway: {stdout}"
+        );
+        assert_eq!(output.status.code(), Some(0), "stdout={stdout}");
     }
 
     #[test]
