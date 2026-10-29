@@ -18,6 +18,7 @@ src-tauri/bindings
 # Isolated worktrees and SDD scratch
 .worktrees/
 .superpowers/
+.commandcode/
 
 # Editor directories and files
 .vscode/*

@@ -69,6 +69,10 @@ The first-run window (no phone connected yet):
 
 ![Hermes Control Center with no phone connected: Pair, Pair with code, Connect by IP, and Discover actions](assets/screenshots/onboarding-empty.png)
 
+With a phone connected, the Dashboard shows live device details and setup status:
+
+![Hermes Control Center dashboard with a connected phone: Android device details, battery and storage, Termux status, and the Hermes Agent card](assets/screenshots/connected-device.png)
+
 ## 1. Prerequisites
 
 - macOS 13 or newer for the current release target.

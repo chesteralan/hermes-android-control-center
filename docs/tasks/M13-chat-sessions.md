@@ -78,3 +78,40 @@
 - [x] Session-list and transcript limits are documented and tested.
 - [ ] Supported Hermes versions are documented and tested across the supported range.
 - [ ] All M12-supported desktop platforms pass CI and manual connected-phone QA.
+## Live QA — 2026-10-29 (CPH2239, packaged macOS build)
+
+Hermes v0.21.4, session store `/root/.hermes/state.db` (table `sessions`, key `id`).
+
+- **Chat turn end-to-end (UI):** sending `Reply with exactly: M13 live QA session` started a real
+  `hermes chat --format stream-json --source cli --query …` run, showed `Stop response` while
+  streaming, cleared it on completion, and rendered the user turn plus the assistant error turn.
+  The run created session `20261029_040952_fded63` (`source: cli`, `message_count: 2`, title
+  derived from the prompt) — so app→Hermes→session-store plumbing works.
+- **Assistant reply failed for a credential reason, not a bug:** Hermes returned
+  `credentials or agent init failed`; a direct CLI repro produced
+  `OpenRouter rejected your API key… HTTP 401: Missing Authentication header`. The phone's
+  `/root/.hermes/.env` holds `OPENROUTER_API_KEY` with a placeholder value (length 34, `fdadsf…`).
+  The provider + model (`openrouter`, `anthropic/claude-sonnet-4.5`) are configured correctly.
+- **Session list path (app's own code, live):** running the exact `API_REQUEST_SCRIPT` from
+  `src-tauri/src/commands/sessions.rs` inside the phone returned `{"sessions":[{…}]}` with the
+  session above in **3 s**, including `id`, `source`, `created_source`, `title`, `message_count`,
+  `model`, and `last_activity_at: null`. `parse_sessions` maps that shape (id/title/source/model/
+  message_count/last_active), so the parser is compatible with the live payload.
+- **Why the in-app list stayed empty:** `sessions.rs` spawns
+  `hermes serve --host 127.0.0.1 --port 9119 --skip-build` from inside a short-lived
+  `proot-distro login` probe. `proot-distro` runs `proot --kill-on-exit`, so the server dies as soon
+  as the probe exits; on this phone `hermes serve` also needs longer than the 40 s startup deadline.
+  With a persistent server started separately from Termux (`setsid proot-distro login …
+  hermes serve --port 9119`), `/api/health` is 200 and the app's request succeeds; without it,
+  every refresh pays the 40 s deadline + 60 s request timeout and the sidebar ends up with no rows.
+  This is a confirmed defect in the session-server lifecycle, not in the parser.
+- **Resume plumbing:** the transcript/resume path could not be completed in the UI because the list
+  never populated and the desktop session locked; the CLI-side resume form
+  (`--resume 20261029_040952_fded63`) is what the command builder emits. A real reply also needs a
+  valid OpenRouter key.
+- **Gateway-created sessions:** not obtainable on this device — the gateway logs
+  `No messaging platforms enabled`, so no platform session can be created.
+
+Exit check impact: the first row (session browser shows app-created **and** gateway-created
+sessions with previews) remains `[ ]`; app-created sessions are not visible in the UI because of the
+session-server lifecycle defect, and gateway sessions do not exist here by configuration.

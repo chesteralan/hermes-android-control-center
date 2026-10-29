@@ -14,6 +14,8 @@ const INITIAL_BACKOFF: Duration = Duration::from_millis(250);
 const MAX_BACKOFF: Duration = Duration::from_secs(8);
 const OUTPUT_BUFFER: usize = 4096;
 const RECONNECTED_MARKER: &str = "[log stream reconnected]";
+/// Uppercase `ERROR` so the shared parser classifies the notice as an error.
+const FAILURE_PREFIX: &str = "[log stream] ERROR";
 
 pub struct TransportCommandLogSource {
     transport: Arc<dyn DeviceTransport>,
@@ -74,6 +76,27 @@ async fn send_line(
     }
 }
 
+async fn emit_failure(
+    sender: &mpsc::Sender<LogLine>,
+    cancel: &CancellationToken,
+    stream_cancel: &CancellationToken,
+    parser: &mut LogLineParser,
+    last_failure: &mut Option<String>,
+    error: &str,
+) -> bool {
+    let message = format!("{FAILURE_PREFIX} {error}");
+    if last_failure.as_deref() == Some(message.as_str()) {
+        return true;
+    }
+    for line in parser.push_standalone(now_ms(), &message) {
+        if !send_line(sender, cancel, stream_cancel, line).await {
+            return false;
+        }
+    }
+    *last_failure = Some(message);
+    true
+}
+
 #[async_trait]
 impl LogSource for TransportCommandLogSource {
     fn name(&self) -> String {
@@ -95,6 +118,7 @@ impl LogSource for TransportCommandLogSource {
             let mut parser = LogLineParser::new(true);
             let mut connected = false;
             let mut reconnecting = false;
+            let mut last_failure: Option<String> = None;
             let mut backoff = initial_backoff;
 
             loop {
@@ -115,6 +139,7 @@ impl LogSource for TransportCommandLogSource {
                             }
                         }
                         connected = true;
+                        last_failure = None;
 
                         let mut ended = false;
                         while !ended {
@@ -133,9 +158,29 @@ impl LogSource for TransportCommandLogSource {
                                         }
                                     }
                                 }
-                                Some(StreamEvent::Exit { .. })
-                                | Some(StreamEvent::Error { .. })
-                                | None => {
+                                Some(StreamEvent::Error { error }) => {
+                                    if !emit_failure(
+                                        &sender,
+                                        &cancel,
+                                        &stream_cancel,
+                                        &mut parser,
+                                        &mut last_failure,
+                                        &error.message,
+                                    )
+                                    .await
+                                    {
+                                        return;
+                                    }
+                                    if let Some(parsed) = parser.finish() {
+                                        if !send_line(&sender, &cancel, &stream_cancel, parsed)
+                                            .await
+                                        {
+                                            return;
+                                        }
+                                    }
+                                    ended = true;
+                                }
+                                Some(StreamEvent::Exit { .. }) | None => {
                                     if let Some(parsed) = parser.finish() {
                                         if !send_line(&sender, &cancel, &stream_cancel, parsed)
                                             .await
@@ -155,8 +200,20 @@ impl LogSource for TransportCommandLogSource {
                         }
                         reconnecting = connected;
                     }
-                    Err(_) => {
+                    Err(error) => {
                         reconnecting = connected;
+                        if !emit_failure(
+                            &sender,
+                            &cancel,
+                            &stream_cancel,
+                            &mut parser,
+                            &mut last_failure,
+                            &error.to_string(),
+                        )
+                        .await
+                        {
+                            return;
+                        }
                     }
                 }
 
@@ -391,6 +448,67 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn surfaces_a_transport_failure_instead_of_an_empty_stream() {
+        let transport = Arc::new(FailingTransport {
+            starts: AtomicUsize::new(0),
+        });
+        let source = TransportCommandLogSource::with_backoff(
+            transport,
+            "tail -F app.log",
+            Duration::from_millis(10),
+            Duration::from_millis(40),
+        );
+        let cancel = CancellationToken::new();
+        let mut lines = source.stream(cancel.clone()).await.unwrap();
+        tokio::task::yield_now().await;
+
+        let notice = tokio::time::timeout(Duration::from_secs(1), lines.recv())
+            .await
+            .expect("a failing stream must not block forever without a line")
+            .expect("a failing stream must not look like an idle log");
+        assert_eq!(notice.level, Some(crate::logs::LogLevel::Error));
+        assert!(
+            notice.message.contains("test retry"),
+            "message should name the failure: {}",
+            notice.message
+        );
+
+        cancel.cancel();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reports_the_same_failure_once_per_outage() {
+        let transport = Arc::new(FailingTransport {
+            starts: AtomicUsize::new(0),
+        });
+        let source = TransportCommandLogSource::with_backoff(
+            transport.clone(),
+            "tail -F app.log",
+            Duration::from_millis(10),
+            Duration::from_millis(40),
+        );
+        let cancel = CancellationToken::new();
+        let mut lines = source.stream(cancel.clone()).await.unwrap();
+        tokio::task::yield_now().await;
+
+        tokio::time::timeout(Duration::from_secs(1), lines.recv())
+            .await
+            .expect("first failure is surfaced within the retry window")
+            .expect("first failure is surfaced");
+        for _ in 0..3 {
+            tokio::time::advance(Duration::from_millis(40)).await;
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            lines.try_recv().is_err(),
+            "an unchanged failure must not spam one line per retry"
+        );
+        assert!(transport.starts.load(Ordering::SeqCst) > 1);
+
+        cancel.cancel();
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn retries_with_exponential_backoff_capped_at_maximum() {
         let transport = Arc::new(FailingTransport {
             starts: AtomicUsize::new(0),
@@ -413,6 +531,12 @@ mod tests {
         }
 
         cancel.cancel();
-        assert!(output.recv().await.is_none());
+        while let Some(line) = output.recv().await {
+            assert!(
+                line.message.starts_with(FAILURE_PREFIX),
+                "only failure notices may follow the retries: {}",
+                line.message
+            );
+        }
     }
 }

@@ -113,11 +113,51 @@ pub struct HermesStatus {
 - **Tests:** preview matches wrapper; candidate selection fills fields.
 
 ## Exit check
-- [ ] Verify on a connected phone: detect Hermes version/environment, Start/Stop/graceful Restart/Restart now/Doctor/Update, including status refresh and supervisor recovery.
-- [ ] Confirm Hermes remains supervised after closing the app and restarts after a gateway exit/watchdog event.
+- [~] Verify on a connected phone: detect Hermes version/environment, Start/Stop/graceful Restart/Restart now/Doctor/Update, including status refresh and supervisor recovery.
+- [x] Confirm Hermes remains supervised after closing the app and restarts after a gateway exit/watchdog event.
 
 ## Verification record (2026-10-08)
 - Extracted the existing SSH action execution/confirmation loop into an injectable helper without changing command generation, initial status capture, polling delays, or confirmation rules. Added four paused-clock/fake-transport regression tests to the existing command tests.
 - Local gates pass: **245 Rust tests**, including seven Hermes command tests; formatting; strict Clippy; six Hermes UI tests; no editor diagnostics in the touched Rust file.
 - Live QA attempted with the isolated `HACC QA` macOS app and CPH2239. The old IP transport became offline; the mDNS transport returned a protocol error. Subsequent reconnect attempts were refused and discovery was empty. The phone's pairing-code flow also failed; final `adb devices -l` listed no devices.
 - **Blocked:** restore a usable ADB connection and verify the Termux SSH bridge before continuing detection, Doctor, gateway actions, or supervisor recovery. No Start/Stop/Restart/Doctor/Update action was executed on the phone in this attempt. Update remains subject to explicit approval because it changes the installed Hermes software. No live M5 exit check is marked complete, and no pairing credentials are retained in this record.
+
+## Live QA — 2026-10-29 (CPH2239, packaged macOS build)
+
+Device: OnePlus CPH2239, Android 11, Hermes v0.21.4 in proot-distro Debian, supervised mode,
+macOS packaged build `v0.1.0` signed with an Apple Development certificate.
+
+- **Start / Stop (app UI):** verified. Start launched `hermes gateway run` under
+  `~/.hacc/hermes-supervisor.sh`; Stop touched `~/.hacc/hermes.stop`, delivered SIGTERM, the
+  supervisor logged `gateway exited code=1` → `stopped on request` and exited; gateway process
+  count reached 0. Status cards followed `Stopped → Running` and PIDs refreshed.
+- **Doctor (app UI):** runs, but the app-side invocation aborts at 30 s while the real
+  `hermes doctor` needs >120 s on this phone, so the action reports a timeout failure instead of
+  the report. The command itself is correct; the action timeout is too short for this device.
+- **Graceful Restart (`kill -USR1`) and Restart now (`kill -TERM`):** verified over SSH while the
+  supervisor was running. Hermes drained and exited with code 0; the supervisor logged
+  `restarting in 2s` → `starting gateway` and a new gateway PID appeared; status/history tracked
+  the gap and recovery.
+- **Supervision across app lifetime:** verified. Closing the app left the supervisor and gateway
+  running; a later gateway exit was relaunched by the supervisor, and the app re-adopted the new
+  PID on the next status poll.
+- **UI Restart / Restart now: fixed 2026-10-29 (unit-tested, live re-run pending).** Both buttons
+  used to fail with `Command "Restart Hermes" failed with exit code 5.` and stdout
+  `not supervised: start Hermes from the app to enable restarts`, even while
+  `~/.hacc/hermes-supervisor.pid` held a live PID and the gateway was a child of that supervisor.
+  The guard was built as
+  `if ! S=$(cat ~/.hacc/hermes-supervisor.pid 2>/dev/null); [ -n "$S" ] && kill -0 "$S"; then
+  echo 'not supervised'; exit 5; fi`: the `!` negated only the assignment, and the trailing
+  `[ -n "$S" ] && kill -0 "$S"` decided the condition, so the "not supervised" branch ran precisely
+  when the supervisor was alive. Reproduced directly over SSH with pid file `5036` and
+  `kill -0 5036` returning 0.
+  **Fix:** `sup_pid_check` now returns a grouped check (`{ …; }`), so `!` negates the whole liveness
+  test; Start and Stop are unchanged in behavior. New test `restart_reaches_a_live_supervisor` runs
+  the generated script under `bash` with a live pid file and a stubbed `pgrep`, asserting the guard
+  is not taken and the signal is sent.
+- **Update:** not run; explicitly excluded from this QA pass because it changes the installed
+  Hermes software.
+
+Exit check: the first row stays `[~]` (Update excluded, Doctor unusable through the UI; Restart is
+now fixed and unit-tested, with the live re-run still pending); the second row is `[x]` (supervisor
+survives app close and relaunches the gateway after an exit).

@@ -86,6 +86,25 @@ fn command_for_source(source: LogSourceKind, config: &AppConfig) -> Result<Strin
     Ok(tail_command(path, &config.hermes.environment))
 }
 
+/// The macOS save panel appends the chosen extension even when the typed name
+/// already carries it (`gateway-warn-only.log` → `gateway-warn-only.log.log`).
+/// Collapse the duplicate so the written file keeps the name the user typed.
+fn normalize_export_path(path: &std::path::Path, format: &str) -> std::path::PathBuf {
+    let suffix = format!(".{format}");
+    let doubled = format!("{suffix}{suffix}");
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return path.to_path_buf();
+    };
+    if !name.ends_with(&doubled) {
+        return path.to_path_buf();
+    }
+    let mut trimmed = name.to_string();
+    while trimmed.ends_with(&doubled) {
+        trimmed.truncate(trimmed.len() - suffix.len());
+    }
+    path.with_file_name(trimmed)
+}
+
 fn format_log_export(lines: &[LogLine], format: &str) -> Result<(&'static str, String), AppError> {
     match format {
         "log" => Ok((
@@ -135,6 +154,7 @@ pub async fn export_logs(
     let path = file_path
         .into_path()
         .map_err(|error| AppError::Io(error.to_string()))?;
+    let path = normalize_export_path(&path, &format);
     Ok(Some(super::write_export_file(&path, content.as_bytes())?))
 }
 
@@ -265,6 +285,28 @@ mod tests {
             termux_gateway,
             "tail -n 200 -F -- \"$HOME\"/.hermes/logs/gateway.log"
         );
+    }
+
+    #[test]
+    fn export_path_collapses_a_duplicated_extension() {
+        let cases = [
+            (
+                "/tmp/gateway-warn-only.log.log",
+                "log",
+                "/tmp/gateway-warn-only.log",
+            ),
+            ("/tmp/a.jsonl.jsonl", "jsonl", "/tmp/a.jsonl"),
+            ("/tmp/a.log.log.log", "log", "/tmp/a.log"),
+            ("/tmp/a.log", "log", "/tmp/a.log"),
+            ("/tmp/a.txt", "log", "/tmp/a.txt"),
+        ];
+        for (input, format, expected) in cases {
+            assert_eq!(
+                normalize_export_path(std::path::Path::new(input), format),
+                std::path::Path::new(expected),
+                "input={input}"
+            );
+        }
     }
 
     #[test]
