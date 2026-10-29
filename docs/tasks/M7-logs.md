@@ -73,16 +73,21 @@ Source: `Hermes gateway` (`tail -n 200 -F /root/.hermes/logs/gateway.log` inside
 - **Copy visible:** with WARN-only filtering, `Copy visible` put exactly the 10 visible WARN lines on
   the clipboard; the raw export of the same view was `gateway-warn-only.log.log` (1 879 bytes).
 - **Export:** the native save panel wrote the filtered raw log and the toast reported
-  `Logs exported`. The dialog appends the selected extension to a name that already has it
-  (`...log.log`) — cosmetic, not a data problem.
+  `Logs exported`. The dialog appended the selected extension to a name that already had it
+  (`...log.log`); **fixed 2026-10-29** — `export_logs` now collapses a duplicated filter extension
+  in the returned path (`X.log.log` → `X.log`, repeats collapsed, other names untouched; test
+  `export_path_collapses_a_duplicated_extension`).
 - **Tool calls / JSONL export:** not exercised (native-popup automation limits in this session).
-- **Supervisor source:** registers without an error but renders **0 lines**, even while
-  `~/.hacc/supervisor.log` has fresh entries. The source goes through
-  `TransportCommandLogSource::stream`, whose reconnect loop discards every error
-  (`Err(_) => reconnecting = connected`, `src-tauri/src/logs/transport_command.rs`) and never
-  surfaces a reason, so a failing command looks like an idle stream. No user-visible error is shown.
+- **Supervisor source:** registered without an error but rendered **0 lines**, even while
+  `~/.hacc/supervisor.log` had fresh entries. `TransportCommandLogSource::stream` discarded every
+  transport error (`Err(_) => {}`) and every `StreamEvent::Error`, so a failing command looked like
+  an idle stream. **Fixed 2026-10-29** — one `[log stream] ERROR …` line is now shown per distinct
+  failure (deduplicated per outage, reset after a successful connect) while retries continue. The
+  0-line episode's trigger is still unconfirmed: the generated
+  `tail -n 200 -F -- "$HOME"/.hacc/supervisor.log` was re-run over the phone's Termux SSH on
+  2026-10-29 and returned 21 lines from the expected path, so command and path are correct.
 - **Auto-start:** left off (`logs.autoStart: false`) for these runs; not re-verified live.
 
-Exit check stays `[~]`: the brief §8 behaviours are demonstrated on real gateway logs, but the
-supervisor source is a silent zero-line stream, and tool-call source plus JSONL export were not
-exercised on-device.
+Exit check stays `[~]`: the brief §8 behaviours are demonstrated on real gateway logs; the supervisor
+source now reports failures instead of silently rendering nothing (live re-check pending), and the
+tool-call source plus JSONL export were not exercised on-device.

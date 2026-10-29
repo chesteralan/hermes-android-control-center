@@ -141,21 +141,23 @@ macOS packaged build `v0.1.0` signed with an Apple Development certificate.
 - **Supervision across app lifetime:** verified. Closing the app left the supervisor and gateway
   running; a later gateway exit was relaunched by the supervisor, and the app re-adopted the new
   PID on the next status poll.
-- **UI Restart / Restart now: blocked by a deterministic bug (exit 5).** Both buttons fail with
-  `Command "Restart Hermes" failed with exit code 5.` and stdout
+- **UI Restart / Restart now: fixed 2026-10-29 (unit-tested, live re-run pending).** Both buttons
+  used to fail with `Command "Restart Hermes" failed with exit code 5.` and stdout
   `not supervised: start Hermes from the app to enable restarts`, even while
-  `~/.hacc/hermes-supervisor.pid` holds a live PID and the gateway is a child of that supervisor.
-  Normally the guard is built as
+  `~/.hacc/hermes-supervisor.pid` held a live PID and the gateway was a child of that supervisor.
+  The guard was built as
   `if ! S=$(cat ~/.hacc/hermes-supervisor.pid 2>/dev/null); [ -n "$S" ] && kill -0 "$S"; then
-  echo 'not supervised'; exit 5; fi`. The `!` negates the whole `;` list, and the list succeeds
-  precisely when the supervisor is alive, so the negated condition is true and the "not supervised"
-  branch always runs. Reproduced directly over SSH: with pid file `5036` present and
-  `kill -0 5036` returning 0, the same `if` still took the not-supervised branch. The fix is to
-  group the check (`if ! { S=…; [ -n "$S" ] && kill -0 "$S"; }; then`) or to test the liveness
-  result directly.
+  echo 'not supervised'; exit 5; fi`: the `!` negated only the assignment, and the trailing
+  `[ -n "$S" ] && kill -0 "$S"` decided the condition, so the "not supervised" branch ran precisely
+  when the supervisor was alive. Reproduced directly over SSH with pid file `5036` and
+  `kill -0 5036` returning 0.
+  **Fix:** `sup_pid_check` now returns a grouped check (`{ …; }`), so `!` negates the whole liveness
+  test; Start and Stop are unchanged in behavior. New test `restart_reaches_a_live_supervisor` runs
+  the generated script under `bash` with a live pid file and a stubbed `pgrep`, asserting the guard
+  is not taken and the signal is sent.
 - **Update:** not run; explicitly excluded from this QA pass because it changes the installed
   Hermes software.
 
-Exit check: the first row stays `[~]` (Update excluded, Doctor unusable through the UI, Restart
-blocked by the exit-5 bug); the second row is `[x]` (supervisor survives app close and relaunches
-the gateway after an exit).
+Exit check: the first row stays `[~]` (Update excluded, Doctor unusable through the UI; Restart is
+now fixed and unit-tested, with the live re-run still pending); the second row is `[x]` (supervisor
+survives app close and relaunches the gateway after an exit).
